@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "powershell -NoProfile -Command \"if (Test-Path '.next') { Remove-Item -LiteralPath '.next' -Recurse -Force -ErrorAction SilentlyContinue }; if (Test-Path '.next-app') { Remove-Item -LiteralPath '.next-app' -Recurse -Force -ErrorAction SilentlyContinue }; node server.js\"",
-    "build": "powershell -NoProfile -Command \"if (Test-Path '.next') { Remove-Item -LiteralPath '.next' -Recurse -Force }; if (Test-Path '.next-app') { Remove-Item -LiteralPath '.next-app' -Recurse -Force }; next build\"",
+    "dev": "node scripts/dev.cjs",
+    "build": "node scripts/build.cjs",
     "start": "node server.js",
     "lint": "next lint",
     "typecheck": "tsc --noEmit --project tsconfig.typecheck.json"
