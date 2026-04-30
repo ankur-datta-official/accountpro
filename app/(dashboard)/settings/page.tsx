@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import Image from "next/image"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -59,7 +60,7 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [confirmOrgName, setConfirmOrgName] = useState("")
 
-  const loadOverview = async () => {
+  const loadOverview = useCallback(async () => {
     setLoading(true)
     const {
       data: { session },
@@ -91,11 +92,11 @@ export default function SettingsPage() {
     setPhone(result.organization.phone ?? "")
     setEmail(result.organization.email ?? "")
     setLogoUrl(result.organization.logo_url ?? "")
-  }
+  }, [router, supabase.auth])
 
   useEffect(() => {
     void loadOverview()
-  }, [])
+  }, [loadOverview])
 
   const handleProfileSave = async () => {
     if (!overview) return
@@ -327,7 +328,15 @@ export default function SettingsPage() {
             <Label>Logo</Label>
             <div className="flex items-center gap-4">
               <div className="h-14 w-14 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                {logoUrl ? <img src={logoUrl} alt="Organization logo" className="h-full w-full object-cover" /> : null}
+                {logoUrl ? (
+                  <Image
+                    src={logoUrl}
+                    alt="Organization logo"
+                    width={56}
+                    height={56}
+                    className="h-full w-full object-cover"
+                  />
+                ) : null}
               </div>
               <Input
                 type="file"

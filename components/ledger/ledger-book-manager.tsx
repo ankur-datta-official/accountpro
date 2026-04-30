@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
-import { Download, Loader2, Printer } from "lucide-react"
+import { BookOpenText, Download, Printer } from "lucide-react"
 import { useReactToPrint } from "react-to-print"
 
 import { LedgerPrint, type PrintableLedgerSection } from "@/components/ledger/LedgerPrint"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/EmptyState"
 import { Input } from "@/components/ui/input"
+import { LoadingTable } from "@/components/ui/LoadingTable"
 import {
   Select,
   SelectContent,
@@ -60,6 +62,7 @@ function LedgerSection({
     from: fromDate,
     to: toDate,
   })
+  const [cursorStack, setCursorStack] = useState<string[]>([])
 
   useEffect(() => {
     if (!onLoaded || !ledger?.accountHead) {
@@ -90,29 +93,59 @@ function LedgerSection({
     })
   }, [ledger, onLoaded, periodLabel])
 
+  useEffect(() => {
+    setCursorStack([])
+  }, [accountHeadId, fiscalYearId, fromDate, toDate])
+
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">
-        <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-        Loading ledger...
-      </div>
+      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+        <CardContent className="p-0">
+          <LoadingTable
+            columns={[
+              "Date",
+              "Voucher No",
+              "Voucher Type",
+              "Payment Mode",
+              "Description",
+              "Debit",
+              "Credit",
+              "Balance",
+            ]}
+            rows={10}
+          />
+        </CardContent>
+      </Card>
     )
   }
 
   if (!ledger?.accountHead) {
     return (
-      <div className="rounded-xl border border-slate-200 p-4 text-sm text-slate-500">
-        No ledger data available for this account.
-      </div>
+      <EmptyState
+        icon={BookOpenText}
+        title="No ledger data available"
+        description="There are no ledger rows for this account in the selected period."
+      />
     )
   }
 
   const accountHead = ledger.accountHead
+  const pageSize = 50
+  const currentCursor = cursorStack[cursorStack.length - 1] ?? null
+  const startIndex = currentCursor
+    ? Math.max(
+        ledger.entries.findIndex((entry) => entry.id === currentCursor) + 1,
+        0
+      )
+    : 0
+  const visibleEntries = ledger.entries.slice(startIndex, startIndex + pageSize)
+  const hasPreviousPage = cursorStack.length > 0
+  const hasNextPage = startIndex + pageSize < ledger.entries.length
 
   return (
     <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
       <CardHeader>
-          <CardTitle className="text-xl text-slate-950">{accountHead.name}</CardTitle>
+        <CardTitle className="text-xl text-slate-950">{accountHead.name}</CardTitle>
         <div className="grid gap-1 text-sm text-slate-600">
           <p>
             <span className="font-medium text-slate-800">Group:</span> {accountHead.groupName}
@@ -145,20 +178,20 @@ function LedgerSection({
               <TableCell colSpan={5} className="font-medium text-slate-800">
                 Opening Balance
               </TableCell>
-              <TableCell className="text-right">—</TableCell>
-              <TableCell className="text-right">—</TableCell>
+              <TableCell className="text-right">-</TableCell>
+              <TableCell className="text-right">-</TableCell>
               <TableCell className="text-right font-medium">
                 {signedBalanceToLabel(ledger.openingBalanceAmount, accountHead.groupType)}
               </TableCell>
             </TableRow>
 
-            {ledger.entries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <TableRow key={entry.id}>
                 <TableCell>{format(new Date(entry.date), "dd MMM yyyy")}</TableCell>
                 <TableCell>{entry.voucherNo}</TableCell>
                 <TableCell className="uppercase">{entry.voucherType}</TableCell>
-                <TableCell>{entry.paymentMode ?? "—"}</TableCell>
-                <TableCell>{entry.description ?? "—"}</TableCell>
+                <TableCell>{entry.paymentMode ?? "-"}</TableCell>
+                <TableCell>{entry.description ?? "-"}</TableCell>
                 <TableCell className="text-right">{amount(entry.debit)}</TableCell>
                 <TableCell className="text-right text-blue-700">{amount(entry.credit)}</TableCell>
                 <TableCell
@@ -188,6 +221,39 @@ function LedgerSection({
             </TableRow>
           </tfoot>
         </Table>
+
+        {ledger.entries.length > pageSize ? (
+          <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-500">
+              Showing {Math.min(startIndex + 1, ledger.entries.length)}-
+              {Math.min(startIndex + visibleEntries.length, ledger.entries.length)} of {ledger.entries.length} entries
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl border-slate-200"
+                disabled={!hasPreviousPage}
+                onClick={() => setCursorStack((current) => current.slice(0, -1))}
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl border-slate-200"
+                disabled={!hasNextPage}
+                onClick={() =>
+                  setCursorStack((current) =>
+                    visibleEntries.length ? [...current, visibleEntries[visibleEntries.length - 1].id] : current
+                  )
+                }
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -279,10 +345,7 @@ export function LedgerBookManager({
         groupName: accountHead.groupName,
         groupType: accountHead.groupType,
         periodLabel,
-        openingBalanceLabel: signedBalanceToLabel(
-          section.openingBalanceAmount,
-          accountHead.groupType
-        ),
+        openingBalanceLabel: signedBalanceToLabel(section.openingBalanceAmount, accountHead.groupType),
         totalDebit: section.totals.debit,
         totalCredit: section.totals.credit,
         closingBalance: section.totals.closingBalance,
@@ -473,9 +536,11 @@ export function LedgerBookManager({
           periodLabel={periodLabel}
         />
       ) : (
-        <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-white p-10 text-sm text-slate-500">
-          Select an account head to view the ledger table.
-        </div>
+        <EmptyState
+          icon={BookOpenText}
+          title="Choose an account head"
+          description="Select an account head to view the ledger table for the chosen fiscal year and date range."
+        />
       )}
 
       <div className="pointer-events-none absolute left-0 top-0 -z-10 opacity-0">

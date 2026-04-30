@@ -2,14 +2,16 @@
 
 import { useRef, useState } from "react"
 import { format } from "date-fns"
-import { Download, Loader2, Printer } from "lucide-react"
+import { Download, FileSpreadsheet, Printer } from "lucide-react"
 import { useReactToPrint } from "react-to-print"
 
 import { TrialBalancePrint } from "@/components/trial-balance/TrialBalancePrint"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/EmptyState"
 import { Input } from "@/components/ui/input"
+import { LoadingTable } from "@/components/ui/LoadingTable"
 import {
   Table,
   TableBody,
@@ -128,9 +130,7 @@ export function TrialBalanceManager({
                 : "bg-red-100 text-red-700 hover:bg-red-100"
             }`}
           >
-            {data.isBalanced
-              ? "✓ Balanced"
-              : `✗ Unbalanced — Diff: ৳${amount(data.difference)}`}
+            {data.isBalanced ? "Balanced" : `Unbalanced - Diff: ৳${amount(data.difference)}`}
           </Badge>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
@@ -173,9 +173,11 @@ export function TrialBalanceManager({
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-12 text-center text-slate-500">
-                    <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-                    Loading trial balance...
+                  <TableCell colSpan={5} className="p-0">
+                    <LoadingTable
+                      columns={["Semi-Sub Accounts Group", "Account Head", "Debit", "Credit", "Balance"]}
+                      rows={10}
+                    />
                   </TableCell>
                 </TableRow>
               ) : groupedRows.length ? (
@@ -206,15 +208,19 @@ export function TrialBalanceManager({
                         <TableCell>Subtotal</TableCell>
                         <TableCell className="text-right">{amount(subTotalDebit)}</TableCell>
                         <TableCell className="text-right text-blue-700">{amount(subTotalCredit)}</TableCell>
-                        <TableCell className="text-right">—</TableCell>
+                        <TableCell className="text-right">-</TableCell>
                       </TableRow>
                     </>
                   )
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-12 text-center text-slate-500">
-                    No trial balance data found for selected range.
+                  <TableCell colSpan={5} className="py-12">
+                    <EmptyState
+                      icon={FileSpreadsheet}
+                      title="No trial balance data found"
+                      description="There are no trial balance rows for the selected period."
+                    />
                   </TableCell>
                 </TableRow>
               )}
@@ -225,7 +231,7 @@ export function TrialBalanceManager({
                 <TableCell className="text-right">Grand Total</TableCell>
                 <TableCell className="text-right">{amount(data.totalDebit)}</TableCell>
                 <TableCell className="text-right text-blue-700">{amount(data.totalCredit)}</TableCell>
-                <TableCell className="text-right">—</TableCell>
+                <TableCell className="text-right">-</TableCell>
               </TableRow>
             </tfoot>
           </Table>

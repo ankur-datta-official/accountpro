@@ -1,8 +1,7 @@
 "use client"
 
-import useSWR from "swr"
-
 import { calculateProfitLoss, type ProfitLossResult } from "@/lib/accounting/profit-loss"
+import { keepPreviousData, useAppQuery } from "@/lib/query"
 import { createClient } from "@/lib/supabase/client"
 
 type Filters = {
@@ -10,18 +9,16 @@ type Filters = {
   fiscalYearId: string
 }
 
-type FetchKey = [string, Filters]
-
-async function fetchProfitLoss([, filters]: FetchKey): Promise<ProfitLossResult> {
+async function fetchProfitLoss(filters: Filters): Promise<ProfitLossResult> {
   const supabase = createClient()
   return calculateProfitLoss(supabase, filters.clientId, filters.fiscalYearId)
 }
 
 export function useProfitLoss(filters: Filters | null) {
-  const key = filters ? ([`profit-loss:${filters.clientId}:${filters.fiscalYearId}`, filters] as FetchKey) : null
-
-  return useSWR(key, fetchProfitLoss, {
-    revalidateOnFocus: false,
-    keepPreviousData: true,
+  return useAppQuery({
+    queryKey: filters ? ["profit-loss", filters.clientId, filters.fiscalYearId] : ["profit-loss", "empty"],
+    enabled: Boolean(filters),
+    placeholderData: keepPreviousData,
+    queryFn: () => fetchProfitLoss(filters as Filters),
   })
 }

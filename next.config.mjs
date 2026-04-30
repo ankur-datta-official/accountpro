@@ -1,16 +1,37 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  distDir: ".next-app",
+const baseConfig = {
   eslint: {
     ignoreDuringBuilds: true,
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.supabase.co",
+      },
+      {
+        protocol: "https",
+        hostname: "**.supabase.in",
+      },
+    ],
   },
   experimental: {
     workerThreads: true,
     webpackBuildWorker: false,
   },
+  output: "standalone",
   typescript: {
     ignoreBuildErrors: true,
   },
-};
+}
 
-export default nextConfig;
+const isDev = process.env.NODE_ENV !== "production"
+
+const nextConfig = isDev
+  ? {
+      ...baseConfig,
+      distDir: ".next-app",
+    }
+  : baseConfig
+
+export default nextConfig

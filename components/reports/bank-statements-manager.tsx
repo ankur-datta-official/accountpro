@@ -1,11 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { Download, Loader2 } from "lucide-react"
+import { Download, Landmark } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/EmptyState"
 import { Input } from "@/components/ui/input"
+import { LoadingTable } from "@/components/ui/LoadingTable"
 import {
   Select,
   SelectContent,
@@ -106,8 +108,18 @@ export function BankStatementsManager({
               ))}
             </SelectContent>
           </Select>
-          <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="h-11 rounded-xl border-slate-200" />
-          <Input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="h-11 rounded-xl border-slate-200" />
+          <Input
+            type="date"
+            value={fromDate}
+            onChange={(event) => setFromDate(event.target.value)}
+            className="h-11 rounded-xl border-slate-200"
+          />
+          <Input
+            type="date"
+            value={toDate}
+            onChange={(event) => setToDate(event.target.value)}
+            className="h-11 rounded-xl border-slate-200"
+          />
         </CardContent>
       </Card>
 
@@ -116,12 +128,12 @@ export function BankStatementsManager({
           <CardTitle className="text-xl text-slate-950">{data?.paymentModeName ?? "Statement"}</CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
-          {isLoading || !data ? (
-            <div className="text-sm text-slate-500">
-              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-              Loading bank statement...
-            </div>
-          ) : (
+          {isLoading ? (
+            <LoadingTable
+              columns={["Date", "Voucher No", "Account Head", "Description", "Debit", "Credit", "Balance"]}
+              rows={10}
+            />
+          ) : data ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -136,7 +148,9 @@ export function BankStatementsManager({
               </TableHeader>
               <TableBody>
                 <TableRow className="bg-slate-50/80">
-                  <TableCell colSpan={6} className="font-medium">Opening Balance</TableCell>
+                  <TableCell colSpan={6} className="font-medium">
+                    Opening Balance
+                  </TableCell>
                   <TableCell className="text-right font-medium">{amount(data.openingBalance)}</TableCell>
                 </TableRow>
                 {grouped.map(([head, rows]) => {
@@ -153,7 +167,7 @@ export function BankStatementsManager({
                           <TableCell>{row.date}</TableCell>
                           <TableCell>{row.voucherNo}</TableCell>
                           <TableCell>{row.accountHead}</TableCell>
-                          <TableCell>{row.description || "—"}</TableCell>
+                          <TableCell>{row.description || "-"}</TableCell>
                           <TableCell className="text-right">{amount(row.debit)}</TableCell>
                           <TableCell className="text-right text-blue-700">{amount(row.credit)}</TableCell>
                           <TableCell className="text-right">{amount(row.runningBalance)}</TableCell>
@@ -176,6 +190,12 @@ export function BankStatementsManager({
                 </TableRow>
               </TableBody>
             </Table>
+          ) : (
+            <EmptyState
+              icon={Landmark}
+              title="No bank statement data"
+              description="Choose a payment mode and date range to review bank activity."
+            />
           )}
         </CardContent>
       </Card>

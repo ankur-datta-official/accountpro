@@ -1,8 +1,7 @@
 "use client"
 
-import useSWR from "swr"
-
 import { calculateTrialBalance, type TrialBalanceResult } from "@/lib/accounting/trial-balance"
+import { keepPreviousData, useAppQuery } from "@/lib/query"
 import { createClient } from "@/lib/supabase/client"
 
 type TrialBalanceFilters = {
@@ -12,9 +11,7 @@ type TrialBalanceFilters = {
   asOfDate?: string
 }
 
-type FetchKey = [string, TrialBalanceFilters]
-
-async function fetchTrialBalance([, filters]: FetchKey): Promise<TrialBalanceResult> {
+async function fetchTrialBalance(filters: TrialBalanceFilters): Promise<TrialBalanceResult> {
   const supabase = createClient()
   return calculateTrialBalance(
     supabase,
@@ -26,18 +23,24 @@ async function fetchTrialBalance([, filters]: FetchKey): Promise<TrialBalanceRes
 }
 
 export function useTrialBalance(filters: TrialBalanceFilters | null) {
-  const key = filters
-    ? ([`trial-balance:${filters.clientId}:${filters.fiscalYearId}:${filters.fromDate ?? ""}:${filters.asOfDate ?? ""}`, filters] as FetchKey)
-    : null
-
-  const swr = useSWR(key, fetchTrialBalance, {
-    revalidateOnFocus: false,
-    keepPreviousData: true,
+  const query = useAppQuery({
+    queryKey: filters
+      ? [
+          "trial-balance",
+          filters.clientId,
+          filters.fiscalYearId,
+          filters.fromDate ?? "",
+          filters.asOfDate ?? "",
+        ]
+      : ["trial-balance", "empty"],
+    enabled: Boolean(filters),
+    placeholderData: keepPreviousData,
+    queryFn: () => fetchTrialBalance(filters as TrialBalanceFilters),
   })
 
   return {
-    ...swr,
-    data: swr.data ?? {
+    ...query,
+    data: query.data ?? {
       accounts: [],
       totalDebit: 0,
       totalCredit: 0,

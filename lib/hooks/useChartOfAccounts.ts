@@ -1,9 +1,8 @@
 "use client"
 
 import { useMemo } from "react"
-import useSWR from "swr"
 
-import { createClient } from "@/lib/supabase/client"
+import { fetchWithAccessToken, useAppQuery } from "@/lib/query"
 import type {
   AccountGroup,
   AccountHead,
@@ -50,44 +49,19 @@ export type ChartFlatAccount = {
   label: string
 }
 
-type FetchKey = [string, string]
-
-async function fetchChartOfAccounts([url]: FetchKey): Promise<ChartResponse> {
-  const supabase = createClient()
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (!session?.access_token) {
-    throw new Error("Unauthorized")
-  }
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-    },
-  })
-
-  if (!response.ok) {
-    const result = await response.json().catch(() => ({ error: "Unable to fetch chart of accounts." }))
-    throw new Error(result.error ?? "Unable to fetch chart of accounts.")
-  }
-
-  return response.json()
-}
-
 export function useChartOfAccounts(clientId: string) {
-  const key = clientId ? ([`/api/clients/${clientId}/chart-of-accounts`, clientId] as FetchKey) : null
-  const swr = useSWR(key, fetchChartOfAccounts, {
-    revalidateOnFocus: false,
-    dedupingInterval: 60000,
+  const query = useAppQuery({
+    queryKey: ["chart-of-accounts", clientId],
+    enabled: Boolean(clientId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchWithAccessToken<ChartResponse>(`/api/clients/${clientId}/chart-of-accounts`),
   })
 
   const tree = useMemo<ChartTreeGroup[]>(() => {
-    const groups = swr.data?.groups ?? []
-    const semiSubGroups = swr.data?.semiSubGroups ?? []
-    const subGroups = swr.data?.subGroups ?? []
-    const accountHeads = swr.data?.accountHeads ?? []
+    const groups = query.data?.groups ?? []
+    const semiSubGroups = query.data?.semiSubGroups ?? []
+    const subGroups = query.data?.subGroups ?? []
+    const accountHeads = query.data?.accountHeads ?? []
 
     return groups.map((group) => {
       const nestedSemiSubGroups = semiSubGroups
@@ -111,7 +85,7 @@ export function useChartOfAccounts(clientId: string) {
         semiSubGroups: nestedSemiSubGroups,
       }
     })
-  }, [swr.data])
+  }, [query.data])
 
   const flatAccounts = useMemo<ChartFlatAccount[]>(() => {
     return tree.flatMap((group) =>
@@ -130,7 +104,7 @@ export function useChartOfAccounts(clientId: string) {
             semiSubGroupName: semiSubGroup.name,
             subGroupId: subGroup.id,
             subGroupName: subGroup.name,
-            label: `${head.name} — ${subGroup.name}`,
+            label: `${head.name} - ${subGroup.name}`,
           }))
         )
       )
@@ -138,12 +112,12 @@ export function useChartOfAccounts(clientId: string) {
   }, [tree])
 
   return {
-    ...swr,
+    ...query,
     tree,
     flatAccounts,
-    groups: swr.data?.groups ?? [],
-    semiSubGroups: swr.data?.semiSubGroups ?? [],
-    subGroups: swr.data?.subGroups ?? [],
-    accountHeads: swr.data?.accountHeads ?? [],
+    groups: query.data?.groups ?? [],
+    semiSubGroups: query.data?.semiSubGroups ?? [],
+    subGroups: query.data?.subGroups ?? [],
+    accountHeads: query.data?.accountHeads ?? [],
   }
 }

@@ -2,13 +2,15 @@
 
 import { useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
-import { Download, Loader2, Printer } from "lucide-react"
+import { Download, Landmark, Printer } from "lucide-react"
 import { useReactToPrint } from "react-to-print"
 
 import { BalanceSheetPrint } from "@/components/balance-sheet/BalanceSheetPrint"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/EmptyState"
+import { LoadingTable } from "@/components/ui/LoadingTable"
 import {
   Select,
   SelectContent,
@@ -45,7 +47,7 @@ function ComparativeAmount({
   return (
     <div className="grid grid-cols-2 gap-3 text-right text-sm">
       <span className="font-medium text-slate-900">{amount(current)}</span>
-      <span className="text-slate-600">{previous == null ? "—" : amount(previous)}</span>
+      <span className="text-slate-600">{previous == null ? "-" : amount(previous)}</span>
     </div>
   )
 }
@@ -77,6 +79,7 @@ export function BalanceSheetManager({
     if (!data) {
       return ""
     }
+
     return format(new Date(data.current.endDate), "dd MMM yyyy")
   }, [data])
 
@@ -88,7 +91,7 @@ export function BalanceSheetManager({
       <div className="flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-3xl font-semibold tracking-tight text-slate-950">
-            Balance Sheet as at {endDateLabel || "—"}
+            Balance Sheet as at {endDateLabel || "-"}
           </h2>
           <p className="mt-2 text-sm text-slate-500">
             {clientName} · {currentLabel}
@@ -107,7 +110,13 @@ export function BalanceSheetManager({
               ))}
             </SelectContent>
           </Select>
-          <Button type="button" variant="outline" className="rounded-xl border-slate-200" onClick={() => void handlePrint()} disabled={!data || isLoading}>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl border-slate-200"
+            onClick={() => void handlePrint()}
+            disabled={!data || isLoading}
+          >
             <Printer className="mr-2 h-4 w-4" />
             Print
           </Button>
@@ -136,18 +145,19 @@ export function BalanceSheetManager({
                   : "bg-red-100 text-red-700 hover:bg-red-100"
               }`}
             >
-              {data.isBalanced
-                ? "✓ Balanced"
-                : `✗ Unbalanced — Diff: ৳${amount(data.difference)}`}
+              {data.isBalanced ? "Balanced" : `Unbalanced - Diff: ৳${amount(data.difference)}`}
             </Badge>
           ) : null}
         </CardHeader>
         <CardContent>
-          {isLoading || !data ? (
-            <div className="rounded-xl border border-slate-200 p-10 text-sm text-slate-500">
-              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-              Loading balance sheet...
-            </div>
+          {isLoading ? (
+            <LoadingTable columns={["Section", "Current Year", "Previous Year"]} rows={10} />
+          ) : !data ? (
+            <EmptyState
+              icon={Landmark}
+              title="No balance sheet available"
+              description="There isn't enough posted data to build a balance sheet for this fiscal year yet."
+            />
           ) : (
             <div className="grid gap-6 xl:grid-cols-2">
               <div className="space-y-4 rounded-xl border border-slate-200 p-4">

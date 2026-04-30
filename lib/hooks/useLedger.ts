@@ -1,13 +1,13 @@
 "use client"
 
 import { useMemo } from "react"
-import useSWR from "swr"
 
 import {
   calculateLedgerBalance,
   openingBalanceToSignedAmount,
   type LedgerEntryInput,
 } from "@/lib/accounting/ledger"
+import { keepPreviousData, useAppQuery } from "@/lib/query"
 import { createClient } from "@/lib/supabase/client"
 import type {
   AccountGroupType,
@@ -46,9 +46,7 @@ export type LedgerResult = {
   }
 }
 
-type FetchKey = [string, LedgerFilters]
-
-async function fetchLedger([, filters]: FetchKey): Promise<LedgerResult> {
+async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
   const supabase = createClient()
 
   const [{ data: accountHead }, { data: groups }, { data: semiSubGroups }, { data: subGroups }] =
@@ -166,7 +164,8 @@ async function fetchLedger([, filters]: FetchKey): Promise<LedgerResult> {
 
   const effectiveOpeningSigned = bfRows.length ? bfOpeningSigned : fallbackOpeningSigned
   const effectiveOpeningBalance = Math.abs(effectiveOpeningSigned)
-  const effectiveOpeningType = effectiveOpeningSigned >= 0 ? balanceType : balanceType === "debit" ? "credit" : "debit"
+  const effectiveOpeningType =
+    effectiveOpeningSigned >= 0 ? balanceType : balanceType === "debit" ? "credit" : "debit"
 
   const { entries, closingBalance } = calculateLedgerBalance(
     transactionRows,
@@ -197,20 +196,28 @@ async function fetchLedger([, filters]: FetchKey): Promise<LedgerResult> {
 }
 
 export function useLedger(filters: LedgerFilters | null) {
-  const key = filters?.clientId && filters?.accountHeadId && filters?.fiscalYearId
-    ? ([`ledger:${filters.clientId}:${filters.accountHeadId}:${filters.fiscalYearId}:${filters.from ?? ""}:${filters.to ?? ""}`, filters] as FetchKey)
-    : null
-
-  const swr = useSWR(key, fetchLedger, {
-    revalidateOnFocus: false,
-    keepPreviousData: true,
+  const query = useAppQuery({
+    queryKey:
+      filters?.clientId && filters?.accountHeadId && filters?.fiscalYearId
+        ? [
+            "ledger",
+            filters.clientId,
+            filters.accountHeadId,
+            filters.fiscalYearId,
+            filters.from ?? "",
+            filters.to ?? "",
+          ]
+        : ["ledger", "empty"],
+    enabled: Boolean(filters?.clientId && filters?.accountHeadId && filters?.fiscalYearId),
+    placeholderData: keepPreviousData,
+    queryFn: () => fetchLedger(filters as LedgerFilters),
   })
 
   return useMemo(
     () => ({
-      ...swr,
-      ledger: swr.data ?? null,
+      ...query,
+      ledger: query.data ?? null,
     }),
-    [swr]
+    [query]
   )
 }

@@ -2,10 +2,16 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 const PUBLIC_AUTH_ROUTES = new Set(["/login", "/register"])
-const PROTECTED_ROUTES = new Set(["/", "/clients", "/team", "/settings"])
+const PROTECTED_ROUTE_PREFIXES = ["/clients", "/team", "/settings"]
 
 function isProtectedRoute(pathname: string) {
-  return PROTECTED_ROUTES.has(pathname)
+  if (pathname === "/") {
+    return true
+  }
+
+  return PROTECTED_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  )
 }
 
 export async function middleware(request: NextRequest) {
@@ -52,13 +58,18 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (isProtectedRoute(pathname) && !user) {
-    const loginUrl = new URL("/login", request.url)
+    const loginUrl = request.nextUrl.clone()
+    loginUrl.pathname = "/login"
+    loginUrl.search = ""
     loginUrl.searchParams.set("redirectedFrom", pathname)
     return NextResponse.redirect(loginUrl)
   }
 
   if (PUBLIC_AUTH_ROUTES.has(pathname) && user) {
-    return NextResponse.redirect(new URL("/", request.url))
+    const dashboardUrl = request.nextUrl.clone()
+    dashboardUrl.pathname = "/"
+    dashboardUrl.search = ""
+    return NextResponse.redirect(dashboardUrl)
   }
 
   return response

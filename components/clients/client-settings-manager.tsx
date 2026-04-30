@@ -540,7 +540,7 @@ export function ClientSettingsManager({
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
               <div className="flex items-start gap-2 text-sm text-amber-900">
                 <TriangleAlert className="mt-0.5 h-4 w-4" />
-                <p>This will add missing default accounts but won't delete existing ones.</p>
+                <p>This will add missing default accounts but won&apos;t delete existing ones.</p>
               </div>
               <div className="flex items-center gap-2">
                 <Button asChild variant="outline">

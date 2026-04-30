@@ -1,8 +1,8 @@
 "use client"
 
 import { useParams } from "next/navigation"
-import { useEffect, useState } from "react"
 
+import { useAppQuery } from "@/lib/query"
 import { createClient } from "@/lib/supabase/client"
 import type { Client } from "@/lib/types"
 
@@ -16,57 +16,35 @@ type UseClientState = {
 export function useClient(): UseClientState {
   const params = useParams<{ clientId: string }>()
   const clientId = typeof params?.clientId === "string" ? params.clientId : null
-  const [state, setState] = useState<UseClientState>({
-    client: null,
-    clientId,
-    hasAccess: false,
-    loading: true,
-  })
 
-  useEffect(() => {
-    if (!clientId) {
-      setState({
-        client: null,
-        clientId: null,
-        hasAccess: false,
-        loading: false,
-      })
-      return
-    }
+  const query = useAppQuery({
+    queryKey: ["client", clientId],
+    enabled: Boolean(clientId),
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Client | null> => {
+      if (!clientId) {
+        return null
+      }
 
-    const supabase = createClient()
-
-    const load = async () => {
+      const supabase = createClient()
       const {
         data: { user },
       } = await supabase.auth.getUser()
 
       if (!user) {
-        setState({
-          client: null,
-          clientId,
-          hasAccess: false,
-          loading: false,
-        })
-        return
+        return null
       }
 
       const { data: membership } = await supabase
         .from("organization_members")
-        .select("*")
+        .select("org_id")
         .eq("user_id", user.id)
         .eq("is_active", true)
         .limit(1)
         .maybeSingle()
 
       if (!membership?.org_id) {
-        setState({
-          client: null,
-          clientId,
-          hasAccess: false,
-          loading: false,
-        })
-        return
+        return null
       }
 
       const { data: client } = await supabase
@@ -76,16 +54,14 @@ export function useClient(): UseClientState {
         .eq("org_id", membership.org_id)
         .maybeSingle()
 
-      setState({
-        client: client ?? null,
-        clientId,
-        hasAccess: Boolean(client),
-        loading: false,
-      })
-    }
+      return client ?? null
+    },
+  })
 
-    void load()
-  }, [clientId])
-
-  return state
+  return {
+    client: query.data ?? null,
+    clientId,
+    hasAccess: Boolean(query.data),
+    loading: query.isLoading,
+  }
 }

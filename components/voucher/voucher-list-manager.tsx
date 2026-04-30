@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState, useTransition } from "react"
 import { format } from "date-fns"
-import { Download, Loader2, PlusCircle, Printer, Search } from "lucide-react"
+import { Download, FileSearch, Loader2, PlusCircle, Printer, Search } from "lucide-react"
 import { useRouter } from "next/navigation"
 import * as XLSX from "xlsx"
 import { toast } from "sonner"
@@ -16,7 +16,10 @@ import { DeleteVoucherButton } from "@/components/voucher/delete-voucher-button"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/EmptyState"
+import { ErrorFallback } from "@/components/ui/ErrorBoundary"
 import { Input } from "@/components/ui/input"
+import { LoadingTable } from "@/components/ui/LoadingTable"
 import {
   Select,
   SelectContent,
@@ -274,6 +277,7 @@ export function VoucherListManager({
                   const matchedAccount = accountOptions.find(
                     (account) => account.label === nextValue || account.name === nextValue
                   )
+
                   updateFilter("accountHeadId", matchedAccount?.id)
 
                   if (!nextValue) {
@@ -376,11 +380,7 @@ export function VoucherListManager({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {error ? (
-            <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
-              {error.message}
-            </div>
-          ) : null}
+          {error ? <ErrorFallback error={error} onRetry={() => void mutate()} /> : null}
 
           <div className="overflow-x-auto">
             <Table>
@@ -409,8 +409,22 @@ export function VoucherListManager({
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="py-12 text-center text-slate-500">
-                      Loading vouchers...
+                    <TableCell colSpan={10} className="p-0">
+                      <LoadingTable
+                        columns={[
+                          "Select",
+                          "Voucher No",
+                          "Date",
+                          "Type",
+                          "Payment Mode",
+                          "Account Head",
+                          "Dr",
+                          "Cr",
+                          "Description",
+                          "Actions",
+                        ]}
+                        rows={8}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : items.length ? (
@@ -440,11 +454,11 @@ export function VoucherListManager({
                           {getVoucherTypeLabel(item.voucherType)}
                         </Badge>
                       </TableCell>
-                      <TableCell>{item.paymentModeName ?? "—"}</TableCell>
+                      <TableCell>{item.paymentModeName ?? "-"}</TableCell>
                       <TableCell>{item.accountHeadLabel}</TableCell>
                       <TableCell className="text-right">{item.debit.toFixed(2)}</TableCell>
                       <TableCell className="text-right">{item.credit.toFixed(2)}</TableCell>
-                      <TableCell className="max-w-[240px] truncate">{item.description || "—"}</TableCell>
+                      <TableCell className="max-w-[240px] truncate">{item.description || "-"}</TableCell>
                       <TableCell onClick={(event) => event.stopPropagation()}>
                         <div className="flex flex-wrap gap-2">
                           <Button asChild variant="ghost" className="h-8 px-2">
@@ -481,19 +495,14 @@ export function VoucherListManager({
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={10} className="py-16 text-center">
-                      <div className="mx-auto max-w-md space-y-3">
-                        <div className="mx-auto h-16 w-16 rounded-full bg-slate-100" />
-                        <h3 className="text-lg font-semibold text-slate-950">No vouchers found</h3>
-                        <p className="text-sm text-slate-500">
-                          Try adjusting the filters or create the first voucher for this client.
-                        </p>
-                        <Button asChild className="rounded-xl">
-                          <Link href={`/clients/${clientId}/vouchers/new?fiscalYear=${fiscalYearId}`}>
-                            Create Voucher
-                          </Link>
-                        </Button>
-                      </div>
+                    <TableCell colSpan={10} className="py-16">
+                      <EmptyState
+                        icon={FileSearch}
+                        title="No vouchers found"
+                        description="Try adjusting the filters or create the first voucher for this client."
+                        actionLabel="Create Voucher"
+                        actionHref={`/clients/${clientId}/vouchers/new?fiscalYear=${fiscalYearId}`}
+                      />
                     </TableCell>
                   </TableRow>
                 )}

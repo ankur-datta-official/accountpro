@@ -94,3 +94,32 @@
     @apply font-sans;
   }
 }
+
+@media print {
+  nav,
+  aside,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  main {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .page-break {
+    page-break-after: always;
+  }
+
+  body {
+    font-size: 11px;
+    background: white !important;
+  }
+
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #ddd !important;
+  }
+}

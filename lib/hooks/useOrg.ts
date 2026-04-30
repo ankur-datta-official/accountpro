@@ -1,7 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
-
+import { useAppQuery } from "@/lib/query"
 import { createClient } from "@/lib/supabase/client"
 import type { Organization, OrganizationMember } from "@/lib/types"
 
@@ -13,29 +12,21 @@ type OrgState = {
 }
 
 export function useOrg(): OrgState {
-  const [state, setState] = useState<OrgState>({
-    loading: true,
-    membership: null,
-    organization: null,
-    role: null,
-  })
-
-  useEffect(() => {
-    const supabase = createClient()
-
-    const load = async () => {
+  const query = useAppQuery({
+    queryKey: ["organization-context"],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Omit<OrgState, "loading">> => {
+      const supabase = createClient()
       const {
         data: { user },
       } = await supabase.auth.getUser()
 
       if (!user) {
-        setState({
-          loading: false,
+        return {
           membership: null,
           organization: null,
           role: null,
-        })
-        return
+        }
       }
 
       const { data: membership } = await supabase
@@ -47,13 +38,11 @@ export function useOrg(): OrgState {
         .maybeSingle()
 
       if (!membership?.org_id) {
-        setState({
-          loading: false,
+        return {
           membership: membership ?? null,
           organization: null,
           role: membership?.role ?? null,
-        })
-        return
+        }
       }
 
       const { data: organization } = await supabase
@@ -62,16 +51,18 @@ export function useOrg(): OrgState {
         .eq("id", membership.org_id)
         .maybeSingle()
 
-      setState({
-        loading: false,
+      return {
         membership: membership ?? null,
         organization: organization ?? null,
         role: membership?.role ?? null,
-      })
-    }
+      }
+    },
+  })
 
-    void load()
-  }, [])
-
-  return state
+  return {
+    loading: query.isLoading,
+    membership: query.data?.membership ?? null,
+    organization: query.data?.organization ?? null,
+    role: query.data?.role ?? null,
+  }
 }

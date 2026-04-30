@@ -21,15 +21,17 @@ import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/serv
 import { cn } from "@/lib/utils"
 
 const tabs = [
+  { href: "", label: "Dashboard", icon: BarChart3 },
   { href: "vouchers", label: "Vouchers", icon: ReceiptText },
+  { href: "vouchers/new", label: "New Voucher", icon: ReceiptText },
   { href: "accounts", label: "Accounts", icon: BookMarked },
   { href: "ledger", label: "Ledger", icon: BookOpenText },
-  { href: "day-book", label: "Day Book", icon: ScrollText },
+  { href: "daybook", label: "Day Book", icon: ScrollText },
   { href: "trial-balance", label: "Trial Balance", icon: FileSpreadsheet },
   { href: "balance-sheet", label: "Balance Sheet", icon: Landmark },
   { href: "profit-loss", label: "Profit & Loss", icon: LineChart },
   { href: "bank-statements", label: "Bank Statements", icon: WalletCards },
-  { href: "reports", label: "Reports", icon: BarChart3 },
+  { href: "import", label: "Import from Excel", icon: BarChart3 },
   { href: "settings", label: "Settings", icon: Settings2 },
 ] as const
 
@@ -114,10 +116,22 @@ export default async function ClientLayout({
 
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
+              href={`/clients/${client.id}`}
+              className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+            >
+              Client Dashboard
+            </Link>
+            <Link
+              href={`/clients/${client.id}/vouchers/opening-balance?fiscalYear=${initialFiscalYearId ?? ""}`}
+              className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+            >
+              Opening Balances
+            </Link>
+            <Link
               href={`/clients/${client.id}/settings`}
               className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
             >
-              Client Settings: Profile
+              Client Settings
             </Link>
             <Link
               href={`/clients/${client.id}/settings/fiscal-years`}

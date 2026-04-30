@@ -1,11 +1,13 @@
 "use client"
 
 import { format } from "date-fns"
-import { Download, Loader2 } from "lucide-react"
+import { Download, LineChart } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/ui/EmptyState"
+import { LoadingTable } from "@/components/ui/LoadingTable"
 import { useProfitLoss } from "@/lib/hooks/useProfitLoss"
 import { exportProfitLoss } from "@/lib/utils/export"
 
@@ -30,7 +32,7 @@ export function ProfitLossManager({
         <div>
           <h2 className="text-3xl font-semibold tracking-tight text-slate-950">
             Profit &amp; Loss Statement for the year ended{" "}
-            {data ? format(new Date(data.endDate), "dd MMM yyyy") : "—"}
+            {data ? format(new Date(data.endDate), "dd MMM yyyy") : "-"}
           </h2>
           <p className="mt-2 text-sm text-slate-500">{clientName}</p>
         </div>
@@ -51,11 +53,14 @@ export function ProfitLossManager({
           <CardTitle className="text-xl text-slate-950">Profit &amp; Loss</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {isLoading || !data ? (
-            <div className="text-sm text-slate-500">
-              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-              Loading statement...
-            </div>
+          {isLoading ? (
+            <LoadingTable columns={["Section", "Amount"]} rows={12} />
+          ) : !data ? (
+            <EmptyState
+              icon={LineChart}
+              title="No profit and loss statement available"
+              description="Post some vouchers in the selected fiscal year to generate this statement."
+            />
           ) : (
             <>
               <section className="space-y-2">
@@ -74,9 +79,18 @@ export function ProfitLossManager({
 
               <section className="space-y-2">
                 <p className="font-semibold text-slate-900">Less: Cost of Goods Sold</p>
-                <div className="flex items-center justify-between text-sm"><span>Opening Stock</span><span>{amount(data.openingStock)}</span></div>
-                <div className="flex items-center justify-between text-sm"><span>Add: Purchases</span><span>{amount(data.purchases)}</span></div>
-                <div className="flex items-center justify-between text-sm"><span>Less: Closing Stock</span><span>({amount(data.closingStock)})</span></div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Opening Stock</span>
+                  <span>{amount(data.openingStock)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Add: Purchases</span>
+                  <span>{amount(data.purchases)}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span>Less: Closing Stock</span>
+                  <span>({amount(data.closingStock)})</span>
+                </div>
                 <div className="flex items-center justify-between border-t pt-2 font-semibold">
                   <span>Gross Profit</span>
                   <span>{amount(data.grossProfit)}</span>

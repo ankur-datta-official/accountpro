@@ -1,8 +1,6 @@
 "use client"
 
-import useSWR from "swr"
-
-import { createClient } from "@/lib/supabase/client"
+import { fetchWithAccessToken, keepPreviousData, useAppQuery } from "@/lib/query"
 import type { VoucherType } from "@/lib/types"
 
 export type VoucherSortBy = "date" | "voucherNo" | "amount"
@@ -52,28 +50,8 @@ type VoucherResponse = {
   }
 }
 
-async function fetchVouchers([url]: [string]) {
-  const supabase = createClient()
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (!session?.access_token) {
-    throw new Error("Unauthorized")
-  }
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-    },
-  })
-
-  if (!response.ok) {
-    const result = await response.json().catch(() => ({ error: "Unable to fetch vouchers." }))
-    throw new Error(result.error ?? "Unable to fetch vouchers.")
-  }
-
-  return (await response.json()) as VoucherResponse
+async function fetchVouchers(url: string) {
+  return fetchWithAccessToken<VoucherResponse>(url)
 }
 
 export function useVouchers(clientId: string, filters: VoucherFilters) {
@@ -107,23 +85,28 @@ export function useVouchers(clientId: string, filters: VoucherFilters) {
     params.set("search", filters.search)
   }
 
-  const key = clientId ? ([`/api/clients/${clientId}/vouchers?${params.toString()}`] as [string]) : null
-  const swr = useSWR(key, fetchVouchers, {
-    keepPreviousData: true,
-    revalidateOnFocus: false,
+  const url = clientId ? `/api/clients/${clientId}/vouchers?${params.toString()}` : ""
+  const query = useAppQuery({
+    queryKey: clientId ? ["vouchers", clientId, params.toString()] : ["vouchers", "empty"],
+    enabled: Boolean(clientId),
+    placeholderData: keepPreviousData,
+    queryFn: () => fetchVouchers(url),
   })
 
   return {
-    ...swr,
-    items: swr.data?.items ?? [],
-    stats: swr.data?.stats ?? {
+    ...query,
+    mutate: async () => {
+      await query.refetch()
+    },
+    items: query.data?.items ?? [],
+    stats: query.data?.stats ?? {
       totalReceipts: 0,
       totalPayments: 0,
       netBalance: 0,
     },
-    page: swr.data?.page ?? filters.page,
-    pageSize: swr.data?.pageSize ?? 50,
-    totalItems: swr.data?.totalItems ?? 0,
-    totalPages: swr.data?.totalPages ?? 1,
+    page: query.data?.page ?? filters.page,
+    pageSize: query.data?.pageSize ?? 50,
+    totalItems: query.data?.totalItems ?? 0,
+    totalPages: query.data?.totalPages ?? 1,
   }
 }

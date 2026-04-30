@@ -2,6 +2,8 @@ import type { Metadata } from "next"
 import localFont from "next/font/local"
 import { Toaster } from "sonner"
 
+import { QueryProvider } from "@/components/providers/query-provider"
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary"
 import { cn } from "@/lib/utils"
 import "./globals.css"
 
@@ -30,8 +32,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="font-sans">
       <body className={cn(geistSans.variable, geistMono.variable, "antialiased")}>
-        {children}
-        <Toaster richColors position="top-right" />
+        <QueryProvider>
+          <ErrorBoundary>{children}</ErrorBoundary>
+          <Toaster richColors position="top-right" />
+        </QueryProvider>
       </body>
     </html>
   )

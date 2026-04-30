@@ -1,36 +1,92 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AccountPro
 
-## Getting Started
+AccountPro is a Next.js 14 bookkeeping workspace for managing clients, vouchers, ledgers, trial balance, balance sheet, profit and loss, bank statements, and Excel imports on top of Supabase.
 
-First, run the development server:
+## Stack
+
+- Next.js 14 App Router
+- React 18
+- Supabase Auth, Postgres, and Storage
+- Tailwind CSS + shadcn/ui
+- TanStack Query for client-side caching
+
+## Local setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create `.env.local` with these variables:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+```
+
+3. Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+4. Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Database migration steps
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Run the SQL files in `supabase/migrations` in order:
 
-## Learn More
+1. `001_initial_schema.sql`
+2. `002_fix_rls_policies.sql`
+3. `003_team_member_invitations.sql`
+4. `004_add_organization_active_flag.sql`
 
-To learn more about Next.js, take a look at the following resources:
+If you are using the Supabase CLI, the usual flow is:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+supabase db push
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+You can also seed sample data with:
 
-## Deploy on Vercel
+```bash
+supabase db reset
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Required environment variables
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+## Add the first admin user
+
+1. Open the registration page and create the first account.
+2. The registration flow creates the organization and inserts the first membership automatically.
+3. That first membership becomes the organization owner/admin path used for client creation, settings, and team management.
+
+If you need to promote an existing user manually, update `organization_members.role` for that user in Supabase.
+
+## Deployment on Vercel
+
+1. Import the repo into Vercel.
+2. Add these Vercel project secrets:
+   - `supabase_url`
+   - `supabase_anon_key`
+   - `supabase_service_role_key`
+3. Confirm `vercel.json` is present so the build uses `npm run build`.
+4. Deploy.
+
+## End-to-end flow
+
+1. Register
+2. Create a client
+3. Enter opening balances
+4. Add vouchers
+5. Review ledger
+6. Generate trial balance
+7. Review balance sheet and profit/loss
+8. Export to Excel
+9. Print vouchers and reports

@@ -1,8 +1,7 @@
 "use client"
 
-import useSWR from "swr"
-
 import { calculateBalanceSheet, type ComparativeBalanceSheet } from "@/lib/accounting/balance-sheet"
+import { keepPreviousData, useAppQuery } from "@/lib/query"
 import { createClient } from "@/lib/supabase/client"
 
 type Filters = {
@@ -10,25 +9,23 @@ type Filters = {
   fiscalYearId: string
 }
 
-type FetchKey = [string, Filters]
-
-async function fetchBalanceSheet([, filters]: FetchKey): Promise<ComparativeBalanceSheet> {
+async function fetchBalanceSheet(filters: Filters): Promise<ComparativeBalanceSheet> {
   const supabase = createClient()
   return calculateBalanceSheet(supabase, filters.clientId, filters.fiscalYearId)
 }
 
 export function useBalanceSheet(filters: Filters | null) {
-  const key = filters
-    ? ([`balance-sheet:${filters.clientId}:${filters.fiscalYearId}`, filters] as FetchKey)
-    : null
-
-  const swr = useSWR(key, fetchBalanceSheet, {
-    revalidateOnFocus: false,
-    keepPreviousData: true,
+  const query = useAppQuery({
+    queryKey: filters
+      ? ["balance-sheet", filters.clientId, filters.fiscalYearId]
+      : ["balance-sheet", "empty"],
+    enabled: Boolean(filters),
+    placeholderData: keepPreviousData,
+    queryFn: () => fetchBalanceSheet(filters as Filters),
   })
 
   return {
-    ...swr,
-    data: swr.data ?? null,
+    ...query,
+    data: query.data ?? null,
   }
 }

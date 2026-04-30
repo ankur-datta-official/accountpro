@@ -42,7 +42,7 @@ export function PlanLimitBanner({ clientsUsed, clientLimit }: PlanLimitBannerPro
       )}
     >
       <p>
-        You've used {clientsUsed}/{clientLimit} clients. Upgrade to add more.
+        You&apos;ve used {clientsUsed}/{clientLimit} clients. Upgrade to add more.
       </p>
       <Button
         type="button"
