@@ -1,0 +1,108 @@
+import { createClient } from "@supabase/supabase-js"
+import { NextResponse } from "next/server"
+import { z } from "zod"
+
+import type { Database } from "@/lib/types"
+
+const updateAccountHeadSchema = z.object({
+  accountHeadName: z.string().min(2),
+  openingBalance: z.number().default(0),
+  balanceType: z.enum(["debit", "credit"]),
+  is_active: z.boolean().default(true),
+})
+
+function createServiceRoleClient() {
+  return createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  )
+}
+
+async function getAuthorizedClient(
+  accessToken: string,
+  clientId: string,
+  supabase: ReturnType<typeof createServiceRoleClient>
+) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser(accessToken)
+
+  if (!user) {
+    return { user: null, client: null }
+  }
+
+  const { data: membership } = await supabase
+    .from("organization_members")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle()
+
+  const { data: client } = membership?.org_id
+    ? await supabase
+        .from("clients")
+        .select("*")
+        .eq("id", clientId)
+        .eq("org_id", membership.org_id)
+        .maybeSingle()
+    : { data: null }
+
+  return { user, client }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: { clientId: string; accountHeadId: string } }
+) {
+  const authHeader = request.headers.get("authorization")
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  }
+
+  const accessToken = authHeader.replace("Bearer ", "")
+  const body = await request.json().catch(() => null)
+  const parsed = updateAccountHeadSchema.safeParse(body)
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid account head data." },
+      { status: 400 }
+    )
+  }
+
+  const supabase = createServiceRoleClient()
+  const { user, client } = await getAuthorizedClient(accessToken, params.clientId, supabase)
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  }
+
+  if (!client) {
+    return NextResponse.json({ error: "Client not found." }, { status: 404 })
+  }
+
+  const { error } = await supabase
+    .from("account_heads")
+    .update({
+      name: parsed.data.accountHeadName,
+      opening_balance: parsed.data.openingBalance,
+      balance_type: parsed.data.balanceType,
+      is_active: parsed.data.is_active,
+    })
+    .eq("id", params.accountHeadId)
+    .eq("client_id", client.id)
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 })
+  }
+
+  return NextResponse.json({ success: true })
+}
