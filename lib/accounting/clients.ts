@@ -15,12 +15,67 @@ export const fiscalYearMonths = [
   { value: 12, label: "December" },
 ] as const
 
-export const clientTypeOptions: Array<{ value: ClientType; label: string }> = [
-  { value: "company", label: "Company" },
-  { value: "individual", label: "Individual" },
-  { value: "partnership", label: "Partnership" },
-  { value: "ngo", label: "NGO" },
+export const clientTypeValues = [
+  "limited_company_commercial",
+  "limited_company_manufacture",
+  "limited_company_commercial_manufacture",
+  "limited_company_development_construction",
+  "ngo_micro_credit",
+  "ngo_donor_fund",
+  "partnership",
+  "proprietorship",
+  // legacy values kept for backward compatibility with existing rows
+  "company",
+  "individual",
+] as const satisfies readonly ClientType[]
+
+export const clientTypeGroups: Array<{
+  label: string
+  options: Array<{ value: ClientType; label: string }>
+}> = [
+  {
+    label: "Limited Company",
+    options: [
+      { value: "limited_company_commercial", label: "Commercial" },
+      { value: "limited_company_manufacture", label: "Manufacture" },
+      { value: "limited_company_commercial_manufacture", label: "Commercial & Manufacture" },
+      { value: "limited_company_development_construction", label: "Development & Construction" },
+    ],
+  },
+  {
+    label: "NGO",
+    options: [
+      { value: "ngo_micro_credit", label: "Micro Credit" },
+      { value: "ngo_donor_fund", label: "Donor Fund" },
+    ],
+  },
+  {
+    label: "Partnership",
+    options: [{ value: "partnership", label: "Partnership" }],
+  },
+  {
+    label: "Proprietorship",
+    options: [{ value: "proprietorship", label: "Proprietorship" }],
+  },
+  {
+    label: "Legacy",
+    options: [
+      { value: "company", label: "Company (Legacy)" },
+      { value: "individual", label: "Individual (Legacy)" },
+    ],
+  },
 ]
+
+export const clientTypeOptions: Array<{ value: ClientType; label: string }> = clientTypeGroups.flatMap(
+  (group) => group.options
+)
+
+const clientTypeLabelMap = new Map(clientTypeOptions.map((item) => [item.value, item.label]))
+
+export function getClientTypeLabel(type: string | null | undefined) {
+  if (!type) return "Unknown"
+  return clientTypeLabelMap.get(type as ClientType) ?? type.replaceAll("_", " ")
+}
 
 export function getFiscalYearMonthLabel(month: number | null | undefined) {
   return fiscalYearMonths.find((item) => item.value === month)?.label ?? "July"

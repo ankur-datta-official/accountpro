@@ -1,20 +1,7 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
-import { z } from "zod"
 
-import { clientTypeValues } from "@/lib/accounting/clients"
 import type { Database } from "@/lib/types"
-
-const updateClientSchema = z.object({
-  name: z.string().min(2),
-  type: z.enum(clientTypeValues),
-  tin: z.string().optional().nullable(),
-  bin: z.string().optional().nullable(),
-  address: z.string().optional().nullable(),
-  phone: z.string().optional().nullable(),
-  email: z.string().email().optional().or(z.literal("")).nullable(),
-  fiscal_year_start: z.number().int().min(1).max(12),
-})
 
 function createServiceRoleClient() {
   return createClient<Database>(
@@ -29,7 +16,7 @@ function createServiceRoleClient() {
   )
 }
 
-export async function PATCH(
+export async function POST(
   request: Request,
   { params }: { params: { clientId: string } }
 ) {
@@ -39,13 +26,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
-  const parsed = updateClientSchema.safeParse(await request.json().catch(() => null))
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid client data." }, { status: 400 })
-  }
-
   const accessToken = authHeader.replace("Bearer ", "")
   const serviceClient = createServiceRoleClient()
+
   const {
     data: { user },
     error: userError,
@@ -67,19 +50,20 @@ export async function PATCH(
     return NextResponse.json({ error: "Forbidden." }, { status: 403 })
   }
 
+  const { data: clientRecord } = await serviceClient
+    .from("clients")
+    .select("*")
+    .eq("id", params.clientId)
+    .eq("org_id", membership.org_id)
+    .maybeSingle()
+
+  if (!clientRecord) {
+    return NextResponse.json({ error: "Client not found." }, { status: 404 })
+  }
+
   const { error } = await serviceClient
     .from("clients")
-    .update({
-      name: parsed.data.name,
-      type: parsed.data.type,
-      tin: parsed.data.tin || null,
-      bin: parsed.data.bin || null,
-      address: parsed.data.address || null,
-      phone: parsed.data.phone || null,
-      email: parsed.data.email || null,
-      fiscal_year_start: parsed.data.fiscal_year_start,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ is_active: true })
     .eq("id", params.clientId)
     .eq("org_id", membership.org_id)
 

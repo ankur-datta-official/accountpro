@@ -30,7 +30,7 @@ export default async function ClientsPage() {
   const rows: ClientTableRow[] = (clients ?? []).map((client) => ({
     id: client.id,
     name: client.name,
-    type: client.type ?? "company",
+    type: client.type ?? "limited_company_commercial",
     tin: client.tin,
     bin: client.bin,
     fiscalYearLabel: activeFiscalYearMap.get(client.id) ?? "Not initialized",

@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { getMonthLabel } from "@/lib/accounting/fiscal-year"
+import { resolveOrCreatePaymentMode } from "@/lib/accounting/payment-modes"
 import { AUTO_BALANCE_ENTRY_PREFIX } from "@/lib/accounting/vouchers"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
-import type { Database } from "@/lib/types"
+import type { Database, PaymentModeType } from "@/lib/types"
 
 const voucherLineSchema = z.object({
   accountsGroup: z.enum(["expense", "income", "asset", "liability"]),
@@ -23,6 +24,8 @@ const createVoucherSchema = z.object({
   voucherDate: z.string().min(1),
   voucherType: z.enum(["payment", "received", "journal", "contra", "bf", "bp", "br"]),
   paymentModeId: z.string().optional(),
+  paymentModeName: z.string().optional(),
+  paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
   description: z.string().optional(),
   lines: z.array(voucherLineSchema).min(1),
 })
@@ -177,13 +180,13 @@ async function buildVoucherEntries(
     clientId,
     voucherId,
     voucherType,
-    paymentModeId,
+    paymentMode,
     lines,
   }: {
     clientId: string
     voucherId: string
     voucherType: CreateVoucherInput["voucherType"]
-    paymentModeId?: string
+    paymentMode?: Database["public"]["Tables"]["payment_modes"]["Row"]
     lines: CreateVoucherInput["lines"]
   }
 ) {
@@ -206,24 +209,10 @@ async function buildVoucherEntries(
     return { success: true as const, entries: voucherEntries }
   }
 
-  if (!paymentModeId) {
-    return {
-      success: false as const,
-      error: "Payment mode is required for unbalanced payment or received vouchers.",
-    }
-  }
-
-  const { data: paymentMode } = await supabase
-    .from("payment_modes")
-    .select("*")
-    .eq("id", paymentModeId)
-    .eq("client_id", clientId)
-    .maybeSingle()
-
   if (!paymentMode) {
     return {
       success: false as const,
-      error: "Selected payment mode could not be resolved.",
+      error: "Payment mode is required for unbalanced payment or received vouchers.",
     }
   }
 
@@ -293,6 +282,7 @@ export async function createVoucherAction(input: CreateVoucherInput) {
   const { difference } = getEntryTotals(values.lines)
   const requiresPaymentModeBalance =
     ["payment", "received"].includes(values.voucherType) && difference !== 0
+  const requiresPaymentModeSelection = ["payment", "received"].includes(values.voucherType)
 
   if (!["payment", "received"].includes(values.voucherType) && difference !== 0) {
     return {
@@ -301,11 +291,24 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     }
   }
 
-  if (requiresPaymentModeBalance && !values.paymentModeId) {
+  if (requiresPaymentModeSelection && !values.paymentModeId && !values.paymentModeName) {
     return {
       success: false as const,
-      error: "Payment mode is required for unbalanced payment or received vouchers.",
+      error: "Payment mode is required for payment and received vouchers.",
     }
+  }
+
+  const paymentModeResult = requiresPaymentModeSelection
+    ? await resolveOrCreatePaymentMode(supabase, {
+        clientId: client.id,
+        paymentModeId: values.paymentModeId,
+        paymentModeName: values.paymentModeName,
+        paymentModeType: values.paymentModeType as PaymentModeType | undefined,
+      })
+    : null
+
+  if (paymentModeResult && !paymentModeResult.success) {
+    return paymentModeResult
   }
 
   const voucherNo = await getVoucherNumber(supabase, {
@@ -324,8 +327,10 @@ export async function createVoucherAction(input: CreateVoucherInput) {
       voucher_date: values.voucherDate,
       voucher_type: values.voucherType,
       payment_mode_id:
-        values.voucherType === "payment" || values.voucherType === "received"
-          ? values.paymentModeId ?? null
+        values.voucherType === "payment" ||
+        values.voucherType === "received" ||
+        values.voucherType === "journal"
+          ? paymentModeResult?.paymentMode.id ?? null
           : null,
       description: values.description || null,
       month_label: monthLabel,
@@ -347,7 +352,7 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     clientId: client.id,
     voucherId: insertedVoucher.id,
     voucherType: values.voucherType,
-    paymentModeId: requiresPaymentModeBalance ? values.paymentModeId : undefined,
+    paymentMode: requiresPaymentModeBalance ? paymentModeResult?.paymentMode : undefined,
     lines: values.lines,
   })
 
@@ -418,12 +423,33 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
   const { difference } = getEntryTotals(values.lines)
   const requiresPaymentModeBalance =
     ["payment", "received"].includes(values.voucherType) && difference !== 0
+  const requiresPaymentModeSelection = ["payment", "received"].includes(values.voucherType)
 
   if (!["payment", "received"].includes(values.voucherType) && difference !== 0) {
     return {
       success: false as const,
       error: "Total debit and total credit must be balanced.",
     }
+  }
+
+  if (requiresPaymentModeSelection && !values.paymentModeId && !values.paymentModeName) {
+    return {
+      success: false as const,
+      error: "Payment mode is required for payment and received vouchers.",
+    }
+  }
+
+  const paymentModeResult = requiresPaymentModeSelection
+    ? await resolveOrCreatePaymentMode(supabase, {
+        clientId: client.id,
+        paymentModeId: values.paymentModeId,
+        paymentModeName: values.paymentModeName,
+        paymentModeType: values.paymentModeType as PaymentModeType | undefined,
+      })
+    : null
+
+  if (paymentModeResult && !paymentModeResult.success) {
+    return paymentModeResult
   }
 
   const voucherNo = await getVoucherNumber(supabase, {
@@ -441,8 +467,10 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
       voucher_date: values.voucherDate,
       voucher_type: values.voucherType,
       payment_mode_id:
-        values.voucherType === "payment" || values.voucherType === "received"
-          ? values.paymentModeId ?? null
+        values.voucherType === "payment" ||
+        values.voucherType === "received" ||
+        values.voucherType === "journal"
+          ? paymentModeResult?.paymentMode.id ?? null
           : null,
       description: values.description || null,
       month_label: monthLabel,
@@ -473,7 +501,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     clientId: client.id,
     voucherId: existingVoucher.id,
     voucherType: values.voucherType,
-    paymentModeId: requiresPaymentModeBalance ? values.paymentModeId : undefined,
+    paymentMode: requiresPaymentModeBalance ? paymentModeResult?.paymentMode : undefined,
     lines: values.lines,
   })
 

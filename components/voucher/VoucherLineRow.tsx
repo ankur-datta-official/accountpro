@@ -3,12 +3,19 @@
 import { Trash2 } from "lucide-react"
 import type { UseFormRegister, UseFormSetValue } from "react-hook-form"
 
-import type { CreateVoucherInput } from "@/lib/actions/vouchers"
 import type { ChartFlatAccount } from "@/lib/hooks/useChartOfAccounts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
-type VoucherFormValues = CreateVoucherInput
+type VoucherFormValues = {
+  lines: Array<{
+    accountsGroup: "expense" | "income" | "asset" | "liability" | ""
+    accountHeadId: string
+    debitAmount: number
+    creditAmount: number
+    description?: string
+  }>
+}
 
 export function VoucherLineRow({
   index,
@@ -25,8 +32,8 @@ export function VoucherLineRow({
   accounts: ChartFlatAccount[]
   onRemove: () => void
   onAddLine: () => void
-  register: UseFormRegister<VoucherFormValues>
-  setValue: UseFormSetValue<VoucherFormValues>
+  register: UseFormRegister<any>
+  setValue: UseFormSetValue<any>
   disabled?: boolean
 }) {
   const filteredAccounts = accounts.filter((account) => account.groupType === line.accountsGroup)
@@ -44,6 +51,8 @@ export function VoucherLineRow({
       <select
         disabled={disabled}
         className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none"
+        aria-label="Accounts Group"
+        title="Accounts Group"
         value={line.accountsGroup}
         onChange={(event) => {
           setValue(
@@ -53,6 +62,9 @@ export function VoucherLineRow({
           setValue(`lines.${index}.accountHeadId`, "")
         }}
       >
+        <option value="" disabled>
+          Accounts Group
+        </option>
         <option value="expense">Expenses</option>
         <option value="income">Income</option>
         <option value="asset">Assets</option>
@@ -62,10 +74,12 @@ export function VoucherLineRow({
       <select
         disabled={disabled}
         className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none"
+        aria-label="Accounts Head"
+        title="Accounts Head"
         value={line.accountHeadId}
         onChange={(event) => setValue(`lines.${index}.accountHeadId`, event.target.value)}
       >
-        <option value="">Select account head</option>
+        <option value="">Accounts Head</option>
         {Object.entries(groupedAccounts).map(([subGroupName, heads]) => (
           <optgroup key={subGroupName} label={subGroupName}>
             {heads.map((account) => (
@@ -80,9 +94,16 @@ export function VoucherLineRow({
       <Input
         type="number"
         step="0.01"
-        placeholder="0.00"
+        placeholder="Debit"
+        value={line.debitAmount === 0 ? "" : line.debitAmount}
+        onChange={(event) =>
+          setValue(
+            `lines.${index}.debitAmount`,
+            event.target.value === "" ? 0 : Number(event.target.value)
+          )
+        }
+        aria-label="Debit"
         disabled={disabled}
-        {...register(`lines.${index}.debitAmount`, { valueAsNumber: true })}
         onFocus={(event) => {
           if (event.target.value === "0") {
             event.target.select()
@@ -93,9 +114,16 @@ export function VoucherLineRow({
       <Input
         type="number"
         step="0.01"
-        placeholder="0.00"
+        placeholder="Credit"
+        value={line.creditAmount === 0 ? "" : line.creditAmount}
+        onChange={(event) =>
+          setValue(
+            `lines.${index}.creditAmount`,
+            event.target.value === "" ? 0 : Number(event.target.value)
+          )
+        }
+        aria-label="Credit"
         disabled={disabled}
-        {...register(`lines.${index}.creditAmount`, { valueAsNumber: true })}
         onFocus={(event) => {
           if (event.target.value === "0") {
             event.target.select()

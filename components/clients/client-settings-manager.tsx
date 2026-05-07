@@ -27,7 +27,9 @@ import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -40,7 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import { clientTypeOptions, fiscalYearMonths } from "@/lib/accounting/clients"
+import { clientTypeGroups, fiscalYearMonths } from "@/lib/accounting/clients"
 import { createClient } from "@/lib/supabase/client"
 import type { ClientType, PaymentModeType } from "@/lib/types"
 
@@ -313,10 +315,17 @@ export function ClientSettingsManager({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {clientTypeOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
+                  {clientTypeGroups.map((group) => (
+                    <SelectGroup key={group.label}>
+                      <SelectLabel className="text-xs uppercase tracking-wide text-slate-500">
+                        {group.label}
+                      </SelectLabel>
+                      {group.options.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   ))}
                 </SelectContent>
               </Select>

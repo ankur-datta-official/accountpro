@@ -111,7 +111,7 @@ export default async function ClientSettingsPage({
       clientId={client.id}
       initialClient={{
         name: client.name,
-        type: client.type ?? "company",
+        type: client.type ?? "limited_company_commercial",
         tin: client.tin,
         bin: client.bin,
         address: client.address,

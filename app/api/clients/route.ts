@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { buildInitialFiscalYear } from "@/lib/accounting/clients"
+import { clientTypeValues } from "@/lib/accounting/clients"
 import {
   createDefaultChartOfAccounts,
   createDefaultPaymentModes,
@@ -12,7 +13,7 @@ import type { ClientInsert } from "@/lib/types"
 
 const createClientSchema = z.object({
   name: z.string().min(2),
-  type: z.enum(["company", "individual", "partnership", "ngo"]),
+  type: z.enum(clientTypeValues),
   trade_name: z.string().optional().nullable(),
   tin: z.string().optional().nullable(),
   bin: z.string().optional().nullable(),

@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { normalizePaymentModeName } from "@/lib/accounting/payment-modes"
 import { createPaymentModeAccountHeadForClient } from "@/lib/accounting/defaults"
 import type { Database } from "@/lib/types"
 
@@ -90,11 +91,27 @@ export async function POST(
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
   }
 
+  const normalizedName = normalizePaymentModeName(parsed.data.name)
+
+  const { data: existingModes } = await supabase
+    .from("payment_modes")
+    .select("id, name")
+    .eq("client_id", client.id)
+    .eq("type", parsed.data.type)
+
+  const duplicateMode = (existingModes ?? []).find(
+    (mode) => normalizePaymentModeName(mode.name).toLowerCase() === normalizedName.toLowerCase()
+  )
+
+  if (duplicateMode) {
+    return NextResponse.json({ error: "A payment mode with this name already exists." }, { status: 400 })
+  }
+
   const { data: insertedMode, error } = await supabase
     .from("payment_modes")
     .insert({
       client_id: client.id,
-      name: parsed.data.name,
+      name: normalizedName,
       type: parsed.data.type,
       account_no: parsed.data.account_no || null,
       is_active: parsed.data.is_active,

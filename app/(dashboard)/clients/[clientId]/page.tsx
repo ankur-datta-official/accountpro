@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { getClientTypeLabel } from "@/lib/accounting/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 
 function currency(value: number) {
@@ -118,7 +119,7 @@ export default async function ClientDashboardPage({
             </div>
             <div>
               <p className="text-sm text-slate-500">Type</p>
-              <p className="mt-1 font-medium capitalize text-slate-950">{client.type ?? "company"}</p>
+              <p className="mt-1 font-medium text-slate-950">{getClientTypeLabel(client.type)}</p>
             </div>
             <div>
               <p className="text-sm text-slate-500">TIN</p>

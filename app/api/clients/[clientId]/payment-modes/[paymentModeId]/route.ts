@@ -2,6 +2,10 @@ import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import {
+  normalizePaymentModeName,
+} from "@/lib/accounting/payment-modes"
+import { syncPaymentModeAccountHeadForClient } from "@/lib/accounting/defaults"
 import type { Database } from "@/lib/types"
 
 const paymentModeSchema = z.object({
@@ -89,10 +93,39 @@ export async function PATCH(
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
   }
 
+  const { data: existingMode } = await supabase
+    .from("payment_modes")
+    .select("*")
+    .eq("id", params.paymentModeId)
+    .eq("client_id", client.id)
+    .maybeSingle()
+
+  if (!existingMode) {
+    return NextResponse.json({ error: "Payment mode not found." }, { status: 404 })
+  }
+
+  const normalizedName = normalizePaymentModeName(parsed.data.name)
+
+  const { data: existingModes } = await supabase
+    .from("payment_modes")
+    .select("id, name")
+    .eq("client_id", client.id)
+    .eq("type", parsed.data.type)
+
+  const duplicateMode = (existingModes ?? []).find(
+    (mode) =>
+      mode.id !== existingMode.id &&
+      normalizePaymentModeName(mode.name).toLowerCase() === normalizedName.toLowerCase()
+  )
+
+  if (duplicateMode) {
+    return NextResponse.json({ error: "A payment mode with this name already exists." }, { status: 400 })
+  }
+
   const { error } = await supabase
     .from("payment_modes")
     .update({
-      name: parsed.data.name,
+      name: normalizedName,
       type: parsed.data.type,
       account_no: parsed.data.account_no || null,
       is_active: parsed.data.is_active,
@@ -103,6 +136,15 @@ export async function PATCH(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
+
+  await syncPaymentModeAccountHeadForClient(
+    client.id,
+    {
+      previousName: existingMode.name,
+      nextName: normalizedName,
+    },
+    supabase
+  )
 
   return NextResponse.json({ success: true })
 }

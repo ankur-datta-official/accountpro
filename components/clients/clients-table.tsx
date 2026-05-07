@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { getClientTypeLabel } from "@/lib/accounting/clients"
 import { createClient } from "@/lib/supabase/client"
 
 export type ClientTableRow = {
@@ -37,17 +38,13 @@ export type ClientTableRow = {
   isActive: boolean
 }
 
-function formatType(value: string) {
-  return value.replace("_", " ").replace(/\b\w/g, (char) => char.toUpperCase())
-}
-
 export function ClientsTable({ data }: { data: ClientTableRow[] }) {
   const [globalFilter, setGlobalFilter] = useState("")
-  const [deactivatingId, setDeactivatingId] = useState<string | null>(null)
+  const [updatingClientId, setUpdatingClientId] = useState<string | null>(null)
   const router = useRouter()
 
-  const handleDeactivate = useCallback(async (clientId: string) => {
-    setDeactivatingId(clientId)
+  const handleClientStatusChange = useCallback(async (clientId: string, isActive: boolean) => {
+    setUpdatingClientId(clientId)
     const supabase = createClient()
     const {
       data: { session },
@@ -55,27 +52,29 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
 
     if (!session?.access_token) {
       toast.error("Your session has expired. Please sign in again.")
-      setDeactivatingId(null)
+      setUpdatingClientId(null)
       router.replace("/login")
       return
     }
 
-    const response = await fetch(`/api/clients/${clientId}/deactivate`, {
+    const action = isActive ? "deactivate" : "activate"
+    const response = await fetch(`/api/clients/${clientId}/${action}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${session.access_token}`,
       },
     })
 
-    const result = await response.json().catch(() => ({ error: "Unable to deactivate client." }))
-    setDeactivatingId(null)
+    const fallbackError = `Unable to ${action} client.`
+    const result = await response.json().catch(() => ({ error: fallbackError }))
+    setUpdatingClientId(null)
 
     if (!response.ok) {
-      toast.error(result.error ?? "Unable to deactivate client.")
+      toast.error(result.error ?? fallbackError)
       return
     }
 
-    toast.success("Client deactivated.")
+    toast.success(isActive ? "Client deactivated." : "Client activated.")
     router.refresh()
   }, [router])
 
@@ -96,7 +95,7 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
         header: "Type",
         cell: ({ row }) => (
           <Badge variant="secondary" className="rounded-full bg-slate-100 text-slate-700">
-            {formatType(row.original.type)}
+            {getClientTypeLabel(row.original.type)}
           </Badge>
         ),
       },
@@ -149,18 +148,22 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 px-2 text-destructive hover:text-destructive"
-              disabled={!row.original.isActive || deactivatingId === row.original.id}
-              onClick={() => handleDeactivate(row.original.id)}
+              className={
+                row.original.isActive
+                  ? "h-8 px-2 text-destructive hover:text-destructive"
+                  : "h-8 px-2 text-emerald-700 hover:text-emerald-700"
+              }
+              disabled={updatingClientId === row.original.id}
+              onClick={() => handleClientStatusChange(row.original.id, row.original.isActive)}
             >
               <UserX2 className="mr-1.5 h-3.5 w-3.5" />
-              Deactivate
+              {row.original.isActive ? "Deactivate" : "Activate"}
             </Button>
           </div>
         ),
       },
     ],
-    [deactivatingId, handleDeactivate]
+    [handleClientStatusChange, updatingClientId]
   )
 
   const table = useReactTable({

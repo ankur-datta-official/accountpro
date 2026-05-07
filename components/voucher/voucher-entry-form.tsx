@@ -11,11 +11,18 @@ import { toast } from "sonner"
 import { z } from "zod"
 
 import {
+  BANGLADESH_BANK_OPTIONS,
+  BANGLADESH_MOBILE_BANKING_OPTIONS,
+  PAYMENT_MODE_GROUPS,
+  normalizePaymentModeName,
+} from "@/lib/accounting/payment-modes"
+import {
   createVoucherAction,
   updateVoucherAction,
   type CreateVoucherInput,
 } from "@/lib/actions/vouchers"
 import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
+import type { PaymentModeType } from "@/lib/types"
 import { VoucherLineRow } from "@/components/voucher/VoucherLineRow"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -30,11 +37,16 @@ const voucherFormSchema = z.object({
   voucherDate: z.string().min(1),
   voucherType: z.enum(["payment", "received", "journal", "contra", "bf", "bp", "br"]),
   paymentModeId: z.string().optional(),
+  paymentModeName: z.string().optional(),
+  paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
   description: z.string().optional(),
   lines: z
     .array(
       z.object({
-        accountsGroup: z.enum(["expense", "income", "asset", "liability"]),
+        accountsGroup: z
+          .enum(["expense", "income", "asset", "liability"])
+          .or(z.literal(""))
+          .refine((value) => value !== "", "Accounts group is required."),
         accountHeadId: z.string().min(1, "Account head is required."),
         debitAmount: z.number().min(0),
         creditAmount: z.number().min(0),
@@ -46,23 +58,81 @@ const voucherFormSchema = z.object({
 
 type VoucherFormValues = z.input<typeof voucherFormSchema>
 
+type PaymentModeOption = {
+  id: string
+  name: string
+  type: string | null
+}
+
 const voucherTypeOptions = [
   { value: "payment", label: "Payment" },
   { value: "received", label: "Received" },
   { value: "journal", label: "Journal" },
   { value: "contra", label: "Contra" },
+]
+
+const legacyVoucherTypeOptions = [
   { value: "bf", label: "B/F" },
   { value: "bp", label: "B/P" },
   { value: "br", label: "B/R" },
 ] as const
 
 const defaultLine = (): VoucherFormValues["lines"][number] => ({
-  accountsGroup: "expense",
+  accountsGroup: "",
   accountHeadId: "",
   debitAmount: 0,
   creditAmount: 0,
   description: "",
 })
+
+function getDefaultCashMode(paymentModes: PaymentModeOption[]) {
+  return (
+    paymentModes.find((mode) => mode.type === "cash" && normalizePaymentModeName(mode.name).toLowerCase() === "cash") ??
+    paymentModes.find((mode) => mode.type === "cash") ??
+    null
+  )
+}
+
+function buildFormValues({
+  clientId,
+  fiscalYearId,
+  defaultVoucherNo,
+  paymentModes,
+  values,
+}: {
+  clientId: string
+  fiscalYearId: string
+  defaultVoucherNo: number
+  paymentModes: PaymentModeOption[]
+  values?: Partial<VoucherFormValues>
+}): VoucherFormValues {
+  const defaultCashMode = getDefaultCashMode(paymentModes)
+  const selectedPaymentMode = values?.paymentModeId
+    ? paymentModes.find((mode) => mode.id === values.paymentModeId)
+    : null
+
+  const paymentModeType = (selectedPaymentMode?.type ??
+    values?.paymentModeType ??
+    defaultCashMode?.type ??
+    "cash") as PaymentModeType
+  const normalizedDraftPaymentModeName = normalizePaymentModeName(values?.paymentModeName ?? "")
+  const paymentModeName =
+    selectedPaymentMode?.name ??
+    (normalizedDraftPaymentModeName || defaultCashMode?.name || "Cash")
+
+  return {
+    clientId,
+    fiscalYearId,
+    voucherNo: values?.voucherNo ?? defaultVoucherNo,
+    voucherDate: values?.voucherDate ?? format(new Date(), "yyyy-MM-dd"),
+    voucherType: values?.voucherType ?? "payment",
+    paymentModeId: selectedPaymentMode?.id ?? (paymentModeType === "cash" ? defaultCashMode?.id ?? "" : ""),
+    paymentModeName,
+    paymentModeType,
+    description: values?.description ?? "",
+    lines: values?.lines?.length ? values.lines : [defaultLine()],
+  }
+}
 
 export function VoucherEntryForm({
   mode = "create",
@@ -84,7 +154,7 @@ export function VoucherEntryForm({
   fiscalYearId: string
   fiscalYearLabel: string
   defaultVoucherNo: number
-  paymentModes: Array<{ id: string; name: string; type: string | null }>
+  paymentModes: PaymentModeOption[]
   initialValues?: Partial<VoucherFormValues>
   disabled?: boolean
   lastUpdated?: string | null
@@ -100,16 +170,13 @@ export function VoucherEntryForm({
 
   const form = useForm<VoucherFormValues>({
     resolver: zodResolver(voucherFormSchema),
-    defaultValues: {
+    defaultValues: buildFormValues({
       clientId,
       fiscalYearId,
-      voucherNo: initialValues?.voucherNo ?? defaultVoucherNo,
-      voucherDate: initialValues?.voucherDate ?? format(new Date(), "yyyy-MM-dd"),
-      voucherType: initialValues?.voucherType ?? "payment",
-      paymentModeId: initialValues?.paymentModeId ?? paymentModes[0]?.id ?? "",
-      description: initialValues?.description ?? "",
-      lines: initialValues?.lines?.length ? initialValues.lines : [defaultLine()],
-    },
+      defaultVoucherNo,
+      paymentModes,
+      values: initialValues,
+    }),
   })
 
   const { fields, append, remove, replace } = useFieldArray({
@@ -118,7 +185,45 @@ export function VoucherEntryForm({
   })
 
   const values = form.watch()
-  const showPaymentMode = values.voucherType === "payment" || values.voucherType === "received"
+  const showPaymentMode =
+    values.voucherType === "payment" ||
+    values.voucherType === "received" ||
+    values.voucherType === "journal"
+  const visibleVoucherTypeOptions =
+    mode === "create" ? voucherTypeOptions : [...voucherTypeOptions, ...legacyVoucherTypeOptions]
+
+  const paymentModesByType = useMemo(
+    () => ({
+      cash: paymentModes.filter((mode) => mode.type === "cash"),
+      mobile_banking: paymentModes.filter((mode) => mode.type === "mobile_banking"),
+      bank: paymentModes.filter((mode) => mode.type === "bank"),
+      other: paymentModes.filter((mode) => mode.type === "other"),
+    }),
+    [paymentModes]
+  )
+
+  const selectedExistingPaymentMode = values.paymentModeId
+    ? paymentModes.find((mode) => mode.id === values.paymentModeId) ?? null
+    : null
+  const selectedPaymentModeGroup = (selectedExistingPaymentMode?.type ??
+    values.paymentModeType ??
+    "cash") as PaymentModeType
+
+  const bankOptions = useMemo(() => {
+    const names = new Set([
+      ...BANGLADESH_BANK_OPTIONS,
+      ...paymentModesByType.bank.map((mode) => mode.name),
+    ])
+    return Array.from(names).sort((left, right) => left.localeCompare(right))
+  }, [paymentModesByType.bank])
+
+  const mobileBankingOptions = useMemo(() => {
+    const names = new Set([
+      ...BANGLADESH_MOBILE_BANKING_OPTIONS,
+      ...paymentModesByType.mobile_banking.map((mode) => mode.name),
+    ])
+    return Array.from(names).sort((left, right) => left.localeCompare(right))
+  }, [paymentModesByType.mobile_banking])
 
   const totalDebit = useMemo(
     () => values.lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0),
@@ -139,22 +244,29 @@ export function VoucherEntryForm({
     const existingDraft = window.localStorage.getItem(draftKey)
 
     if (existingDraft) {
-      form.reset(JSON.parse(existingDraft) as VoucherFormValues)
-    } else if (initialValues) {
-      form.reset({
-        clientId,
-        fiscalYearId,
-        voucherNo: initialValues.voucherNo ?? defaultVoucherNo,
-        voucherDate: initialValues.voucherDate ?? format(new Date(), "yyyy-MM-dd"),
-        voucherType: initialValues.voucherType ?? "payment",
-        paymentModeId: initialValues.paymentModeId ?? paymentModes[0]?.id ?? "",
-        description: initialValues.description ?? "",
-        lines: initialValues.lines?.length ? initialValues.lines : [defaultLine()],
-      })
+      form.reset(
+        buildFormValues({
+          clientId,
+          fiscalYearId,
+          defaultVoucherNo,
+          paymentModes,
+          values: JSON.parse(existingDraft) as VoucherFormValues,
+        })
+      )
+    } else {
+      form.reset(
+        buildFormValues({
+          clientId,
+          fiscalYearId,
+          defaultVoucherNo,
+          paymentModes,
+          values: initialValues,
+        })
+      )
     }
 
     setDraftRestored(true)
-  }, [clientId, defaultVoucherNo, draftKey, fiscalYearId, form, initialValues, paymentModes, mode])
+  }, [clientId, defaultVoucherNo, draftKey, fiscalYearId, form, initialValues, paymentModes])
 
   useEffect(() => {
     if (!draftRestored || disabled) {
@@ -173,26 +285,67 @@ export function VoucherEntryForm({
   const handleCreateAnother = () => {
     window.localStorage.removeItem(draftKey)
     replace([defaultLine()])
-    form.reset({
-      clientId,
-      fiscalYearId,
-      voucherNo: defaultVoucherNo + 1,
-      voucherDate: format(new Date(), "yyyy-MM-dd"),
-      voucherType: "payment",
-      paymentModeId: paymentModes[0]?.id ?? "",
-      description: "",
-      lines: [defaultLine()],
-    })
+    form.reset(
+      buildFormValues({
+        clientId,
+        fiscalYearId,
+        defaultVoucherNo: defaultVoucherNo + 1,
+        paymentModes,
+      })
+    )
+  }
+
+  const handlePaymentModeGroupChange = (nextGroup: PaymentModeType) => {
+    if (nextGroup === "cash") {
+      const cashMode = getDefaultCashMode(paymentModes)
+      form.setValue("paymentModeId", cashMode?.id ?? "")
+      form.setValue("paymentModeName", cashMode?.name ?? "Cash")
+      form.setValue("paymentModeType", "cash")
+      return
+    }
+
+    form.setValue("paymentModeId", "")
+    form.setValue("paymentModeName", "")
+    form.setValue("paymentModeType", nextGroup)
+  }
+
+  const handleNamedPaymentModeChange = (name: string, type: Extract<PaymentModeType, "bank" | "mobile_banking">) => {
+    const existingMode = paymentModes.find(
+      (mode) => mode.type === type && normalizePaymentModeName(mode.name).toLowerCase() === name.toLowerCase()
+    )
+
+    form.setValue("paymentModeId", existingMode?.id ?? "")
+    form.setValue("paymentModeName", name)
+    form.setValue("paymentModeType", type)
   }
 
   const onSubmit = (formValues: VoucherFormValues) => {
+    const normalizedPaymentModeName = normalizePaymentModeName(formValues.paymentModeName ?? "")
+
+    if (showPaymentMode) {
+      if (selectedPaymentModeGroup === "other" && !normalizedPaymentModeName) {
+        toast.error("Please enter an other payment mode.")
+        return
+      }
+
+      if (
+        (selectedPaymentModeGroup === "bank" || selectedPaymentModeGroup === "mobile_banking") &&
+        !normalizedPaymentModeName
+      ) {
+        toast.error("Please choose a payment mode option.")
+        return
+      }
+    }
+
     startTransition(async () => {
       const payload: CreateVoucherInput = {
         ...formValues,
         paymentModeId: showPaymentMode ? formValues.paymentModeId : undefined,
+        paymentModeName: showPaymentMode ? normalizedPaymentModeName : undefined,
+        paymentModeType: showPaymentMode ? selectedPaymentModeGroup : undefined,
         description: formValues.description || "",
         lines: formValues.lines.map((line) => ({
-          accountsGroup: line.accountsGroup,
+          accountsGroup: line.accountsGroup as CreateVoucherInput["lines"][number]["accountsGroup"],
           accountHeadId: line.accountHeadId,
           debitAmount: Number(line.debitAmount || 0),
           creditAmount: Number(line.creditAmount || 0),
@@ -234,6 +387,9 @@ export function VoucherEntryForm({
       router.refresh()
     })
   }
+
+  const namedPaymentModeValue =
+    selectedExistingPaymentMode?.name || (selectedPaymentModeGroup === "other" ? "" : values.paymentModeName || "")
 
   return (
     <div className="space-y-6">
@@ -284,7 +440,7 @@ export function VoucherEntryForm({
                     form.setValue("voucherType", event.target.value as VoucherFormValues["voucherType"])
                   }
                 >
-                  {voucherTypeOptions.map((option) => (
+                  {visibleVoucherTypeOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -294,24 +450,72 @@ export function VoucherEntryForm({
               {showPaymentMode ? (
                 <div className="space-y-2">
                   <Label>Payment Mode</Label>
-                  <select
-                    className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
-                    value={values.paymentModeId}
-                    onChange={(event) => form.setValue("paymentModeId", event.target.value)}
-                  >
-                    <option value="">Select payment mode</option>
-                    {paymentModes.map((mode) => (
-                      <option key={mode.id} value={mode.id}>
-                        {mode.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="grid gap-3">
+                    <div className="grid gap-3 sm:grid-cols-[200px_minmax(0,1fr)]">
+                      <select
+                        className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
+                        value={selectedPaymentModeGroup}
+                        onChange={(event) => handlePaymentModeGroupChange(event.target.value as PaymentModeType)}
+                      >
+                        {PAYMENT_MODE_GROUPS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      {selectedPaymentModeGroup === "cash" ? (
+                        <Input value={values.paymentModeName || "Cash"} readOnly />
+                      ) : null}
+
+                      {selectedPaymentModeGroup === "mobile_banking" ? (
+                        <select
+                          className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
+                          value={namedPaymentModeValue}
+                          onChange={(event) =>
+                            handleNamedPaymentModeChange(event.target.value, "mobile_banking")
+                          }
+                        >
+                          <option value="">Select mobile banking option</option>
+                          {mobileBankingOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+
+                      {selectedPaymentModeGroup === "bank" ? (
+                        <select
+                          className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
+                          value={namedPaymentModeValue}
+                          onChange={(event) => handleNamedPaymentModeChange(event.target.value, "bank")}
+                        >
+                          <option value="">Select bank</option>
+                          {bankOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+
+                      {selectedPaymentModeGroup === "other" ? (
+                        <Input
+                          placeholder="Enter other payment mode"
+                          value={values.paymentModeName ?? ""}
+                          onChange={(event) => {
+                            form.setValue("paymentModeId", "")
+                            form.setValue("paymentModeName", event.target.value)
+                            form.setValue("paymentModeType", "other")
+                          }}
+                        />
+                      ) : null}
+                    </div>
+
+                  </div>
                 </div>
               ) : null}
-              <div className="space-y-2 lg:col-span-2">
-                <Label htmlFor="description">Narration / Description</Label>
-                <Textarea id="description" rows={4} {...form.register("description")} />
-              </div>
             </CardContent>
           </Card>
 
@@ -346,6 +550,11 @@ export function VoucherEntryForm({
               {accountsLoading ? (
                 <p className="text-sm text-slate-500">Loading chart of accounts...</p>
               ) : null}
+
+              <div className="space-y-2 pt-2">
+                <Label htmlFor="description">Narration / Description</Label>
+                <Textarea id="description" rows={4} {...form.register("description")} />
+              </div>
             </CardContent>
           </Card>
 

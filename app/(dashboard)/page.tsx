@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { getClientTypeLabel } from "@/lib/accounting/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 
 function formatMonthStart(date: Date) {
@@ -264,7 +265,7 @@ export default async function DashboardPage() {
                 <div key={client.id} className="rounded-2xl border border-slate-200 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-semibold text-slate-950">{client.name}</p>
-                    <Badge className="rounded-full bg-slate-100 text-slate-700">{client.type ?? "company"}</Badge>
+                    <Badge className="rounded-full bg-slate-100 text-slate-700">{getClientTypeLabel(client.type)}</Badge>
                   </div>
                   <p className="mt-1 text-sm text-slate-500">
                     Active fiscal year: {activeFiscalYearMap.get(client.id) ?? "Not set"}

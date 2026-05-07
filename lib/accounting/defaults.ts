@@ -532,3 +532,45 @@ export async function createPaymentModeAccountHeadForClient(
 ) {
   await createPaymentModeAccountHead(supabase, clientId, paymentModeName)
 }
+
+export async function syncPaymentModeAccountHeadForClient(
+  clientId: string,
+  {
+    previousName,
+    nextName,
+  }: {
+    previousName: string
+    nextName: string
+  },
+  supabase: SupabaseAdminClient
+) {
+  if (previousName === nextName) {
+    await createPaymentModeAccountHead(supabase, clientId, nextName)
+    return
+  }
+
+  const { data: existingNextHead } = await supabase
+    .from("account_heads")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("name", nextName)
+    .maybeSingle()
+
+  if (existingNextHead) {
+    return
+  }
+
+  const { data: previousHead } = await supabase
+    .from("account_heads")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("name", previousName)
+    .maybeSingle()
+
+  if (previousHead?.id) {
+    await supabase.from("account_heads").update({ name: nextName }).eq("id", previousHead.id)
+    return
+  }
+
+  await createPaymentModeAccountHead(supabase, clientId, nextName)
+}

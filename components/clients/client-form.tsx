@@ -8,7 +8,7 @@ import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
 
-import { clientTypeOptions, fiscalYearMonths } from "@/lib/accounting/clients"
+import { clientTypeGroups, clientTypeValues, fiscalYearMonths } from "@/lib/accounting/clients"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -17,7 +17,9 @@ import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -25,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea"
 
 const clientSchema = z.object({
   name: z.string().min(2, "Client name is required."),
-  type: z.enum(["company", "individual", "partnership", "ngo"]),
+  type: z.enum(clientTypeValues),
   trade_name: z.string().optional(),
   tin: z.string().optional(),
   bin: z.string().optional(),
@@ -44,7 +46,7 @@ export function ClientForm() {
     resolver: zodResolver(clientSchema),
     defaultValues: {
       name: "",
-      type: "company",
+      type: "limited_company_commercial",
       trade_name: "",
       tin: "",
       bin: "",
@@ -121,10 +123,17 @@ export function ClientForm() {
                 <SelectValue placeholder="Select client type" />
               </SelectTrigger>
               <SelectContent>
-                {clientTypeOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
+                {clientTypeGroups.map((group) => (
+                  <SelectGroup key={group.label}>
+                    <SelectLabel className="text-xs uppercase tracking-wide text-slate-500">
+                      {group.label}
+                    </SelectLabel>
+                    {group.options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 ))}
               </SelectContent>
             </Select>
