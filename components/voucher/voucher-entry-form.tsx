@@ -16,6 +16,7 @@ import {
   PAYMENT_MODE_GROUPS,
   normalizePaymentModeName,
 } from "@/lib/accounting/payment-modes"
+import { normalizeVoucherLineAmounts } from "@/lib/accounting/voucher-entry-rules"
 import {
   createVoucherAction,
   updateVoucherAction,
@@ -23,7 +24,7 @@ import {
 } from "@/lib/actions/vouchers"
 import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
 import type { PaymentModeType } from "@/lib/types"
-import { VoucherLineRow } from "@/components/voucher/VoucherLineRow"
+import { VoucherLineRow, type VoucherLineFormValues } from "@/components/voucher/VoucherLineRow"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -56,7 +57,7 @@ const voucherFormSchema = z.object({
     .min(1),
 })
 
-type VoucherFormValues = z.input<typeof voucherFormSchema>
+type VoucherFormValues = z.input<typeof voucherFormSchema> & VoucherLineFormValues
 
 type PaymentModeOption = {
   id: string
@@ -344,13 +345,17 @@ export function VoucherEntryForm({
         paymentModeName: showPaymentMode ? normalizedPaymentModeName : undefined,
         paymentModeType: showPaymentMode ? selectedPaymentModeGroup : undefined,
         description: formValues.description || "",
-        lines: formValues.lines.map((line) => ({
-          accountsGroup: line.accountsGroup as CreateVoucherInput["lines"][number]["accountsGroup"],
-          accountHeadId: line.accountHeadId,
-          debitAmount: Number(line.debitAmount || 0),
-          creditAmount: Number(line.creditAmount || 0),
-          description: line.description || "",
-        })),
+        lines: formValues.lines.map((line) => {
+          const normalizedLine = normalizeVoucherLineAmounts({
+            accountsGroup: line.accountsGroup as CreateVoucherInput["lines"][number]["accountsGroup"],
+            accountHeadId: line.accountHeadId,
+            debitAmount: Number(line.debitAmount || 0),
+            creditAmount: Number(line.creditAmount || 0),
+            description: line.description || "",
+          })
+
+          return normalizedLine
+        }),
       }
 
       const result =
@@ -542,8 +547,8 @@ export function VoucherEntryForm({
                   accounts={flatAccounts}
                   onRemove={() => (fields.length > 1 ? remove(index) : replace([defaultLine()]))}
                   onAddLine={handleAddLine}
-                  register={form.register}
-                  setValue={form.setValue}
+                  register={(name) => form.register(name)}
+                  setValue={(name, value) => form.setValue(name, value)}
                   disabled={disabled}
                 />
               ))}

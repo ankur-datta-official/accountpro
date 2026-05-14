@@ -5,6 +5,10 @@ import { z } from "zod"
 
 import { getMonthLabel } from "@/lib/accounting/fiscal-year"
 import { resolveOrCreatePaymentMode } from "@/lib/accounting/payment-modes"
+import {
+  getVoucherLineAmountRuleError,
+  normalizeVoucherLineAmounts,
+} from "@/lib/accounting/voucher-entry-rules"
 import { AUTO_BALANCE_ENTRY_PREFIX } from "@/lib/accounting/vouchers"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 import type { Database, PaymentModeType } from "@/lib/types"
@@ -131,6 +135,22 @@ function getEntryTotals(lines: CreateVoucherInput["lines"]) {
   const difference = Number((totalDebit - totalCredit).toFixed(2))
 
   return { totalDebit, totalCredit, difference }
+}
+
+function validateVoucherLineRules(lines: CreateVoucherInput["lines"]) {
+  for (const line of lines) {
+    const error = getVoucherLineAmountRuleError({
+      accountsGroup: line.accountsGroup,
+      debitAmount: Number(line.debitAmount || 0),
+      creditAmount: Number(line.creditAmount || 0),
+    })
+
+    if (error) {
+      return error
+    }
+  }
+
+  return null
 }
 
 async function getVoucherNumber(
@@ -263,7 +283,16 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     }
   }
 
-  const values = parsed.data
+  const values = {
+    ...parsed.data,
+    lines: parsed.data.lines.map((line) =>
+      normalizeVoucherLineAmounts({
+        ...line,
+        debitAmount: Number(line.debitAmount || 0),
+        creditAmount: Number(line.creditAmount || 0),
+      })
+    ),
+  }
   const validation = await getValidatedVoucherContext(values.clientId, values.fiscalYearId)
 
   if (!validation.success) {
@@ -276,6 +305,14 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     return {
       success: false as const,
       error: "The selected fiscal year is not active for voucher entry.",
+    }
+  }
+
+  const lineRuleError = validateVoucherLineRules(values.lines)
+  if (lineRuleError) {
+    return {
+      success: false as const,
+      error: lineRuleError,
     }
   }
 
@@ -390,7 +427,16 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     }
   }
 
-  const values = parsed.data
+  const values = {
+    ...parsed.data,
+    lines: parsed.data.lines.map((line) =>
+      normalizeVoucherLineAmounts({
+        ...line,
+        debitAmount: Number(line.debitAmount || 0),
+        creditAmount: Number(line.creditAmount || 0),
+      })
+    ),
+  }
   const validation = await getValidatedVoucherContext(values.clientId, values.fiscalYearId)
 
   if (!validation.success) {
@@ -417,6 +463,14 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     return {
       success: false as const,
       error: "You cannot edit a voucher in a closed fiscal year.",
+    }
+  }
+
+  const lineRuleError = validateVoucherLineRules(values.lines)
+  if (lineRuleError) {
+    return {
+      success: false as const,
+      error: lineRuleError,
     }
   }
 

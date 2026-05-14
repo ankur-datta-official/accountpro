@@ -9,13 +9,21 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Eye, PencilLine, Search, UserPlus, UserX2, Users } from "lucide-react"
+import { Copy, Eye, Loader2, PencilLine, Search, UserPlus, UserX2, Users } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -41,6 +49,9 @@ export type ClientTableRow = {
 export function ClientsTable({ data }: { data: ClientTableRow[] }) {
   const [globalFilter, setGlobalFilter] = useState("")
   const [updatingClientId, setUpdatingClientId] = useState<string | null>(null)
+  const [replicationTarget, setReplicationTarget] = useState<ClientTableRow | null>(null)
+  const [replicationName, setReplicationName] = useState("")
+  const [isReplicating, setIsReplicating] = useState(false)
   const router = useRouter()
 
   const handleClientStatusChange = useCallback(async (clientId: string, isActive: boolean) => {
@@ -77,6 +88,64 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
     toast.success(isActive ? "Client deactivated." : "Client activated.")
     router.refresh()
   }, [router])
+
+  const openReplicationDialog = useCallback((client: ClientTableRow) => {
+    setReplicationTarget(client)
+    setReplicationName(`${client.name} Copy`)
+  }, [])
+
+  const handleReplicationDialogChange = useCallback((open: boolean) => {
+    if (!open && !isReplicating) {
+      setReplicationTarget(null)
+      setReplicationName("")
+    }
+  }, [isReplicating])
+
+  const handleReplicateClient = useCallback(async () => {
+    if (!replicationTarget) return
+
+    const name = replicationName.trim()
+    if (name.length < 2) {
+      toast.error("Copy name must be at least 2 characters.")
+      return
+    }
+
+    setIsReplicating(true)
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      toast.error("Your session has expired. Please sign in again.")
+      setIsReplicating(false)
+      router.replace("/login")
+      return
+    }
+
+    const response = await fetch(`/api/clients/${replicationTarget.id}/replicate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ name }),
+    })
+
+    const result = await response.json().catch(() => ({ error: "Unable to replicate client." }))
+    setIsReplicating(false)
+
+    if (!response.ok) {
+      toast.error(result.error ?? "Unable to replicate client.")
+      return
+    }
+
+    toast.success("Client replication completed successfully.")
+    setReplicationTarget(null)
+    setReplicationName("")
+    router.replace(`/clients/${result.clientId}`)
+    router.refresh()
+  }, [replicationName, replicationTarget, router])
 
   const columns = useMemo<ColumnDef<ClientTableRow>[]>(
     () => [
@@ -148,6 +217,17 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
               type="button"
               variant="ghost"
               size="sm"
+              className="h-8 px-2 text-slate-600"
+              disabled={isReplicating}
+              onClick={() => openReplicationDialog(row.original)}
+            >
+              <Copy className="mr-1.5 h-3.5 w-3.5" />
+              Replicate
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
               className={
                 row.original.isActive
                   ? "h-8 px-2 text-destructive hover:text-destructive"
@@ -163,7 +243,7 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
         ),
       },
     ],
-    [handleClientStatusChange, updatingClientId]
+    [handleClientStatusChange, isReplicating, openReplicationDialog, updatingClientId]
   )
 
   const table = useReactTable({
@@ -286,6 +366,51 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
           </TableBody>
         </Table>
       </Card>
+
+      <Dialog
+        open={Boolean(replicationTarget)}
+        onOpenChange={handleReplicationDialogChange}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Replicate Client Workspace</DialogTitle>
+            <DialogDescription>
+              {replicationTarget
+                ? `Create a complete copy of ${replicationTarget.name} with its latest fiscal years, chart of accounts, payment modes, and vouchers.`
+                : "Create a complete copy of this client workspace."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label htmlFor="replication-name" className="text-sm font-medium text-slate-700">
+              New client name
+            </label>
+            <Input
+              id="replication-name"
+              value={replicationName}
+              onChange={(event) => setReplicationName(event.target.value)}
+              placeholder="Enter a name for the replicated client"
+              disabled={isReplicating}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-slate-200"
+              disabled={isReplicating}
+              onClick={() => handleReplicationDialogChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" disabled={isReplicating} onClick={handleReplicateClient}>
+              {isReplicating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Copy className="mr-2 h-4 w-4" />}
+              Create Replication Copy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

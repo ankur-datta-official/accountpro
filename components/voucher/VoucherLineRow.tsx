@@ -1,13 +1,19 @@
 "use client"
 
-import { Trash2 } from "lucide-react"
-import type { UseFormRegister, UseFormSetValue } from "react-hook-form"
+import type { UseFormRegisterReturn } from "react-hook-form"
 
+import { Trash2 } from "lucide-react"
+import {
+  isCreditLockedForAccountsGroup,
+  isDebitLockedForAccountsGroup,
+  normalizeVoucherLineAmounts,
+  type VoucherAccountsGroup,
+} from "@/lib/accounting/voucher-entry-rules"
 import type { ChartFlatAccount } from "@/lib/hooks/useChartOfAccounts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 
-type VoucherFormValues = {
+export type VoucherLineFormValues = {
   lines: Array<{
     accountsGroup: "expense" | "income" | "asset" | "liability" | ""
     accountHeadId: string
@@ -16,6 +22,17 @@ type VoucherFormValues = {
     description?: string
   }>
 }
+
+type LinePath =
+  | `lines.${number}.accountsGroup`
+  | `lines.${number}.accountHeadId`
+  | `lines.${number}.debitAmount`
+  | `lines.${number}.creditAmount`
+  | `lines.${number}.description`
+
+type RegisterLineDescription = (name: `lines.${number}.description`) => UseFormRegisterReturn
+
+type SetLineValue = (name: LinePath, value: string | number) => void
 
 export function VoucherLineRow({
   index,
@@ -28,12 +45,12 @@ export function VoucherLineRow({
   disabled = false,
 }: {
   index: number
-  line: VoucherFormValues["lines"][number]
+  line: VoucherLineFormValues["lines"][number]
   accounts: ChartFlatAccount[]
   onRemove: () => void
   onAddLine: () => void
-  register: UseFormRegister<any>
-  setValue: UseFormSetValue<any>
+  register: RegisterLineDescription
+  setValue: SetLineValue
   disabled?: boolean
 }) {
   const filteredAccounts = accounts.filter((account) => account.groupType === line.accountsGroup)
@@ -45,6 +62,8 @@ export function VoucherLineRow({
     acc[account.subGroupName].push(account)
     return acc
   }, {})
+  const debitLocked = isDebitLockedForAccountsGroup(line.accountsGroup)
+  const creditLocked = isCreditLockedForAccountsGroup(line.accountsGroup)
 
   return (
     <div className="grid gap-3 rounded-2xl border border-slate-200 p-4 lg:grid-cols-[0.75fr_1.3fr_0.7fr_0.7fr_1fr_auto]">
@@ -55,11 +74,19 @@ export function VoucherLineRow({
         title="Accounts Group"
         value={line.accountsGroup}
         onChange={(event) => {
+          const accountsGroup = event.target.value as VoucherAccountsGroup
+          const normalizedLine = normalizeVoucherLineAmounts({
+            ...line,
+            accountsGroup,
+          })
+
           setValue(
             `lines.${index}.accountsGroup`,
-            event.target.value as VoucherFormValues["lines"][number]["accountsGroup"]
+            accountsGroup
           )
           setValue(`lines.${index}.accountHeadId`, "")
+          setValue(`lines.${index}.debitAmount`, normalizedLine.debitAmount)
+          setValue(`lines.${index}.creditAmount`, normalizedLine.creditAmount)
         }}
       >
         <option value="" disabled>
@@ -103,7 +130,7 @@ export function VoucherLineRow({
           )
         }
         aria-label="Debit"
-        disabled={disabled}
+        disabled={disabled || debitLocked}
         onFocus={(event) => {
           if (event.target.value === "0") {
             event.target.select()
@@ -123,7 +150,7 @@ export function VoucherLineRow({
           )
         }
         aria-label="Credit"
-        disabled={disabled}
+        disabled={disabled || creditLocked}
         onFocus={(event) => {
           if (event.target.value === "0") {
             event.target.select()
