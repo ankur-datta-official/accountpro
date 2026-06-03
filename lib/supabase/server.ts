@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
+import { cache } from "react"
 
 import type { User } from "@supabase/supabase-js"
 
@@ -37,7 +38,7 @@ type OrganizationContext = {
   user: User | null
 }
 
-export async function getCurrentOrganizationContext(): Promise<OrganizationContext> {
+export const getCurrentOrganizationContext = cache(async function getCurrentOrganizationContext(): Promise<OrganizationContext> {
   const supabase = createClient()
   const {
     data: { user },
@@ -78,4 +79,4 @@ export async function getCurrentOrganizationContext(): Promise<OrganizationConte
     organization: organization ?? null,
     user,
   }
-}
+})

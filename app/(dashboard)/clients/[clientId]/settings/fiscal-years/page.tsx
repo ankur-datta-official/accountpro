@@ -8,7 +8,7 @@ import {
 } from "@/components/clients/fiscal-year-actions"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
+import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 
 function getFiscalYearStatus(year: {
   is_active: boolean | null
@@ -30,30 +30,14 @@ export default async function FiscalYearsPage({
 }: {
   params: { clientId: string }
 }) {
-  const supabase = createClient()
-  const { membership } = await getCurrentOrganizationContext()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", params.clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
+  const { client, fiscalYears } = await getClientRouteContext({ clientId: params.clientId })
 
   if (!client) {
     notFound()
   }
 
-  const { data: fiscalYears } = await supabase
-    .from("fiscal_years")
-    .select("*")
-    .eq("client_id", client.id)
-    .order("start_date", { ascending: false })
-
   const latestStartDate =
-    fiscalYears?.[0]?.start_date ?? format(new Date(new Date().getFullYear(), 6, 1), "yyyy-MM-dd")
+    fiscalYears[0]?.start_date ?? format(new Date(new Date().getFullYear(), 6, 1), "yyyy-MM-dd")
 
   const nextDefaultStartDate = format(addYears(parseISO(latestStartDate), 1), "yyyy-MM-dd")
 
@@ -68,7 +52,7 @@ export default async function FiscalYearsPage({
         </div>
         <FiscalYearForm
           clientId={client.id}
-          existingYears={(fiscalYears ?? []).map((year) => ({
+          existingYears={fiscalYears.map((year) => ({
             id: year.id,
             start_date: year.start_date,
             end_date: year.end_date,
@@ -78,7 +62,7 @@ export default async function FiscalYearsPage({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {(fiscalYears ?? []).map((year) => {
+        {fiscalYears.map((year) => {
           const status = getFiscalYearStatus(year)
 
           return (

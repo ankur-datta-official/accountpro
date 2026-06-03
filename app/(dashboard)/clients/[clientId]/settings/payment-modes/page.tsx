@@ -13,7 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
+import { getClientRouteContext } from "@/lib/accounting/client-route-context"
+import { createClient } from "@/lib/supabase/server"
 
 function formatType(value: string | null) {
   return (value ?? "other").replace("_", " ").replace(/\b\w/g, (char) => char.toUpperCase())
@@ -25,16 +26,7 @@ export default async function PaymentModesPage({
   params: { clientId: string }
 }) {
   const supabase = createClient()
-  const { membership } = await getCurrentOrganizationContext()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", params.clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
+  const { client } = await getClientRouteContext({ clientId: params.clientId })
 
   if (!client) {
     notFound()

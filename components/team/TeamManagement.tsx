@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { MetricCard, PageHeader } from "@/components/ui/page-shell"
 import {
   Table,
   TableBody,
@@ -103,17 +104,12 @@ export function TeamManagement() {
 
   return (
     <div className="space-y-6">
-      <Card className="rounded-[2rem] border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Team Members</h1>
-            <p className="mt-1 text-sm text-slate-500">{team.organization?.name ?? "Organization"}</p>
-            <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-              {formatPlanName(team.organization?.plan)} plan - {limitLabel}
-            </p>
-          </div>
-
-          {team.limits.isAtLimit ? (
+      <PageHeader
+        eyebrow={`${formatPlanName(team.organization?.plan)} plan - ${limitLabel}`}
+        title="Team Members"
+        description={`Manage who can access ${team.organization?.name ?? "this organization"} and keep permissions clear for daily accounting work.`}
+        actions={
+          team.limits.isAtLimit ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
               <div className="mb-1 flex items-center gap-2 font-medium">
                 <ShieldAlert className="h-4 w-4" />
@@ -123,26 +119,17 @@ export function TeamManagement() {
             </div>
           ) : (
             <InviteDialog disabled={!team.canManageRoles} onInvited={team.refresh} />
-          )}
-        </div>
-      </Card>
+          )
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="rounded-2xl border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Total members</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{team.stats.totalMembers}</p>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Active</p>
-          <p className="mt-2 text-3xl font-semibold text-emerald-600">{team.stats.activeMembers}</p>
-        </Card>
-        <Card className="rounded-2xl border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Pending invitations</p>
-          <p className="mt-2 text-3xl font-semibold text-amber-600">{team.stats.pendingInvitations}</p>
-        </Card>
+        <MetricCard label="Total members" value={team.stats.totalMembers} />
+        <MetricCard label="Active" value={team.stats.activeMembers} tone="success" />
+        <MetricCard label="Pending invitations" value={team.stats.pendingInvitations} tone="warning" />
       </div>
 
-      <Card className="overflow-hidden rounded-[2rem] border-slate-200 bg-white shadow-sm">
+      <Card className="overflow-hidden rounded-xl border-slate-200 bg-white shadow-sm">
         <Table>
           <TableHeader>
             <TableRow>

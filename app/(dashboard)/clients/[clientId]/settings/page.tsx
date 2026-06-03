@@ -2,7 +2,8 @@ import { notFound } from "next/navigation"
 import { addYears, format, parseISO } from "date-fns"
 
 import { ClientSettingsManager } from "@/components/clients/client-settings-manager"
-import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
+import { getClientRouteContext } from "@/lib/accounting/client-route-context"
+import { createClient } from "@/lib/supabase/server"
 
 export default async function ClientSettingsPage({
   params,
@@ -10,16 +11,9 @@ export default async function ClientSettingsPage({
   params: { clientId: string }
 }) {
   const supabase = createClient()
-  const { membership } = await getCurrentOrganizationContext()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", params.clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
+  const { client, fiscalYears: routeFiscalYears } = await getClientRouteContext({
+    clientId: params.clientId,
+  })
 
   if (!client) {
     notFound()
@@ -36,7 +30,7 @@ export default async function ClientSettingsPage({
     accountHeadsRes,
   ] =
     await Promise.all([
-      supabase.from("fiscal_years").select("*").eq("client_id", client.id).order("start_date", { ascending: false }),
+      Promise.resolve({ data: routeFiscalYears }),
       supabase.from("vouchers").select("id,fiscal_year_id").eq("client_id", client.id),
       supabase.from("voucher_entries").select("voucher_id,debit,credit"),
       supabase.from("payment_modes").select("*").eq("client_id", client.id).order("name"),

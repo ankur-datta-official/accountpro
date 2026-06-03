@@ -19,7 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
+import { getClientRouteContext } from "@/lib/accounting/client-route-context"
+import { createClient } from "@/lib/supabase/server"
 
 function currency(value: number) {
   return new Intl.NumberFormat("en-BD", {
@@ -37,16 +38,7 @@ export default async function VoucherDetailPage({
   searchParams?: { print?: string }
 }) {
   const supabase = createClient()
-  const { membership } = await getCurrentOrganizationContext()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", params.clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
+  const { client } = await getClientRouteContext({ clientId: params.clientId })
 
   if (!client) {
     notFound()

@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/EmptyState"
 import { Input } from "@/components/ui/input"
 import { LoadingTable } from "@/components/ui/LoadingTable"
+import { FilterPanel, PageHeader } from "@/components/ui/page-shell"
 import {
   Select,
   SelectContent,
@@ -403,18 +404,17 @@ export function LedgerBookManager({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight text-slate-950">Ledger Book</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            Browse account-wise ledger with running balances for {clientName}.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+      <PageHeader
+        eyebrow="Account movement"
+        title="Ledger Book"
+        description={`Browse account-wise ledger with running balances for ${clientName}. Choose one account for a focused review, or switch to all ledgers before printing.`}
+        icon={BookOpenText}
+        actions={
+          <>
           <Button
             type="button"
             variant="outline"
-            className="rounded-xl border-slate-200"
+            className="rounded-lg border-slate-200"
             onClick={() => setAllLedgersMode((current) => !current)}
           >
             {allLedgersMode ? "Single Ledger" : "All Ledgers"}
@@ -422,7 +422,7 @@ export function LedgerBookManager({
           <Button
             type="button"
             variant="outline"
-            className="rounded-xl border-slate-200"
+            className="rounded-lg border-slate-200"
             onClick={() => void handlePrint()}
             disabled={!printSections.length}
           >
@@ -432,21 +432,19 @@ export function LedgerBookManager({
           <Button
             type="button"
             variant="outline"
-            className="rounded-xl border-slate-200"
+            className="rounded-lg border-slate-200"
             onClick={handleExport}
             disabled={!printSections.length}
           >
             <Download className="mr-2 h-4 w-4" />
             Export to Excel
           </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-xl text-slate-950">Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-4">
+      <FilterPanel title="Choose ledger scope" description="Select an account head and period. Date fields update automatically when you switch fiscal year.">
+        <div className="grid gap-4 xl:grid-cols-4">
           <div>
             <Input
               list={`ledger-account-heads-${clientId}`}
@@ -508,8 +506,8 @@ export function LedgerBookManager({
             onChange={(event) => setToDate(event.target.value)}
             className="h-11 rounded-xl border-slate-200"
           />
-        </CardContent>
-      </Card>
+        </div>
+      </FilterPanel>
 
       {allLedgersMode ? (
         <div className="space-y-5">

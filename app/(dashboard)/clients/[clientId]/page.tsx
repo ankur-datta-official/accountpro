@@ -13,8 +13,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { getClientTypeLabel } from "@/lib/accounting/clients"
-import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
+import { createClient } from "@/lib/supabase/server"
 
 function currency(value: number) {
   return new Intl.NumberFormat("en-BD", {
@@ -22,6 +23,12 @@ function currency(value: number) {
     currency: "BDT",
     maximumFractionDigits: 2,
   }).format(value)
+}
+
+type DashboardTotalEntry = {
+  accounts_group: string | null
+  debit: number | null
+  credit: number | null
 }
 
 export default async function ClientDashboardPage({
@@ -32,52 +39,54 @@ export default async function ClientDashboardPage({
   searchParams: { fiscalYear?: string }
 }) {
   const supabase = createClient()
-  const { membership } = await getCurrentOrganizationContext()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", params.clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
+  const { client, selectedFiscalYear } = await getClientRouteContext({
+    clientId: params.clientId,
+    fiscalYearId: searchParams.fiscalYear,
+  })
 
   if (!client) {
     notFound()
   }
 
-  const { data: fiscalYears } = await supabase
-    .from("fiscal_years")
-    .select("*")
-    .eq("client_id", client.id)
-    .order("start_date", { ascending: false })
+  const [
+    recentVouchersResult,
+    voucherCountResult,
+    totalEntriesResult,
+  ] = selectedFiscalYear
+    ? await Promise.all([
+        supabase
+          .from("vouchers")
+          .select("id,voucher_no,voucher_date,voucher_type,description")
+          .eq("client_id", client.id)
+          .eq("fiscal_year_id", selectedFiscalYear.id)
+          .order("voucher_date", { ascending: false })
+          .order("voucher_no", { ascending: false })
+          .limit(10),
+        supabase
+          .from("vouchers")
+          .select("id", { count: "exact", head: true })
+          .eq("client_id", client.id)
+          .eq("fiscal_year_id", selectedFiscalYear.id),
+        supabase
+          .from("voucher_entries")
+          .select("accounts_group,debit,credit,vouchers!inner(client_id,fiscal_year_id)")
+          .eq("vouchers.client_id", client.id)
+          .eq("vouchers.fiscal_year_id", selectedFiscalYear.id),
+      ])
+    : [
+        { data: [] },
+        { count: 0 },
+        { data: [] },
+      ]
 
-  const selectedFiscalYear =
-    fiscalYears?.find((year) => year.id === searchParams.fiscalYear) ??
-    fiscalYears?.find((year) => year.is_active) ??
-    fiscalYears?.[0] ??
-    null
-
-  const { data: vouchers } = selectedFiscalYear
-    ? await supabase
-        .from("vouchers")
-        .select("*")
-        .eq("client_id", client.id)
-        .eq("fiscal_year_id", selectedFiscalYear.id)
-        .order("voucher_date", { ascending: false })
-    : { data: [] }
-
-  const recentVouchers = (vouchers ?? []).slice(0, 10)
+  const recentVouchers = recentVouchersResult.data ?? []
   const voucherIds = recentVouchers.map((voucher) => voucher.id)
-  const allVoucherIds = (vouchers ?? []).map((voucher) => voucher.id)
 
   const { data: recentEntries } = voucherIds.length
-    ? await supabase.from("voucher_entries").select("*").in("voucher_id", voucherIds)
-    : { data: [] }
-
-  const { data: allEntries } = allVoucherIds.length
-    ? await supabase.from("voucher_entries").select("*").in("voucher_id", allVoucherIds)
+    ? await supabase
+        .from("voucher_entries")
+        .select("voucher_id,debit,credit")
+        .in("voucher_id", voucherIds)
     : { data: [] }
 
   const voucherEntryMap = new Map<string, number>()
@@ -89,7 +98,9 @@ export default async function ClientDashboardPage({
   let totalIncome = 0
   let totalExpense = 0
 
-  for (const entry of allEntries ?? []) {
+  const totalEntries = (totalEntriesResult.data ?? []) as DashboardTotalEntry[]
+
+  for (const entry of totalEntries) {
     const accountGroup = entry.accounts_group?.toLowerCase()
     const debit = Number(entry.debit ?? 0)
     const credit = Number(entry.credit ?? 0)
@@ -175,7 +186,7 @@ export default async function ClientDashboardPage({
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Total Vouchers", value: vouchers?.length ?? 0 },
+          { label: "Total Vouchers", value: voucherCountResult.count ?? 0 },
           { label: "Total Income", value: currency(totalIncome) },
           { label: "Total Expense", value: currency(totalExpense) },
           { label: "Balance", value: currency(balance) },

@@ -3,7 +3,8 @@ import { notFound } from "next/navigation"
 
 import { isAutoBalanceEntry } from "@/lib/accounting/vouchers"
 import { VoucherEntryForm } from "@/components/voucher/voucher-entry-form"
-import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
+import { getClientRouteContext } from "@/lib/accounting/client-route-context"
+import { createClient } from "@/lib/supabase/server"
 
 export default async function EditVoucherPage({
   params,
@@ -11,16 +12,7 @@ export default async function EditVoucherPage({
   params: { clientId: string; voucherId: string }
 }) {
   const supabase = createClient()
-  const { membership } = await getCurrentOrganizationContext()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", params.clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
+  const { client } = await getClientRouteContext({ clientId: params.clientId })
 
   if (!client) {
     notFound()

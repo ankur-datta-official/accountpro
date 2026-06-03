@@ -2,7 +2,8 @@ import { eachMonthOfInterval, format } from "date-fns"
 import { notFound } from "next/navigation"
 
 import { VoucherListManager } from "@/components/voucher/voucher-list-manager"
-import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
+import { getClientRouteContext } from "@/lib/accounting/client-route-context"
+import { createClient } from "@/lib/supabase/server"
 
 export default async function VouchersPage({
   params,
@@ -12,32 +13,14 @@ export default async function VouchersPage({
   searchParams: { fiscalYear?: string }
 }) {
   const supabase = createClient()
-  const { membership } = await getCurrentOrganizationContext()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", params.clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
+  const { client, selectedFiscalYear } = await getClientRouteContext({
+    clientId: params.clientId,
+    fiscalYearId: searchParams.fiscalYear,
+  })
 
   if (!client) {
     notFound()
   }
-
-  const { data: fiscalYears } = await supabase
-    .from("fiscal_years")
-    .select("*")
-    .eq("client_id", client.id)
-    .order("start_date", { ascending: false })
-
-  const selectedFiscalYear =
-    fiscalYears?.find((year) => year.id === searchParams.fiscalYear) ??
-    fiscalYears?.find((year) => year.is_active) ??
-    fiscalYears?.[0] ??
-    null
 
   if (!selectedFiscalYear) {
     notFound()

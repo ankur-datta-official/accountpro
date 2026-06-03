@@ -20,6 +20,7 @@ import { EmptyState } from "@/components/ui/EmptyState"
 import { ErrorFallback } from "@/components/ui/ErrorBoundary"
 import { Input } from "@/components/ui/input"
 import { LoadingTable } from "@/components/ui/LoadingTable"
+import { ActionBar, FilterPanel, MetricCard, PageHeader } from "@/components/ui/page-shell"
 import {
   Select,
   SelectContent,
@@ -185,20 +186,20 @@ export function VoucherListManager({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight text-slate-950">Vouchers</h2>
-          <p className="mt-2 text-sm leading-7 text-slate-500">
-            Browse, filter, and manage voucher activity for {clientName}.
-          </p>
-        </div>
-        <Button asChild className="rounded-xl">
-          <Link href={`/clients/${clientId}/vouchers/new?fiscalYear=${fiscalYearId}`}>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            Add New Voucher
-          </Link>
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Daily entry"
+        title="Vouchers"
+        description={`Browse, filter, and manage voucher activity for ${clientName}. Use filters first, then select rows for export or bulk actions.`}
+        icon={PlusCircle}
+        actions={
+          <Button asChild className="rounded-lg">
+            <Link href={`/clients/${clientId}/vouchers/new?fiscalYear=${fiscalYearId}`}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              Add New Voucher
+            </Link>
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-3">
         {[
@@ -206,22 +207,11 @@ export function VoucherListManager({
           { label: "Total Payments", value: currency(stats.totalPayments) },
           { label: "Net Balance", value: currency(stats.netBalance) },
         ].map((stat) => (
-          <Card key={stat.label} className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-slate-500">{stat.label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-semibold tracking-tight text-slate-950">{stat.value}</div>
-            </CardContent>
-          </Card>
+          <MetricCard key={stat.label} label={stat.label} value={stat.value} />
         ))}
       </div>
 
-      <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-xl text-slate-950">Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <FilterPanel title="Find vouchers" description="Narrow the register by date, type, payment mode, account head, month, or description.">
           <div className="grid gap-4 xl:grid-cols-6">
             <Input
               type="date"
@@ -347,10 +337,9 @@ export function VoucherListManager({
               </SelectContent>
             </Select>
           </div>
-        </CardContent>
-      </Card>
+      </FilterPanel>
 
-      <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
+      <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
         <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <CardTitle className="text-xl text-slate-950">Voucher Register</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
@@ -380,6 +369,35 @@ export function VoucherListManager({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {selectedCount ? (
+            <ActionBar>
+              <p className="text-sm font-medium text-slate-700">
+                {selectedCount} voucher{selectedCount === 1 ? "" : "s"} selected
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-lg border-slate-200"
+                  disabled={isBulkPending}
+                  onClick={handleExportSelected}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Selected
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-lg border-slate-200 text-destructive hover:text-destructive"
+                  disabled={isBulkPending}
+                  onClick={handleBulkDelete}
+                >
+                  {isBulkPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Bulk Delete
+                </Button>
+              </div>
+            </ActionBar>
+          ) : null}
           {error ? <ErrorFallback error={error} onRetry={() => void mutate()} /> : null}
 
           <div className="overflow-x-auto">

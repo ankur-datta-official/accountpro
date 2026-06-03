@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Loader2 } from "lucide-react"
+import { Building2, Loader2 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PageHeader } from "@/components/ui/page-shell"
 import {
   Select,
   SelectContent,
@@ -94,16 +95,19 @@ export function ClientForm() {
   }
 
   return (
-    <Card className="rounded-[2rem] border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Add New Client</h1>
-        <p className="mt-2 text-sm leading-7 text-slate-500">
-          Create a client workspace, initialize its active fiscal year, and provision default
-          payment modes in one step.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="New workspace"
+        title="Add New Client"
+        description="Create a client workspace, initialize its active fiscal year, and provision default payment modes in one step."
+        icon={Building2}
+      />
 
+      <Card className="rounded-xl border-slate-200 bg-white p-5 shadow-sm sm:p-6">
       <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Start with the required identity fields. Tax and contact details can be added now or edited later from Client Settings.
+        </div>
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="name">Client Name</Label>
@@ -204,7 +208,7 @@ export function ClientForm() {
           />
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
           <Button
             type="button"
             variant="outline"
@@ -219,6 +223,7 @@ export function ClientForm() {
           </Button>
         </div>
       </form>
-    </Card>
+      </Card>
+    </div>
   )
 }

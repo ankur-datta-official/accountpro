@@ -9,13 +9,14 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Copy, Eye, Loader2, PencilLine, Search, UserPlus, UserX2, Users } from "lucide-react"
+import { Building2, Copy, Eye, Loader2, PencilLine, Search, UserPlus, UserX2, Users } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { FilterPanel, PageHeader } from "@/components/ui/page-shell"
 import {
   Dialog,
   DialogContent,
@@ -171,12 +172,12 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
       {
         accessorKey: "tin",
         header: "TIN",
-        cell: ({ row }) => row.original.tin || "—",
+        cell: ({ row }) => row.original.tin || "-",
       },
       {
         accessorKey: "bin",
         header: "BIN",
-        cell: ({ row }) => row.original.bin || "—",
+        cell: ({ row }) => row.original.bin || "-",
       },
       {
         accessorKey: "fiscalYearLabel",
@@ -272,7 +273,22 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
   if (!data.length) {
     return (
       <div className="space-y-6">
-        <div className="flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <PageHeader
+          eyebrow="Workspace setup"
+          title="Clients"
+          description="Create client workspaces for each business or account you manage. Each client keeps its own fiscal years, vouchers, ledger, and reports."
+          icon={Building2}
+          actions={
+            <Button asChild className="h-11 rounded-lg px-5">
+              <Link href="/clients/new">
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add New Client
+              </Link>
+            </Button>
+          }
+        />
+
+        <FilterPanel title="Find a client" description="Search will become useful after you add your first client.">
           <div className="relative max-w-md flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -282,15 +298,9 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
               placeholder="Search clients by name, type, TIN, or BIN"
             />
           </div>
-          <Button asChild className="h-11 rounded-xl px-5">
-            <Link href="/clients/new">
-              <UserPlus className="mr-2 h-4 w-4" />
-              Add New Client
-            </Link>
-          </Button>
-        </div>
+        </FilterPanel>
 
-        <Card className="overflow-hidden rounded-[2rem] border-slate-200 bg-white shadow-sm">
+        <Card className="overflow-hidden rounded-xl border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-slate-100 text-slate-500">
               <Users className="h-10 w-10" />
@@ -315,8 +325,23 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-6">
+      <PageHeader
+        eyebrow="Workspace"
+        title="Clients"
+        description="Manage client workspaces across your organization. Open a client to post vouchers, review ledgers, and generate reports."
+        icon={Building2}
+        actions={
+          <Button asChild className="h-11 rounded-lg px-5">
+            <Link href="/clients/new">
+              <UserPlus className="mr-2 h-4 w-4" />
+              Add New Client
+            </Link>
+          </Button>
+        }
+      />
+
+      <FilterPanel title="Search clients" description="Find clients by name, type, TIN, BIN, or active fiscal year.">
         <div className="relative max-w-md flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <Input
@@ -326,18 +351,12 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
             placeholder="Search clients by name, type, TIN, or BIN"
           />
         </div>
-        <Button asChild className="h-11 rounded-xl px-5">
-          <Link href="/clients/new">
-            <UserPlus className="mr-2 h-4 w-4" />
-            Add New Client
-          </Link>
-        </Button>
-      </div>
+      </FilterPanel>
 
-      <Card className="overflow-hidden rounded-[2rem] border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 px-6 py-5">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Clients</h1>
-          <p className="mt-1 text-sm text-slate-500">Manage client workspaces across your organization.</p>
+      <Card className="overflow-hidden rounded-xl border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-6 py-4">
+          <h2 className="text-lg font-semibold tracking-tight text-slate-950">Client Register</h2>
+          <p className="mt-1 text-sm text-slate-500">{table.getRowModel().rows.length} clients shown</p>
         </div>
         <Table>
           <TableHeader>
@@ -354,15 +373,23 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
             ))}
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows.map((row) => (
-              <TableRow key={row.id}>
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                ))}
+            {table.getRowModel().rows.length ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={columns.length} className="py-12 text-center text-sm text-slate-500">
+                  No clients match this search. Clear the search text or add a new client.
+                </TableCell>
               </TableRow>
-            ))}
+            )}
           </TableBody>
         </Table>
       </Card>

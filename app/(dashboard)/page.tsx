@@ -1,12 +1,14 @@
 import Link from "next/link"
 import { startOfMonth } from "date-fns"
 import { redirect } from "next/navigation"
+import { Building2, CalendarDays, FilePlus2, ReceiptText, Users } from "lucide-react"
 
 import { AlertBanner, type AlertItem } from "@/components/layout/AlertBanner"
 import { DashboardQuickActions } from "@/components/layout/DashboardQuickActions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { MetricCard, PageHeader } from "@/components/ui/page-shell"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getClientTypeLabel } from "@/lib/accounting/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
@@ -32,13 +34,20 @@ export default async function DashboardPage() {
     orgId
       ? supabase.from("organization_members").select("id", { count: "exact", head: true }).eq("org_id", orgId)
       : Promise.resolve({ count: 0 }),
-    orgId ? supabase.from("clients").select("*").eq("org_id", orgId).order("created_at", { ascending: false }) : Promise.resolve({ data: null }),
+    orgId
+      ? supabase.from("clients").select("*").eq("org_id", orgId).order("created_at", { ascending: false })
+      : Promise.resolve({ data: null }),
   ])
 
   const clientIds = orgClients?.map((client) => client.id) ?? []
   const monthStart = formatMonthStart(startOfMonth(new Date()))
 
-  const [{ count: thisMonthVouchers }, { count: activeFiscalYears }, { data: recentVouchers }, { data: fiscalYears }] = await Promise.all([
+  const [
+    { count: thisMonthVouchers },
+    { count: activeFiscalYears },
+    { data: recentVouchers },
+    { data: fiscalYears },
+  ] = await Promise.all([
     clientIds.length
       ? supabase
           .from("vouchers")
@@ -61,9 +70,7 @@ export default async function DashboardPage() {
           .order("voucher_date", { ascending: false })
           .limit(20)
       : Promise.resolve({ data: [] }),
-    clientIds.length
-      ? supabase.from("fiscal_years").select("*").in("client_id", clientIds)
-      : Promise.resolve({ data: [] }),
+    clientIds.length ? supabase.from("fiscal_years").select("*").in("client_id", clientIds) : Promise.resolve({ data: [] }),
   ])
 
   const recentVoucherIds = (recentVouchers ?? []).map((voucher) => voucher.id)
@@ -76,9 +83,7 @@ export default async function DashboardPage() {
         .select("*")
         .in(
           "id",
-          Array.from(
-            new Set((recentEntries ?? []).map((entry) => entry.account_head_id).filter(Boolean))
-          ) as string[]
+          Array.from(new Set((recentEntries ?? []).map((entry) => entry.account_head_id).filter(Boolean))) as string[]
         )
     : { data: [] }
 
@@ -89,10 +94,10 @@ export default async function DashboardPage() {
   for (const entry of recentEntries ?? []) {
     const voucherId = entry.voucher_id ?? ""
     const amount = Math.max(Number(entry.debit ?? 0), Number(entry.credit ?? 0))
-    const existing = voucherSummaryMap.get(voucherId) ?? { amount: 0, headName: "—" }
+    const existing = voucherSummaryMap.get(voucherId) ?? { amount: 0, headName: "-" }
     voucherSummaryMap.set(voucherId, {
       amount: existing.amount + amount,
-      headName: existing.headName === "—" ? headMap.get(entry.account_head_id ?? "") ?? "—" : existing.headName,
+      headName: existing.headName === "-" ? headMap.get(entry.account_head_id ?? "") ?? "-" : existing.headName,
     })
   }
 
@@ -168,46 +173,36 @@ export default async function DashboardPage() {
   }
 
   const userName = user.user_metadata.full_name || user.email || "AccountPro User"
+  const quickActionClients = (orgClients ?? []).map((client) => ({ id: client.id, name: client.name }))
 
   const stats = [
-    { label: "Total Clients", value: totalClients ?? 0, detail: "Active client workspaces" },
-    { label: "This Month Vouchers", value: thisMonthVouchers ?? 0, detail: "Voucher records this month" },
-    { label: "Team Members", value: teamMembers ?? 0, detail: "Users with organization access" },
-    { label: "Active Fiscal Years", value: activeFiscalYears ?? 0, detail: "Open periods across clients" },
+    { label: "Active Clients", value: totalClients ?? 0, detail: "Client workspaces ready for daily accounting", icon: Building2 },
+    { label: "This Month Vouchers", value: thisMonthVouchers ?? 0, detail: "Voucher records entered this month", icon: ReceiptText },
+    { label: "Team Members", value: teamMembers ?? 0, detail: "People with organization access", icon: Users },
+    { label: "Active Fiscal Years", value: activeFiscalYears ?? 0, detail: "Open accounting periods across clients", icon: CalendarDays },
   ]
 
   return (
     <div className="space-y-6">
-      <div className="rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-500">Welcome to AccountPro</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
-          Welcome to AccountPro
-        </h1>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-          Signed in as <span className="font-medium text-slate-900">{userName}</span> at{" "}
-          <span className="font-medium text-slate-900">{organization?.name ?? "Your Organization"}</span>.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Today"
+        title="Accounting Workspace"
+        description={`Signed in as ${userName} at ${organization?.name ?? "Your Organization"}. Start with the most common daily tasks or review alerts before posting new work.`}
+        icon={FilePlus2}
+        actions={<DashboardQuickActions clients={quickActionClients} />}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => (
-          <Card key={stat.label} className="border-slate-200 bg-white shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-slate-500">{stat.label}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-semibold tracking-tight text-slate-950">{stat.value}</div>
-              <p className="mt-2 text-sm text-slate-500">{stat.detail}</p>
-            </CardContent>
-          </Card>
+          <MetricCard key={stat.label} {...stat} />
         ))}
       </div>
 
       <AlertBanner alerts={alertItems} />
 
-      <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
+      <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-xl text-slate-950">Recent Vouchers (All Clients)</CardTitle>
+          <CardTitle className="text-xl text-slate-950">Recent Vouchers</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -223,7 +218,7 @@ export default async function DashboardPage() {
             </TableHeader>
             <TableBody>
               {(recentVouchers ?? []).map((voucher) => {
-                const summary = voucherSummaryMap.get(voucher.id) ?? { amount: 0, headName: "—" }
+                const summary = voucherSummaryMap.get(voucher.id) ?? { amount: 0, headName: "-" }
                 return (
                   <TableRow key={voucher.id}>
                     <TableCell className="font-medium">{clientNameMap.get(voucher.client_id ?? "") ?? "Client"}</TableCell>
@@ -239,7 +234,7 @@ export default async function DashboardPage() {
                     <TableCell>
                       <Badge className="rounded-full bg-slate-100 text-slate-700">{voucher.voucher_type}</Badge>
                     </TableCell>
-                    <TableCell>৳{summary.amount.toFixed(2)}</TableCell>
+                    <TableCell>BDT {summary.amount.toFixed(2)}</TableCell>
                     <TableCell>{summary.headName}</TableCell>
                   </TableRow>
                 )
@@ -249,12 +244,15 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
 
-      <Card className="rounded-[1.75rem] border-slate-200 bg-white p-6 shadow-sm">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-slate-950">Client Overview</h2>
-          <DashboardQuickActions
-            clients={(orgClients ?? []).map((client) => ({ id: client.id, name: client.name }))}
-          />
+      <Card className="rounded-xl border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-950">Client Overview</h2>
+            <p className="mt-1 text-sm text-slate-500">Open a client, post a voucher, or jump into reports.</p>
+          </div>
+          <Button asChild variant="outline" className="rounded-lg border-slate-200">
+            <Link href="/clients">View All Clients</Link>
+          </Button>
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {(orgClients ?? [])
@@ -262,7 +260,7 @@ export default async function DashboardPage() {
             .map((client) => {
               const monthData = thisMonthByClient.get(client.id) ?? { receipts: 0, payments: 0 }
               return (
-                <div key={client.id} className="rounded-2xl border border-slate-200 p-4">
+                <div key={client.id} className="rounded-xl border border-slate-200 p-4">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-semibold text-slate-950">{client.name}</p>
                     <Badge className="rounded-full bg-slate-100 text-slate-700">{getClientTypeLabel(client.type)}</Badge>
@@ -274,11 +272,11 @@ export default async function DashboardPage() {
                     This month: Receipts {monthData.receipts} | Payments {monthData.payments}
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <Button asChild size="sm" variant="outline">
-                      <Link href={`/clients/${client.id}/vouchers`}>Vouchers</Link>
+                    <Button asChild size="sm">
+                      <Link href={`/clients/${client.id}`}>Open</Link>
                     </Button>
                     <Button asChild size="sm" variant="outline">
-                      <Link href={`/clients/${client.id}/ledger`}>Ledger</Link>
+                      <Link href={`/clients/${client.id}/vouchers/new`}>New Voucher</Link>
                     </Button>
                     <Button asChild size="sm" variant="outline">
                       <Link href={`/clients/${client.id}/reports`}>Reports</Link>
