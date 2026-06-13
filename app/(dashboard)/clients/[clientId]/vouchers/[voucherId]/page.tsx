@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { format } from "date-fns"
+import { ExternalLink, FileText } from "lucide-react"
 import { notFound } from "next/navigation"
 
 import {
@@ -30,6 +31,18 @@ function currency(value: number) {
   }).format(value)
 }
 
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export default async function VoucherDetailPage({
   params,
   searchParams,
@@ -55,12 +68,13 @@ export default async function VoucherDetailPage({
     notFound()
   }
 
-  const [{ data: entries }, { data: fiscalYear }, { data: paymentMode }] = await Promise.all([
+  const [{ data: entries }, { data: fiscalYear }, { data: paymentMode }, { data: attachments }] = await Promise.all([
     supabase.from("voucher_entries").select("*").eq("voucher_id", voucher.id),
     supabase.from("fiscal_years").select("*").eq("id", voucher.fiscal_year_id ?? "").maybeSingle(),
     voucher.payment_mode_id
       ? supabase.from("payment_modes").select("*").eq("id", voucher.payment_mode_id).maybeSingle()
       : Promise.resolve({ data: null }),
+    supabase.from("voucher_attachments").select("*").eq("voucher_id", voucher.id).order("created_at"),
   ])
 
   const accountHeadIds = (entries ?? []).map((entry) => entry.account_head_id).filter(Boolean) as string[]
@@ -82,6 +96,18 @@ export default async function VoucherDetailPage({
   }))
   const primaryAccountHeadName = printLines[0]?.accountHeadName ?? client.name
   const autoPrint = searchParams?.print === "1"
+  const attachmentItems = await Promise.all(
+    (attachments ?? []).map(async (attachment) => {
+      const { data } = await supabase.storage
+        .from("voucher-documents")
+        .createSignedUrl(attachment.file_path, 60 * 60)
+
+      return {
+        ...attachment,
+        signedUrl: data?.signedUrl ?? null,
+      }
+    })
+  )
 
   return (
     <div className="space-y-6">
@@ -114,6 +140,11 @@ export default async function VoucherDetailPage({
             lines={printLines}
             totalDebit={totalDebit}
             totalCredit={totalCredit}
+            attachments={attachmentItems.map((attachment) => ({
+              id: attachment.id,
+              fileName: attachment.file_name,
+              fileSize: Number(attachment.file_size),
+            }))}
             autoPrint={autoPrint}
           />
         </div>
@@ -169,6 +200,45 @@ export default async function VoucherDetailPage({
         </Card>
       </div>
 
+      {attachmentItems.length ? (
+        <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm print:hidden">
+          <CardHeader>
+            <CardTitle className="text-xl text-slate-950">Supporting Documents</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            {attachmentItems.map((attachment) => (
+              <div
+                key={attachment.id}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                    <FileText className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-950">{attachment.file_name}</p>
+                    <p className="text-xs text-slate-500">
+                      {formatFileSize(Number(attachment.file_size))}
+                      {attachment.created_at ? ` · ${format(new Date(attachment.created_at), "dd MMM yyyy")}` : ""}
+                    </p>
+                  </div>
+                </div>
+                {attachment.signedUrl ? (
+                  <Button asChild variant="outline" size="sm" className="shrink-0 rounded-xl border-slate-200">
+                    <a href={attachment.signedUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      Open
+                    </a>
+                  </Button>
+                ) : (
+                  <span className="shrink-0 text-xs text-slate-500">Unavailable</span>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm print:hidden">
         <CardHeader>
           <CardTitle className="text-xl text-slate-950">Voucher Entries</CardTitle>
@@ -189,14 +259,15 @@ export default async function VoucherDetailPage({
                 <TableRow key={entry.id}>
                   <TableCell className="font-medium text-slate-900">
                     {accountHeadMap.get(entry.account_head_id ?? "") ?? "Unknown"}
-                    {isAutoBalanceEntry(entry.description) ? (
-                      <span className="ml-2 text-xs font-normal text-slate-500">(auto)</span>
-                    ) : null}
                   </TableCell>
                   <TableCell className="capitalize">{entry.accounts_group}</TableCell>
                   <TableCell className="text-right">{Number(entry.debit ?? 0).toFixed(2)}</TableCell>
                   <TableCell className="text-right">{Number(entry.credit ?? 0).toFixed(2)}</TableCell>
-                  <TableCell>{entry.description || "—"}</TableCell>
+                  <TableCell>
+                    {isAutoBalanceEntry(entry.description)
+                      ? accountHeadMap.get(entry.account_head_id ?? "") ?? "Unknown"
+                      : entry.description || "-"}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

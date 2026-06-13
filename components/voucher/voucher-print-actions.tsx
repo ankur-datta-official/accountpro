@@ -6,6 +6,7 @@ import { useReactToPrint } from "react-to-print"
 
 import {
   VoucherPrintView,
+  type VoucherPrintAttachment,
   type VoucherPrintLine,
 } from "@/components/voucher/VoucherPrintView"
 import { Button } from "@/components/ui/button"
@@ -21,6 +22,7 @@ export function VoucherPrintActions({
   lines,
   totalDebit,
   totalCredit,
+  attachments = [],
   autoPrint = false,
   className,
 }: {
@@ -34,6 +36,7 @@ export function VoucherPrintActions({
   lines: VoucherPrintLine[]
   totalDebit: number
   totalCredit: number
+  attachments?: VoucherPrintAttachment[]
   autoPrint?: boolean
   className?: string
 }) {
@@ -76,6 +79,7 @@ export function VoucherPrintActions({
           lines={lines}
           totalDebit={totalDebit}
           totalCredit={totalCredit}
+          attachments={attachments}
         />
       </div>
     </>

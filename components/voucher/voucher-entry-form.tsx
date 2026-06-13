@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState, useTransition } from "react"
 import { format } from "date-fns"
-import { Loader2, PlusCircle } from "lucide-react"
+import { FileText, Loader2, PlusCircle, UploadCloud, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useFieldArray, useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -19,10 +19,12 @@ import {
 import { normalizeVoucherLineAmounts } from "@/lib/accounting/voucher-entry-rules"
 import {
   createVoucherAction,
+  registerVoucherAttachmentsAction,
   updateVoucherAction,
   type CreateVoucherInput,
 } from "@/lib/actions/vouchers"
 import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
+import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client"
 import type { PaymentModeType } from "@/lib/types"
 import { VoucherLineRow, type VoucherLineFormValues } from "@/components/voucher/VoucherLineRow"
 import { Button } from "@/components/ui/button"
@@ -78,6 +80,20 @@ const legacyVoucherTypeOptions = [
   { value: "br", label: "B/R" },
 ] as const
 
+const MAX_ATTACHMENT_COUNT = 10
+const MAX_ATTACHMENT_SIZE = 15 * 1024 * 1024
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+])
+
 const defaultLine = (): VoucherFormValues["lines"][number] => ({
   accountsGroup: "",
   accountHeadId: "",
@@ -92,6 +108,38 @@ function getDefaultCashMode(paymentModes: PaymentModeOption[]) {
     paymentModes.find((mode) => mode.type === "cash") ??
     null
   )
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function sanitizeFileName(fileName: string) {
+  const cleaned = fileName
+    .normalize("NFKD")
+    .replace(/[^\w.\- ]+/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+
+  return cleaned || "document"
+}
+
+function buildAttachmentPath(clientId: string, voucherId: string, file: File) {
+  const safeName = sanitizeFileName(file.name)
+  const uniquePart =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+  return `${clientId}/${voucherId}/${uniquePart}-${safeName}`
 }
 
 function buildFormValues({
@@ -163,6 +211,7 @@ export function VoucherEntryForm({
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [draftRestored, setDraftRestored] = useState(false)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const { flatAccounts, isLoading: accountsLoading } = useChartOfAccounts(clientId)
   const draftKey =
     mode === "edit"
@@ -283,8 +332,103 @@ export function VoucherEntryForm({
 
   const handleAddLine = () => append(defaultLine())
 
+  const handleAttachmentChange = (files: FileList | null) => {
+    if (!files?.length) {
+      return
+    }
+
+    const acceptedFiles: File[] = []
+
+    for (const file of Array.from(files)) {
+      if (selectedFiles.length + acceptedFiles.length >= MAX_ATTACHMENT_COUNT) {
+        toast.error(`You can attach up to ${MAX_ATTACHMENT_COUNT} documents per voucher.`)
+        break
+      }
+
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        toast.error(`${file.name} is larger than 15 MB.`)
+        continue
+      }
+
+      if (file.type && !ALLOWED_ATTACHMENT_TYPES.has(file.type)) {
+        toast.error(`${file.name} is not a supported document type.`)
+        continue
+      }
+
+      acceptedFiles.push(file)
+    }
+
+    if (acceptedFiles.length) {
+      setSelectedFiles((current) => [...current, ...acceptedFiles])
+    }
+  }
+
+  const removeAttachment = (index: number) => {
+    setSelectedFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))
+  }
+
+  const uploadVoucherAttachments = async (voucherIdToAttach: string) => {
+    if (!selectedFiles.length) {
+      return { success: true as const }
+    }
+
+    const supabase = createBrowserSupabaseClient()
+    const uploadedAttachments: {
+      fileName: string
+      filePath: string
+      fileSize: number
+      mimeType?: string
+    }[] = []
+
+    for (const file of selectedFiles) {
+      const filePath = buildAttachmentPath(clientId, voucherIdToAttach, file)
+      const { error } = await supabase.storage
+        .from("voucher-documents")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          contentType: file.type || undefined,
+          upsert: false,
+        })
+
+      if (error) {
+        if (uploadedAttachments.length) {
+          await supabase.storage
+            .from("voucher-documents")
+            .remove(uploadedAttachments.map((attachment) => attachment.filePath))
+        }
+
+        return {
+          success: false as const,
+          error: error.message || `Unable to upload ${file.name}.`,
+        }
+      }
+
+      uploadedAttachments.push({
+        fileName: file.name,
+        filePath,
+        fileSize: file.size,
+        mimeType: file.type || undefined,
+      })
+    }
+
+    const result = await registerVoucherAttachmentsAction({
+      clientId,
+      voucherId: voucherIdToAttach,
+      attachments: uploadedAttachments,
+    })
+
+    if (!result.success) {
+      await supabase.storage
+        .from("voucher-documents")
+        .remove(uploadedAttachments.map((attachment) => attachment.filePath))
+    }
+
+    return result
+  }
+
   const handleCreateAnother = () => {
     window.localStorage.removeItem(draftKey)
+    setSelectedFiles([])
     replace([defaultLine()])
     form.reset(
       buildFormValues({
@@ -365,6 +509,13 @@ export function VoucherEntryForm({
 
       if (!result.success) {
         toast.error(result.error)
+        return
+      }
+
+      const attachmentResult = await uploadVoucherAttachments(result.voucherId)
+
+      if (!attachmentResult.success) {
+        toast.error(`Voucher saved, but documents were not attached. ${attachmentResult.error}`)
         return
       }
 
@@ -521,6 +672,71 @@ export function VoucherEntryForm({
                   </div>
                 </div>
               ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-xl text-slate-950">Supporting Documents</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <label
+                htmlFor="voucherAttachments"
+                className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center transition hover:border-slate-400 hover:bg-slate-100"
+              >
+                <UploadCloud className="h-8 w-8 text-slate-500" />
+                <span className="mt-3 text-sm font-medium text-slate-900">Attach documents</span>
+                <span className="mt-1 text-xs text-slate-500">
+                  PDF, images, Word, Excel, or text files up to 15 MB each
+                </span>
+                <input
+                  id="voucherAttachments"
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.txt"
+                  onChange={(event) => {
+                    handleAttachmentChange(event.target.files)
+                    event.target.value = ""
+                  }}
+                />
+              </label>
+
+              {selectedFiles.length ? (
+                <div className="space-y-2">
+                  {selectedFiles.map((file, index) => (
+                    <div
+                      key={`${file.name}-${file.size}-${index}`}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                          <FileText className="h-5 w-5" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-950">{file.name}</p>
+                          <p className="text-xs text-slate-500">{formatFileSize(file.size)}</p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 rounded-xl"
+                        onClick={() => removeAttachment(index)}
+                        disabled={disabled || isPending}
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  Documents are optional. Add purchase bills, receipts, bank slips, or other voucher proofs when needed.
+                </p>
+              )}
             </CardContent>
           </Card>
 

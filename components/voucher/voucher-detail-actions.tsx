@@ -3,8 +3,9 @@
 import Link from "next/link"
 
 import { DeleteVoucherButton } from "@/components/voucher/delete-voucher-button"
-import type { VoucherPrintLine } from "@/components/voucher/VoucherPrintView"
+import type { VoucherPrintAttachment, VoucherPrintLine } from "@/components/voucher/VoucherPrintView"
 import { VoucherPrintActions } from "@/components/voucher/voucher-print-actions"
+import { VoucherShareActions } from "@/components/voucher/voucher-share-actions"
 import { Button } from "@/components/ui/button"
 
 export function VoucherDetailActions({
@@ -20,6 +21,7 @@ export function VoucherDetailActions({
   lines,
   totalDebit,
   totalCredit,
+  attachments = [],
   autoPrint = false,
 }: {
   clientId: string
@@ -34,6 +36,7 @@ export function VoucherDetailActions({
   lines: VoucherPrintLine[]
   totalDebit: number
   totalCredit: number
+  attachments?: VoucherPrintAttachment[]
   autoPrint?: boolean
 }) {
   return (
@@ -52,9 +55,11 @@ export function VoucherDetailActions({
         lines={lines}
         totalDebit={totalDebit}
         totalCredit={totalCredit}
+        attachments={attachments}
         autoPrint={autoPrint}
         className="rounded-xl border-slate-200"
       />
+      <VoucherShareActions clientId={clientId} voucherId={voucherId} />
       <DeleteVoucherButton
         clientId={clientId}
         voucherId={voucherId}

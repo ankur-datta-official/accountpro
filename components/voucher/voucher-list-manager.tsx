@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState, useTransition } from "react"
 import { format } from "date-fns"
-import { Download, FileSearch, Loader2, PlusCircle, Printer, Search } from "lucide-react"
+import { Download, Eye, FileSearch, Loader2, MoreHorizontal, Pencil, PlusCircle, Printer, Search } from "lucide-react"
 import { useRouter } from "next/navigation"
 import * as XLSX from "xlsx"
 import { toast } from "sonner"
@@ -13,6 +13,7 @@ import { getVoucherTypeBadgeClass, getVoucherTypeLabel } from "@/lib/accounting/
 import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
 import { useVouchers, type VoucherFilters, type VoucherSortBy } from "@/lib/hooks/useVouchers"
 import { DeleteVoucherButton } from "@/components/voucher/delete-voucher-button"
+import { VoucherShareActions } from "@/components/voucher/voucher-share-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,6 +22,13 @@ import { ErrorFallback } from "@/components/ui/ErrorBoundary"
 import { Input } from "@/components/ui/input"
 import { LoadingTable } from "@/components/ui/LoadingTable"
 import { ActionBar, FilterPanel, MetricCard, PageHeader } from "@/components/ui/page-shell"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Select,
   SelectContent,
@@ -400,28 +408,29 @@ export function VoucherListManager({
           ) : null}
           {error ? <ErrorFallback error={error} onRetry={() => void mutate()} /> : null}
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
+              <TableHeader className="bg-slate-50">
+                <TableRow className="border-slate-200 hover:bg-slate-50">
+                  <TableHead className="w-10 px-4">
                     <input
                       type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300"
                       checked={allSelectedOnPage}
                       onChange={(event) =>
                         setSelectedVoucherIds(event.target.checked ? items.map((item) => item.id) : [])
                       }
                     />
                   </TableHead>
-                  <TableHead>Voucher No</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Payment Mode</TableHead>
-                  <TableHead>Account Head</TableHead>
-                  <TableHead className="text-right">Dr</TableHead>
-                  <TableHead className="text-right">Cr</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">Voucher</TableHead>
+                  <TableHead className="w-32 text-xs font-semibold uppercase tracking-wide text-slate-500">Date</TableHead>
+                  <TableHead className="w-32 text-xs font-semibold uppercase tracking-wide text-slate-500">Type</TableHead>
+                  <TableHead className="w-36 text-xs font-semibold uppercase tracking-wide text-slate-500">Mode</TableHead>
+                  <TableHead className="min-w-56 text-xs font-semibold uppercase tracking-wide text-slate-500">Account Head</TableHead>
+                  <TableHead className="w-32 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Debit</TableHead>
+                  <TableHead className="w-32 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Credit</TableHead>
+                  <TableHead className="min-w-48 text-xs font-semibold uppercase tracking-wide text-slate-500">Description</TableHead>
+                  <TableHead className="w-20 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -449,12 +458,13 @@ export function VoucherListManager({
                   items.map((item) => (
                     <TableRow
                       key={item.id}
-                      className="cursor-pointer"
+                      className="cursor-pointer border-slate-100 transition-colors hover:bg-slate-50/80"
                       onClick={() => router.push(`/clients/${clientId}/vouchers/${item.id}`)}
                     >
-                      <TableCell onClick={(event) => event.stopPropagation()}>
+                      <TableCell className="px-4 py-4 align-middle" onClick={(event) => event.stopPropagation()}>
                         <input
                           type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300"
                           checked={selectedVoucherIds.includes(item.id)}
                           onChange={(event) => {
                             setSelectedVoucherIds((current) =>
@@ -465,49 +475,86 @@ export function VoucherListManager({
                           }}
                         />
                       </TableCell>
-                      <TableCell className="font-medium text-slate-900">{item.voucherNo}</TableCell>
-                      <TableCell>{item.voucherDate}</TableCell>
-                      <TableCell>
+                      <TableCell className="py-4 align-middle">
+                        <p className="font-semibold text-slate-950">#{item.voucherNo}</p>
+                        <p className="mt-1 text-xs text-slate-500">{item.monthLabel ?? "No month"}</p>
+                      </TableCell>
+                      <TableCell className="py-4 align-middle">
+                        <p className="font-medium text-slate-900">{format(new Date(item.voucherDate), "dd MMM yyyy")}</p>
+                        <p className="mt-1 text-xs text-slate-500">{format(new Date(item.voucherDate), "EEE")}</p>
+                      </TableCell>
+                      <TableCell className="py-4 align-middle">
                         <Badge className={`rounded-full ${getVoucherTypeBadgeClass(item.voucherType)}`}>
                           {getVoucherTypeLabel(item.voucherType)}
                         </Badge>
                       </TableCell>
-                      <TableCell>{item.paymentModeName ?? "-"}</TableCell>
-                      <TableCell>{item.accountHeadLabel}</TableCell>
-                      <TableCell className="text-right">{item.debit.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">{item.credit.toFixed(2)}</TableCell>
-                      <TableCell className="max-w-[240px] truncate">{item.description || "-"}</TableCell>
-                      <TableCell onClick={(event) => event.stopPropagation()}>
-                        <div className="flex flex-wrap gap-2">
-                          <Button asChild variant="ghost" className="h-8 px-2">
-                            <Link href={`/clients/${clientId}/vouchers/${item.id}`}>View</Link>
-                          </Button>
-                          <Button asChild variant="ghost" className="h-8 px-2">
-                            <Link href={`/clients/${clientId}/vouchers/${item.id}/edit`}>Edit</Link>
-                          </Button>
-                          <Button asChild variant="ghost" className="h-8 px-2">
-                            <Link
-                              href={`/clients/${clientId}/vouchers/${item.id}?print=1`}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              <Printer className="mr-1 h-3.5 w-3.5" />
-                              Print
-                            </Link>
-                          </Button>
-                          <DeleteVoucherButton
-                            clientId={clientId}
-                            voucherId={item.id}
-                            voucherNo={item.voucherNo}
-                            className="h-8 px-2"
-                            onDeleted={() => {
-                              setSelectedVoucherIds((current) =>
-                                current.filter((voucherId) => voucherId !== item.id)
-                              )
-                              void mutate()
-                            }}
-                          />
-                        </div>
+                      <TableCell className="py-4 align-middle">
+                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                          {item.paymentModeName ?? "-"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="max-w-[260px] py-4 align-middle">
+                        <p className="truncate font-medium text-slate-950">{item.accountHeadLabel}</p>
+                      </TableCell>
+                      <TableCell className="py-4 text-right align-middle font-semibold text-slate-950">
+                        {item.debit.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="py-4 text-right align-middle font-semibold text-slate-950">
+                        {item.credit.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="max-w-[260px] py-4 align-middle">
+                        <p className="truncate text-sm text-slate-600">{item.description || "-"}</p>
+                      </TableCell>
+                      <TableCell className="py-4 text-right align-middle" onClick={(event) => event.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl border-slate-200">
+                              <MoreHorizontal className="h-4 w-4" />
+                              <span className="sr-only">Open voucher actions</span>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem asChild>
+                              <Link href={`/clients/${clientId}/vouchers/${item.id}`}>
+                                <Eye className="h-4 w-4" />
+                                View Voucher
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/clients/${clientId}/vouchers/${item.id}/edit`}>
+                                <Pencil className="h-4 w-4" />
+                                Edit Voucher
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link
+                                href={`/clients/${clientId}/vouchers/${item.id}?print=1`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <Printer className="h-4 w-4" />
+                                Print Voucher
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <VoucherShareActions clientId={clientId} voucherId={item.id} renderAsItems />
+                            <DropdownMenuSeparator />
+                            <div className="px-1">
+                              <DeleteVoucherButton
+                                clientId={clientId}
+                                voucherId={item.id}
+                                voucherNo={item.voucherNo}
+                                className="h-8 w-full justify-start px-2 text-destructive hover:text-destructive"
+                                onDeleted={() => {
+                                  setSelectedVoucherIds((current) =>
+                                    current.filter((voucherId) => voucherId !== item.id)
+                                  )
+                                  void mutate()
+                                }}
+                              />
+                            </div>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))

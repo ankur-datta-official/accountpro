@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useMemo, useState } from "react"
 import {
   ArrowUpRight,
   Banknote,
@@ -18,6 +19,7 @@ import {
   Plus,
   ReceiptText,
   ScrollText,
+  Search,
   Settings,
   Settings2,
   Upload,
@@ -29,6 +31,7 @@ import { GlobalSearch } from "@/components/layout/GlobalSearch"
 import { LogoutButton } from "@/components/layout/logout-button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -231,6 +234,72 @@ function NavSection({
   )
 }
 
+function ClientSelectSection({ clients }: { clients: SidebarClient[] }) {
+  const [query, setQuery] = useState("")
+  const normalizedQuery = query.trim().toLowerCase()
+  const filteredClients = useMemo(() => {
+    if (!normalizedQuery) return clients
+
+    return clients.filter((client) => {
+      const name = client.name.toLowerCase()
+      const type = client.type?.toLowerCase() ?? ""
+      return name.includes(normalizedQuery) || type.includes(normalizedQuery)
+    })
+  }, [clients, normalizedQuery])
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>Select client</SidebarGroupLabel>
+      <SidebarGroupContent className="space-y-2">
+        {clients.length ? (
+          <div className="relative group-data-[collapsible=icon]:hidden">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search clients..."
+              aria-label="Search clients"
+              className="h-9 rounded-lg border-slate-200 bg-white pl-9 pr-3 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-slate-300 focus-visible:ring-offset-0"
+            />
+          </div>
+        ) : null}
+
+        <SidebarMenu>
+          {filteredClients.length ? (
+            filteredClients.map((client) => (
+              <SidebarMenuItem key={client.id}>
+                <SidebarMenuButton asChild tooltip={client.name} className="h-9 rounded-lg">
+                  <Link href={`/clients/${client.id}`} prefetch>
+                    <Building2 className="h-4 w-4" />
+                    <span className="truncate">{client.name}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))
+          ) : clients.length ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton disabled tooltip="No clients found" className="h-9 rounded-lg">
+                <Search className="h-4 w-4" />
+                <span>No clients found</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : (
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild tooltip="Add Client" className="h-9 rounded-lg">
+                <Link href="/clients/new" prefetch>
+                  <Plus className="h-4 w-4" />
+                  <span>Add Client</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  )
+}
+
 function ClientSwitcher({
   clients,
   currentClient,
@@ -334,34 +403,7 @@ function AppSidebar({
             <NavSection label="Client Settings" items={clientSettingsItems(currentClient.id)} pathname={pathname} />
           </>
         ) : (
-          <SidebarGroup>
-            <SidebarGroupLabel>Select client</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {clients.length ? (
-                  clients.slice(0, 5).map((client) => (
-                    <SidebarMenuItem key={client.id}>
-                      <SidebarMenuButton asChild tooltip={client.name} className="h-9 rounded-lg">
-                        <Link href={`/clients/${client.id}`} prefetch>
-                          <Building2 className="h-4 w-4" />
-                          <span>{client.name}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))
-                ) : (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild tooltip="Add Client" className="h-9 rounded-lg">
-                      <Link href="/clients/new" prefetch>
-                        <Plus className="h-4 w-4" />
-                        <span>Add Client</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          <ClientSelectSection clients={clients} />
         )}
 
         <SidebarSeparator />

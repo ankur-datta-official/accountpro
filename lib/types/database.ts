@@ -407,6 +407,42 @@ export interface Database {
         }
         Relationships: []
       }
+      voucher_attachments: {
+        Row: {
+          id: string
+          voucher_id: string
+          client_id: string
+          file_name: string
+          file_path: string
+          file_size: number
+          mime_type: string | null
+          uploaded_by: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          voucher_id: string
+          client_id: string
+          file_name: string
+          file_path: string
+          file_size: number
+          mime_type?: string | null
+          uploaded_by?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          voucher_id?: string
+          client_id?: string
+          file_name?: string
+          file_path?: string
+          file_size?: number
+          mime_type?: string | null
+          uploaded_by?: string | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>

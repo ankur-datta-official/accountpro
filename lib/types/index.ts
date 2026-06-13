@@ -54,3 +54,7 @@ export type VoucherUpdate = Database["public"]["Tables"]["vouchers"]["Update"]
 export type VoucherEntry = Database["public"]["Tables"]["voucher_entries"]["Row"]
 export type VoucherEntryInsert = Database["public"]["Tables"]["voucher_entries"]["Insert"]
 export type VoucherEntryUpdate = Database["public"]["Tables"]["voucher_entries"]["Update"]
+
+export type VoucherAttachment = Database["public"]["Tables"]["voucher_attachments"]["Row"]
+export type VoucherAttachmentInsert = Database["public"]["Tables"]["voucher_attachments"]["Insert"]
+export type VoucherAttachmentUpdate = Database["public"]["Tables"]["voucher_attachments"]["Update"]

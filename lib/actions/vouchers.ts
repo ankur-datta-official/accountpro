@@ -50,6 +50,19 @@ const bulkDeleteVoucherSchema = z.object({
   voucherIds: z.array(z.string().min(1)).min(1),
 })
 
+const voucherAttachmentSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  filePath: z.string().trim().min(1).max(1000),
+  fileSize: z.number().int().min(0).max(15 * 1024 * 1024),
+  mimeType: z.string().trim().max(255).optional(),
+})
+
+const registerVoucherAttachmentsSchema = z.object({
+  clientId: z.string().min(1),
+  voucherId: z.string().min(1),
+  attachments: z.array(voucherAttachmentSchema).min(1).max(10),
+})
+
 const openingBalanceLineSchema = z.object({
   accountHeadId: z.string().min(1),
   accountsGroup: z.enum(["asset", "liability"]),
@@ -65,6 +78,7 @@ const saveOpeningBalancesSchema = z.object({
 
 export type UpdateVoucherInput = z.input<typeof updateVoucherSchema>
 export type SaveOpeningBalancesInput = z.input<typeof saveOpeningBalancesSchema>
+export type RegisterVoucherAttachmentsInput = z.input<typeof registerVoucherAttachmentsSchema>
 
 type ServerSupabase = ReturnType<typeof createClient>
 
@@ -642,6 +656,17 @@ export async function deleteVoucherAction(input: z.input<typeof deleteVoucherSch
     }
   }
 
+  const { data: attachments } = await supabase
+    .from("voucher_attachments")
+    .select("file_path")
+    .eq("voucher_id", voucher.id)
+
+  if (attachments?.length) {
+    await supabase.storage
+      .from("voucher-documents")
+      .remove(attachments.map((attachment) => attachment.file_path))
+  }
+
   const { error } = await supabase.from("vouchers").delete().eq("id", voucher.id)
 
   if (error) {
@@ -716,6 +741,17 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
     }
   }
 
+  const { data: attachments } = await supabase
+    .from("voucher_attachments")
+    .select("file_path")
+    .in("voucher_id", parsed.data.voucherIds)
+
+  if (attachments?.length) {
+    await supabase.storage
+      .from("voucher-documents")
+      .remove(attachments.map((attachment) => attachment.file_path))
+  }
+
   const { error } = await supabase.from("vouchers").delete().in("id", parsed.data.voucherIds)
 
   if (error) {
@@ -726,6 +762,96 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
   }
 
   revalidateVoucherPaths(client.id)
+
+  return {
+    success: true as const,
+  }
+}
+
+export async function registerVoucherAttachmentsAction(input: RegisterVoucherAttachmentsInput) {
+  const parsed = registerVoucherAttachmentsSchema.safeParse(input)
+
+  if (!parsed.success) {
+    return {
+      success: false as const,
+      error: parsed.error.issues[0]?.message ?? "Invalid attachment data.",
+    }
+  }
+
+  const supabase = createClient()
+  const { membership } = await getCurrentOrganizationContext()
+
+  if (!membership?.org_id) {
+    return {
+      success: false as const,
+      error: "No active organization found.",
+    }
+  }
+
+  const { data: client } = await supabase
+    .from("clients")
+    .select("*")
+    .eq("id", parsed.data.clientId)
+    .eq("org_id", membership.org_id)
+    .maybeSingle()
+
+  if (!client) {
+    return {
+      success: false as const,
+      error: "Client not found.",
+    }
+  }
+
+  const { data: voucher } = await supabase
+    .from("vouchers")
+    .select("*")
+    .eq("id", parsed.data.voucherId)
+    .eq("client_id", client.id)
+    .maybeSingle()
+
+  if (!voucher) {
+    return {
+      success: false as const,
+      error: "Voucher not found.",
+    }
+  }
+
+  const expectedPrefix = `${client.id}/${voucher.id}/`
+  const hasInvalidPath = parsed.data.attachments.some(
+    (attachment) => !attachment.filePath.startsWith(expectedPrefix)
+  )
+
+  if (hasInvalidPath) {
+    return {
+      success: false as const,
+      error: "One or more uploaded documents do not belong to this voucher.",
+    }
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const { error } = await supabase.from("voucher_attachments").insert(
+    parsed.data.attachments.map((attachment) => ({
+      voucher_id: voucher.id,
+      client_id: client.id,
+      file_name: attachment.fileName,
+      file_path: attachment.filePath,
+      file_size: attachment.fileSize,
+      mime_type: attachment.mimeType || null,
+      uploaded_by: user?.id ?? null,
+    }))
+  )
+
+  if (error) {
+    return {
+      success: false as const,
+      error: error.message ?? "Unable to save voucher attachments.",
+    }
+  }
+
+  revalidateVoucherPaths(client.id, voucher.id)
 
   return {
     success: true as const,

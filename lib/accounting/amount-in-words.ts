@@ -61,29 +61,21 @@ function convertInteger(value: number): string {
     return ONES[0]
   }
 
+  const scales = ["", "Thousand", "Million", "Billion", "Trillion"] as const
   const parts: string[] = []
   let remainder = Math.floor(value)
+  let scaleIndex = 0
 
-  const koti = Math.floor(remainder / 10000000)
-  if (koti) {
-    parts.push(`${convertInteger(koti)} Koti`)
-    remainder %= 10000000
-  }
+  while (remainder > 0 && scaleIndex < scales.length) {
+    const chunk = remainder % 1000
 
-  const lakh = Math.floor(remainder / 100000)
-  if (lakh) {
-    parts.push(`${convertBelowThousand(lakh)} Lakh`)
-    remainder %= 100000
-  }
+    if (chunk) {
+      const scale = scales[scaleIndex]
+      parts.unshift(scale ? `${convertBelowThousand(chunk)} ${scale}` : convertBelowThousand(chunk))
+    }
 
-  const hazar = Math.floor(remainder / 1000)
-  if (hazar) {
-    parts.push(`${convertBelowThousand(hazar)} Hazar`)
-    remainder %= 1000
-  }
-
-  if (remainder) {
-    parts.push(convertBelowThousand(remainder))
+    remainder = Math.floor(remainder / 1000)
+    scaleIndex += 1
   }
 
   return parts.join(" ").trim()
