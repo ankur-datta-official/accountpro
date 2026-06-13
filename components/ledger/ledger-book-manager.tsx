@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
-import { BookOpenText, Download, Printer } from "lucide-react"
+import { BookOpenText, CalendarDays, Download, Layers3, Printer, Search, WalletCards } from "lucide-react"
 import { useReactToPrint } from "react-to-print"
 
 import { LedgerPrint, type PrintableLedgerSection } from "@/components/ledger/LedgerPrint"
@@ -37,6 +37,12 @@ function amount(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value)
+}
+
+function statTone(value: number) {
+  if (value < 0) return "bg-red-50 text-red-700"
+  if (value > 0) return "bg-emerald-50 text-emerald-700"
+  return "bg-slate-50 text-slate-700"
 }
 
 function LedgerSection({
@@ -122,11 +128,15 @@ function LedgerSection({
 
   if (!ledger?.accountHead) {
     return (
-      <EmptyState
-        icon={BookOpenText}
-        title="No ledger data available"
-        description="There are no ledger rows for this account in the selected period."
-      />
+      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+        <CardContent className="py-12">
+          <EmptyState
+            icon={BookOpenText}
+            title="No ledger data available"
+            description="There are no ledger rows for this account in the selected period."
+          />
+        </CardContent>
+      </Card>
     )
   }
 
@@ -145,33 +155,60 @@ function LedgerSection({
 
   return (
     <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-xl text-slate-950">{accountHead.name}</CardTitle>
-        <div className="grid gap-1 text-sm text-slate-600">
-          <p>
-            <span className="font-medium text-slate-800">Group:</span> {accountHead.groupName}
-          </p>
-          <p>
-            <span className="font-medium text-slate-800">Period:</span> {periodLabel}
-          </p>
-          <p>
-            <span className="font-medium text-slate-800">Opening Balance:</span>{" "}
-            {signedBalanceToLabel(ledger.openingBalanceAmount, accountHead.groupType)}
-          </p>
+      <CardHeader className="space-y-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Ledger statement
+            </p>
+            <CardTitle className="mt-2 text-2xl text-slate-950">{accountHead.name}</CardTitle>
+            <p className="mt-2 text-sm text-slate-500">
+              {accountHead.groupName}
+              {accountHead.subGroupName ? ` / ${accountHead.subGroupName}` : ""} · {periodLabel}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-950 px-4 py-3 text-sm text-white">
+            <p className="text-slate-300">Rows in period</p>
+            <p className="mt-1 text-2xl font-semibold">{ledger.entries.length}</p>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Opening</p>
+            <p className="mt-2 font-semibold text-slate-950">
+              {signedBalanceToLabel(ledger.openingBalanceAmount, accountHead.groupType)}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-blue-50 p-4 text-blue-700">
+            <p className="text-xs font-medium uppercase tracking-wide">Debit</p>
+            <p className="mt-2 font-semibold">{amount(ledger.totals.debit)}</p>
+          </div>
+          <div className="rounded-2xl bg-indigo-50 p-4 text-indigo-700">
+            <p className="text-xs font-medium uppercase tracking-wide">Credit</p>
+            <p className="mt-2 font-semibold">{amount(ledger.totals.credit)}</p>
+          </div>
+          <div className={`rounded-2xl p-4 ${statTone(ledger.totals.closingBalance)}`}>
+            <p className="text-xs font-medium uppercase tracking-wide">Closing</p>
+            <p className="mt-2 font-semibold">
+              {signedBalanceToLabel(ledger.totals.closingBalance, accountHead.groupType)}
+            </p>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
+      <CardContent className="space-y-4">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
         <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Voucher No</TableHead>
-              <TableHead>Voucher Type</TableHead>
-              <TableHead>Payment Mode</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead className="text-right">Debit</TableHead>
-              <TableHead className="text-right">Credit</TableHead>
-              <TableHead className="text-right">Balance</TableHead>
+          <TableHeader className="bg-slate-50">
+            <TableRow className="hover:bg-slate-50">
+              <TableHead className="w-32 text-xs font-semibold uppercase tracking-wide text-slate-500">Date</TableHead>
+              <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">Voucher</TableHead>
+              <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">Type</TableHead>
+              <TableHead className="w-36 text-xs font-semibold uppercase tracking-wide text-slate-500">Mode</TableHead>
+              <TableHead className="min-w-64 text-xs font-semibold uppercase tracking-wide text-slate-500">Particulars</TableHead>
+              <TableHead className="w-32 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Debit</TableHead>
+              <TableHead className="w-32 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Credit</TableHead>
+              <TableHead className="w-40 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Balance</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -187,16 +224,25 @@ function LedgerSection({
             </TableRow>
 
             {visibleEntries.map((entry) => (
-              <TableRow key={entry.id}>
-                <TableCell>{format(new Date(entry.date), "dd MMM yyyy")}</TableCell>
-                <TableCell>{entry.voucherNo}</TableCell>
-                <TableCell className="uppercase">{entry.voucherType}</TableCell>
-                <TableCell>{entry.paymentMode ?? "-"}</TableCell>
-                <TableCell>{entry.description ?? "-"}</TableCell>
-                <TableCell className="text-right">{amount(entry.debit)}</TableCell>
-                <TableCell className="text-right text-blue-700">{amount(entry.credit)}</TableCell>
+              <TableRow key={entry.id} className="border-slate-100 hover:bg-slate-50/80">
+                <TableCell className="py-3">
+                  <p className="font-medium text-slate-900">{format(new Date(entry.date), "dd MMM yyyy")}</p>
+                  <p className="mt-1 text-xs text-slate-500">{format(new Date(entry.date), "EEE")}</p>
+                </TableCell>
+                <TableCell className="py-3 font-semibold text-slate-950">#{entry.voucherNo}</TableCell>
+                <TableCell className="py-3 uppercase text-slate-600">{entry.voucherType}</TableCell>
+                <TableCell className="py-3">
+                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                    {entry.paymentMode ?? "-"}
+                  </span>
+                </TableCell>
+                <TableCell className="max-w-[340px] py-3">
+                  <p className="truncate text-sm text-slate-700">{entry.description ?? "-"}</p>
+                </TableCell>
+                <TableCell className="py-3 text-right font-medium">{amount(entry.debit)}</TableCell>
+                <TableCell className="py-3 text-right font-medium text-blue-700">{amount(entry.credit)}</TableCell>
                 <TableCell
-                  className={`text-right ${
+                  className={`py-3 text-right font-semibold ${
                     entry.runningBalance < 0 ? "text-red-600" : "text-slate-900"
                   }`}
                 >
@@ -222,6 +268,7 @@ function LedgerSection({
             </TableRow>
           </tfoot>
         </Table>
+        </div>
 
         {ledger.entries.length > pageSize ? (
           <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -306,6 +353,20 @@ export function LedgerBookManager({
         .sort((left, right) => left.hierarchyLabel.localeCompare(right.hierarchyLabel)),
     [flatAccounts]
   )
+
+  const selectedAccount = accountOptions.find((account) => account.id === accountHeadId) ?? null
+  const suggestedAccounts = useMemo(() => {
+    const search = accountSearch.trim().toLowerCase()
+    const filtered = search
+      ? accountOptions.filter(
+          (account) =>
+            account.name.toLowerCase().includes(search) ||
+            account.hierarchyLabel.toLowerCase().includes(search)
+        )
+      : accountOptions
+
+    return filtered.slice(0, 8)
+  }, [accountOptions, accountSearch])
 
   const singleLedger = useLedger(
     accountHeadId
@@ -407,7 +468,7 @@ export function LedgerBookManager({
       <PageHeader
         eyebrow="Account movement"
         title="Ledger Book"
-        description={`Browse account-wise ledger with running balances for ${clientName}. Choose one account for a focused review, or switch to all ledgers before printing.`}
+        description={`Review account-wise movement, opening balances, period transactions, and closing balances for ${clientName}.`}
         icon={BookOpenText}
         actions={
           <>
@@ -443,9 +504,12 @@ export function LedgerBookManager({
         }
       />
 
-      <FilterPanel title="Choose ledger scope" description="Select an account head and period. Date fields update automatically when you switch fiscal year.">
+      <FilterPanel title="Ledger controls" description="Choose a focused account ledger or switch to all ledgers for printing and export.">
         <div className="grid gap-4 xl:grid-cols-4">
-          <div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700">Account head</label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
               list={`ledger-account-heads-${clientId}`}
               value={accountSearch}
@@ -460,10 +524,11 @@ export function LedgerBookManager({
                 )
                 setAccountHeadId(matched?.id ?? "")
               }}
-              className="h-11 rounded-xl border-slate-200"
+              className="h-11 rounded-xl border-slate-200 pl-10"
               placeholder="Search Account Head"
               disabled={allLedgersMode}
             />
+            </div>
             <datalist id={`ledger-account-heads-${clientId}`}>
               {accountOptions.map((account) => (
                 <option key={account.id} value={account.hierarchyLabel} />
@@ -471,6 +536,8 @@ export function LedgerBookManager({
             </datalist>
           </div>
 
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700">Fiscal year</label>
           <Select
             value={fiscalYearId}
             onValueChange={(value) => {
@@ -493,21 +560,94 @@ export function LedgerBookManager({
               ))}
             </SelectContent>
           </Select>
+          </div>
 
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700">From date</label>
           <Input
             type="date"
             value={fromDate}
             onChange={(event) => setFromDate(event.target.value)}
             className="h-11 rounded-xl border-slate-200"
           />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700">To date</label>
           <Input
             type="date"
             value={toDate}
             onChange={(event) => setToDate(event.target.value)}
             className="h-11 rounded-xl border-slate-200"
           />
+          </div>
         </div>
       </FilterPanel>
+
+      {!allLedgersMode ? (
+        <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-lg text-slate-950">Account browser</CardTitle>
+              <p className="mt-1 text-sm text-slate-500">Pick an account to open its ledger instantly.</p>
+            </div>
+            {selectedAccount ? (
+              <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                <WalletCards className="mr-1.5 h-3.5 w-3.5" />
+                {selectedAccount.name}
+              </span>
+            ) : null}
+          </CardHeader>
+          <CardContent>
+            {suggestedAccounts.length ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {suggestedAccounts.map((account) => (
+                  <button
+                    key={account.id}
+                    type="button"
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      account.id === accountHeadId
+                        ? "border-slate-950 bg-slate-950 text-white"
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                    onClick={() => {
+                      setAccountHeadId(account.id)
+                      setAccountSearch(account.hierarchyLabel)
+                    }}
+                  >
+                    <p className="truncate text-sm font-semibold">{account.name}</p>
+                    <p
+                      className={`mt-1 truncate text-xs ${
+                        account.id === accountHeadId ? "text-slate-300" : "text-slate-500"
+                      }`}
+                    >
+                      {account.groupName} / {account.subGroupName}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
+                No matching account heads found.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-slate-950">All ledgers mode</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Showing {accountOptions.length} account ledgers for {periodLabel}.
+              </p>
+            </div>
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              <Layers3 className="mr-1.5 h-3.5 w-3.5" />
+              Batch review
+            </span>
+          </CardContent>
+        </Card>
+      )}
 
       {allLedgersMode ? (
         <div className="space-y-5">
@@ -534,11 +674,15 @@ export function LedgerBookManager({
           periodLabel={periodLabel}
         />
       ) : (
-        <EmptyState
-          icon={BookOpenText}
-          title="Choose an account head"
-          description="Select an account head to view the ledger table for the chosen fiscal year and date range."
-        />
+        <Card className="rounded-[1.5rem] border-dashed border-slate-300 bg-white shadow-sm">
+          <CardContent className="py-14">
+            <EmptyState
+              icon={CalendarDays}
+              title="Choose an account head"
+              description="Use search or the account browser above to open a ledger for the selected fiscal year and period."
+            />
+          </CardContent>
+        </Card>
       )}
 
       <div className="pointer-events-none absolute left-0 top-0 -z-10 opacity-0">

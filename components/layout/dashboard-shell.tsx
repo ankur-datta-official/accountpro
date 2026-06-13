@@ -77,8 +77,8 @@ type NavItem = {
 
 const workspaceItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/clients", label: "Clients", icon: Building2, exact: true },
-  { href: "/clients/new", label: "Add Client", icon: Plus, exact: true },
+  { href: "/clients", label: "Organizations", icon: Building2, exact: true },
+  { href: "/clients/new", label: "Add Organization", icon: Plus, exact: true },
 ]
 
 const adminItems: NavItem[] = [
@@ -87,7 +87,7 @@ const adminItems: NavItem[] = [
 ]
 
 const clientModuleItems = (clientId: string): NavItem[] => [
-  { href: `/clients/${clientId}`, label: "Client Dashboard", icon: BarChart3, exact: true },
+  { href: `/clients/${clientId}`, label: "Organization Dashboard", icon: BarChart3, exact: true },
   { href: `/clients/${clientId}/vouchers/new`, label: "New Voucher", icon: FilePlus2, exact: true, emphasis: true },
   {
     href: `/clients/${clientId}/vouchers`,
@@ -158,8 +158,8 @@ function isItemActive(pathname: string, item: NavItem) {
 
 function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
   if (pathname === "/") return "Dashboard"
-  if (pathname === "/clients") return "Clients"
-  if (pathname === "/clients/new") return "Add New Client"
+  if (pathname === "/clients") return "Organizations"
+  if (pathname === "/clients/new") return "Add New Organization"
   if (pathname === "/team") return "Team"
   if (pathname === "/settings") return "Organization Settings"
 
@@ -180,11 +180,11 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
       [`/clients/${clientId}/import`, "Import"],
       [`/clients/${clientId}/settings/fiscal-years`, "Fiscal Years"],
       [`/clients/${clientId}/settings/payment-modes`, "Payment Modes"],
-      [`/clients/${clientId}/settings`, "Client Settings"],
+      [`/clients/${clientId}/settings`, "Organization Settings"],
     ]
 
     const route = clientRoutes.find(([href]) => pathname === href || pathname.startsWith(`${href}/`))
-    return route?.[1] ?? "Client Dashboard"
+    return route?.[1] ?? "Organization Dashboard"
   }
 
   return "AccountPro"
@@ -249,7 +249,7 @@ function ClientSelectSection({ clients }: { clients: SidebarClient[] }) {
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Select client</SidebarGroupLabel>
+      <SidebarGroupLabel>Select organization</SidebarGroupLabel>
       <SidebarGroupContent className="space-y-2">
         {clients.length ? (
           <div className="relative group-data-[collapsible=icon]:hidden">
@@ -258,8 +258,8 @@ function ClientSelectSection({ clients }: { clients: SidebarClient[] }) {
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search clients..."
-              aria-label="Search clients"
+              placeholder="Search organizations..."
+              aria-label="Search organizations"
               className="h-9 rounded-lg border-slate-200 bg-white pl-9 pr-3 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-slate-300 focus-visible:ring-offset-0"
             />
           </div>
@@ -279,17 +279,17 @@ function ClientSelectSection({ clients }: { clients: SidebarClient[] }) {
             ))
           ) : clients.length ? (
             <SidebarMenuItem>
-              <SidebarMenuButton disabled tooltip="No clients found" className="h-9 rounded-lg">
+              <SidebarMenuButton disabled tooltip="No organizations found" className="h-9 rounded-lg">
                 <Search className="h-4 w-4" />
-                <span>No clients found</span>
+                <span>No organizations found</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           ) : (
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Add Client" className="h-9 rounded-lg">
+              <SidebarMenuButton asChild tooltip="Add Organization" className="h-9 rounded-lg">
                 <Link href="/clients/new" prefetch>
                   <Plus className="h-4 w-4" />
-                  <span>Add Client</span>
+                  <span>Add Organization</span>
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -321,17 +321,17 @@ function ClientSwitcher({
             </div>
             <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
               <p className="truncate text-sm font-medium text-slate-950">
-                {currentClient?.name ?? "Select client"}
+                {currentClient?.name ?? "Select organization"}
               </p>
               <p className="truncate text-xs text-slate-500">
-                {currentClient ? "Current workspace" : "Choose a workspace"}
+                {currentClient ? "Current organization" : "Choose an organization"}
               </p>
             </div>
             <ChevronDown className="h-4 w-4 text-slate-400 group-data-[collapsible=icon]:hidden" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
-          <DropdownMenuLabel>Active clients</DropdownMenuLabel>
+          <DropdownMenuLabel>Active organizations</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {clients.length ? (
             clients.slice(0, 10).map((client) => (
@@ -343,19 +343,19 @@ function ClientSwitcher({
               </DropdownMenuItem>
             ))
           ) : (
-            <DropdownMenuItem disabled>No active clients yet</DropdownMenuItem>
+            <DropdownMenuItem disabled>No active organizations yet</DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <Link href="/clients/new" prefetch className="cursor-pointer">
               <Plus className="h-4 w-4" />
-              Add Client
+              Add Organization
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
             <Link href="/clients" prefetch className="cursor-pointer">
               <ArrowUpRight className="h-4 w-4" />
-              View All Clients
+              View All Organizations
             </Link>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -398,9 +398,9 @@ function AppSidebar({
         {currentClient ? (
           <>
             <SidebarSeparator />
-            <NavSection label="Current Client" items={clientModuleItems(currentClient.id)} pathname={pathname} />
+            <NavSection label="Current Organization" items={clientModuleItems(currentClient.id)} pathname={pathname} />
             <NavSection label="Reports" items={reportItems(currentClient.id)} pathname={pathname} />
-            <NavSection label="Client Settings" items={clientSettingsItems(currentClient.id)} pathname={pathname} />
+            <NavSection label="Organization Settings" items={clientSettingsItems(currentClient.id)} pathname={pathname} />
           </>
         ) : (
           <ClientSelectSection clients={clients} />
