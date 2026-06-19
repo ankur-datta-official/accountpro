@@ -45,7 +45,7 @@ export function VoucherLineRow({
   disabled = false,
 }: {
   index: number
-  line: VoucherLineFormValues["lines"][number]
+  line?: VoucherLineFormValues["lines"][number]
   accounts: ChartFlatAccount[]
   onRemove: () => void
   onAddLine: () => void
@@ -53,6 +53,10 @@ export function VoucherLineRow({
   setValue: SetLineValue
   disabled?: boolean
 }) {
+  if (!line) {
+    return null
+  }
+  
   const filteredAccounts = accounts.filter((account) => account.groupType === line.accountsGroup)
   const groupedAccounts = filteredAccounts.reduce<Record<string, ChartFlatAccount[]>>((acc, account) => {
     if (!acc[account.subGroupName]) {

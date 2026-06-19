@@ -277,7 +277,6 @@ export function DayBookReport({
               <tr className="border-y border-slate-200 bg-slate-50 text-slate-700">
                 {[
                   "Voucher #",
-                  "Date",
                   "Accounts Group",
                   "Accounts Head",
                   "Voucher Type",
@@ -285,7 +284,6 @@ export function DayBookReport({
                   "Receipts(Dr)",
                   "Payments(Cr)",
                   "Description",
-                  "Month",
                 ].map((header) => (
                   <th key={header} className="px-3 py-3 text-left font-semibold">
                     {header}
@@ -297,7 +295,7 @@ export function DayBookReport({
               {groupedRows.map((group) => (
                 <>
                   <tr key={`${group.date}-header`} className="bg-slate-100/80">
-                    <td colSpan={10} className="px-3 py-2 font-semibold text-slate-900">
+                    <td colSpan={8} className="px-3 py-2 font-semibold text-slate-900">
                       {format(new Date(group.date), "dd MMM yyyy")}
                     </td>
                   </tr>
@@ -307,7 +305,6 @@ export function DayBookReport({
                       className={index % 2 === 0 ? "bg-white" : "bg-slate-50/50"}
                     >
                       <td className="px-3 py-2 font-medium text-slate-900">{row.voucherNo}</td>
-                      <td className="px-3 py-2">{row.date}</td>
                       <td className="px-3 py-2">{row.accountsGroup}</td>
                       <td className="px-3 py-2">{row.accountHead}</td>
                       <td className="px-3 py-2">{row.voucherType}</td>
@@ -319,28 +316,27 @@ export function DayBookReport({
                         {formatAmount(row.payment)}
                       </td>
                       <td className="px-3 py-2">{row.description || "—"}</td>
-                      <td className="px-3 py-2">{row.month}</td>
                     </tr>
                   ))}
                   <tr key={`${group.date}-subtotal`} className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-900">
-                    <td colSpan={6} className="px-3 py-2 text-right">
+                    <td colSpan={5} className="px-3 py-2 text-right">
                       Daily Total
                     </td>
                     <td className="px-3 py-2 text-right">{formatAmount(group.receipts)}</td>
                     <td className="px-3 py-2 text-right">{formatAmount(group.payments)}</td>
-                    <td colSpan={2} />
+                    <td colSpan={1} />
                   </tr>
                 </>
               ))}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-slate-300 bg-slate-100 font-semibold text-slate-950">
-                <td colSpan={6} className="px-3 py-3 text-right">
+                <td colSpan={5} className="px-3 py-3 text-right">
                   Grand Total
                 </td>
                 <td className="px-3 py-3 text-right">{formatAmount(totalReceipts)}</td>
                 <td className="px-3 py-3 text-right">{formatAmount(totalPayments)}</td>
-                <td colSpan={2} />
+                <td colSpan={1} />
               </tr>
             </tfoot>
           </table>

@@ -2,7 +2,13 @@ const fs = require("fs")
 const path = require("path")
 
 const root = process.cwd()
-const targets = [".next", ".next-app"]
+const targetArg = process.argv[2]
+const targets =
+  targetArg === "production"
+    ? [".next"]
+    : targetArg === "development"
+      ? [".next-app"]
+      : [".next", ".next-app"]
 
 for (const target of targets) {
   const fullPath = path.join(root, target)

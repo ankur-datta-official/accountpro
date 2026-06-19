@@ -2,27 +2,26 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   ArrowUpRight,
-  Banknote,
   BarChart3,
   BookMarked,
   BookOpenText,
   Building2,
   ChevronDown,
-  FilePlus2,
   FileSpreadsheet,
   Landmark,
+  Home,
   LayoutDashboard,
   LineChart,
   Plus,
   ReceiptText,
+  BadgeDollarSign,
   ScrollText,
   Search,
   Settings,
   Settings2,
-  Upload,
   Users,
   WalletCards,
 } from "lucide-react"
@@ -52,6 +51,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
   SidebarSeparator,
@@ -71,12 +73,10 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>
   exact?: boolean
   aliases?: string[]
-  exclude?: string[]
-  emphasis?: boolean
 }
 
 const workspaceItems: NavItem[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { href: "/", label: "Home", icon: Home, exact: true },
   { href: "/clients", label: "Organizations", icon: Building2, exact: true },
   { href: "/clients/new", label: "Add Organization", icon: Plus, exact: true },
 ]
@@ -88,23 +88,16 @@ const adminItems: NavItem[] = [
 
 const clientModuleItems = (clientId: string): NavItem[] => [
   { href: `/clients/${clientId}`, label: "Organization Dashboard", icon: BarChart3, exact: true },
-  { href: `/clients/${clientId}/vouchers/new`, label: "New Voucher", icon: FilePlus2, exact: true, emphasis: true },
+]
+
+const booksOfAccountsItems = (clientId: string): NavItem[] => [
   {
     href: `/clients/${clientId}/vouchers`,
     label: "Vouchers",
     icon: ReceiptText,
-    exclude: [
-      `/clients/${clientId}/vouchers/new`,
-      `/clients/${clientId}/vouchers/opening-balance`,
-    ],
   },
-  { href: `/clients/${clientId}/vouchers/opening-balance`, label: "Opening Balances", icon: Banknote },
   { href: `/clients/${clientId}/accounts`, label: "Chart of Accounts", icon: BookMarked },
   { href: `/clients/${clientId}/ledger`, label: "Ledger", icon: BookOpenText },
-  { href: `/clients/${clientId}/import`, label: "Import", icon: Upload },
-]
-
-const reportItems = (clientId: string): NavItem[] => [
   {
     href: `/clients/${clientId}/day-book`,
     label: "Day Book",
@@ -112,9 +105,15 @@ const reportItems = (clientId: string): NavItem[] => [
     aliases: [`/clients/${clientId}/daybook`],
   },
   { href: `/clients/${clientId}/trial-balance`, label: "Trial Balance", icon: FileSpreadsheet },
+]
+
+const operationsItems = (clientId: string): NavItem[] => [
+  { href: `/clients/${clientId}/payroll`, label: "Payroll", icon: BadgeDollarSign },
+]
+
+const financialStatementItems = (clientId: string): NavItem[] => [
   { href: `/clients/${clientId}/balance-sheet`, label: "Balance Sheet", icon: Landmark },
   { href: `/clients/${clientId}/profit-loss`, label: "Profit & Loss", icon: LineChart },
-  { href: `/clients/${clientId}/bank-statements`, label: "Bank Statements", icon: WalletCards },
 ]
 
 const clientSettingsItems = (clientId: string): NavItem[] => [
@@ -125,9 +124,6 @@ const clientSettingsItems = (clientId: string): NavItem[] => [
 
 const activeNavButtonClass =
   "!bg-slate-950 !text-white shadow-sm hover:!bg-slate-900 hover:!text-white focus-visible:!ring-slate-300 [&_svg]:!text-white"
-
-const inactiveEmphasisClass =
-  "bg-slate-50 text-slate-950 hover:bg-slate-100 hover:text-slate-950"
 
 function getInitials(name: string) {
   return name
@@ -145,10 +141,6 @@ function getCurrentClientId(pathname: string) {
 }
 
 function isItemActive(pathname: string, item: NavItem) {
-  if (item.exclude?.some((href) => pathname === href || pathname.startsWith(`${href}/`))) {
-    return false
-  }
-
   const candidates = [item.href, ...(item.aliases ?? [])]
   return candidates.some((href) => {
     if (item.exact) return pathname === href
@@ -157,7 +149,7 @@ function isItemActive(pathname: string, item: NavItem) {
 }
 
 function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
-  if (pathname === "/") return "Dashboard"
+  if (pathname === "/") return "Home"
   if (pathname === "/clients") return "Organizations"
   if (pathname === "/clients/new") return "Add New Organization"
   if (pathname === "/team") return "Team"
@@ -166,7 +158,6 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
   if (currentClient) {
     const clientId = currentClient.id
     const clientRoutes: Array<[string, string]> = [
-      [`/clients/${clientId}/vouchers/opening-balance`, "Opening Balances"],
       [`/clients/${clientId}/vouchers/new`, "New Voucher"],
       [`/clients/${clientId}/vouchers`, "Vouchers"],
       [`/clients/${clientId}/accounts`, "Chart of Accounts"],
@@ -174,10 +165,10 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
       [`/clients/${clientId}/daybook`, "Day Book"],
       [`/clients/${clientId}/day-book`, "Day Book"],
       [`/clients/${clientId}/trial-balance`, "Trial Balance"],
+      [`/clients/${clientId}/payroll`, "Payroll"],
       [`/clients/${clientId}/balance-sheet`, "Balance Sheet"],
       [`/clients/${clientId}/profit-loss`, "Profit & Loss"],
       [`/clients/${clientId}/bank-statements`, "Bank Statements"],
-      [`/clients/${clientId}/import`, "Import"],
       [`/clients/${clientId}/settings/fiscal-years`, "Fiscal Years"],
       [`/clients/${clientId}/settings/payment-modes`, "Payment Modes"],
       [`/clients/${clientId}/settings`, "Organization Settings"],
@@ -216,8 +207,7 @@ function NavSection({
                   tooltip={item.label}
                   className={cn(
                     "h-9 rounded-lg transition-colors",
-                    active && activeNavButtonClass,
-                    item.emphasis && !active && inactiveEmphasisClass
+                    active && activeNavButtonClass
                   )}
                 >
                   <Link href={item.href} prefetch aria-current={active ? "page" : undefined}>
@@ -231,6 +221,132 @@ function NavSection({
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
+  )
+}
+
+function ClientModuleSection({
+  clientId,
+  pathname,
+}: {
+  clientId: string
+  pathname: string
+}) {
+  const dashboardItems = clientModuleItems(clientId)
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>Current Organization</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {dashboardItems.map((item) => {
+            const Icon = item.icon
+            const active = isItemActive(pathname, item)
+
+            return (
+              <SidebarMenuItem key={item.href}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={active}
+                  tooltip={item.label}
+                  className={cn("h-9 rounded-lg transition-colors", active && activeNavButtonClass)}
+                >
+                  <Link href={item.href} prefetch aria-current={active ? "page" : undefined}>
+                    <Icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })}
+
+          <CollapsibleNavGroup
+            label="Books of Accounts"
+            icon={BookOpenText}
+            items={booksOfAccountsItems(clientId)}
+            pathname={pathname}
+          />
+          <CollapsibleNavGroup
+            label="Operations"
+            icon={WalletCards}
+            items={operationsItems(clientId)}
+            pathname={pathname}
+          />
+          <CollapsibleNavGroup
+            label="Financial Statements"
+            icon={FileSpreadsheet}
+            items={financialStatementItems(clientId)}
+            pathname={pathname}
+          />
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  )
+}
+
+function CollapsibleNavGroup({
+  label,
+  icon: Icon,
+  items,
+  pathname,
+}: {
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  items: NavItem[]
+  pathname: string
+}) {
+  const hasActiveItem = items.some((item) => isItemActive(pathname, item))
+  const [open, setOpen] = useState(hasActiveItem)
+
+  useEffect(() => {
+    if (hasActiveItem) setOpen(true)
+  }, [hasActiveItem])
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        type="button"
+        tooltip={label}
+        aria-expanded={open}
+        className={cn(
+          "h-9 rounded-lg transition-colors",
+          hasActiveItem && "bg-slate-50 font-semibold text-slate-950 hover:bg-slate-100 hover:text-slate-950"
+        )}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Icon className="h-4 w-4" />
+        <span>{label}</span>
+        <ChevronDown
+          className={cn(
+            "ml-auto h-4 w-4 text-slate-400 transition-transform group-data-[collapsible=icon]:hidden",
+            open && "rotate-180 text-slate-600"
+          )}
+        />
+      </SidebarMenuButton>
+
+      {open ? (
+        <SidebarMenuSub className="ml-4 mr-0 mt-1 gap-1 border-slate-200 py-1 pr-0">
+          {items.map((item) => {
+            const Icon = item.icon
+            const active = isItemActive(pathname, item)
+
+            return (
+              <SidebarMenuSubItem key={item.href}>
+                <SidebarMenuSubButton
+                  asChild
+                  isActive={active}
+                  className={cn("h-8 rounded-lg text-sm transition-colors", active && activeNavButtonClass)}
+                >
+                  <Link href={item.href} prefetch aria-current={active ? "page" : undefined}>
+                    <Icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </Link>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            )
+          })}
+        </SidebarMenuSub>
+      ) : null}
+    </SidebarMenuItem>
   )
 }
 
@@ -398,8 +514,7 @@ function AppSidebar({
         {currentClient ? (
           <>
             <SidebarSeparator />
-            <NavSection label="Current Organization" items={clientModuleItems(currentClient.id)} pathname={pathname} />
-            <NavSection label="Reports" items={reportItems(currentClient.id)} pathname={pathname} />
+            <ClientModuleSection clientId={currentClient.id} pathname={pathname} />
             <NavSection label="Organization Settings" items={clientSettingsItems(currentClient.id)} pathname={pathname} />
           </>
         ) : (

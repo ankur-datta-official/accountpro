@@ -7,6 +7,7 @@ AccountPro is a Next.js 14 bookkeeping workspace for managing clients, vouchers,
 - Next.js 14 App Router
 - React 18
 - Supabase Auth, Postgres, and Storage
+- Prisma ORM for server-side Postgres access
 - Tailwind CSS + shadcn/ui
 - TanStack Query for client-side caching
 
@@ -24,6 +25,9 @@ npm install
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_DB_PASSWORD=your_supabase_database_password
+DATABASE_URL=postgresql://postgres:your_password@db.your_project_ref.supabase.co:5432/postgres
+DIRECT_URL=postgresql://postgres:your_password@db.your_project_ref.supabase.co:5432/postgres
 ```
 
 3. Run the development server:
@@ -34,6 +38,40 @@ npm run dev
 
 4. Open `http://localhost:3000`.
 
+## Prisma setup
+
+Prisma is configured in `prisma/schema.prisma` against the existing Supabase public schema. The generated client is written to `node_modules/.prisma/client` and exposed through `lib/prisma.ts`.
+
+### One-command database setup (payroll + Prisma)
+
+1. Add your Supabase database password to `.env.local`:
+
+```bash
+SUPABASE_DB_PASSWORD=your_database_password
+```
+
+2. Run:
+
+```bash
+npm run db:setup
+```
+
+This will:
+- add `DATABASE_URL` and `DIRECT_URL` to `.env.local`
+- generate the Prisma client
+- apply the payroll migration (`prisma/migrations/20250619000000_add_payroll_module`)
+
+If you already have `DATABASE_URL`, you can run `npm run db:setup` directly without `SUPABASE_DB_PASSWORD`.
+
+Recommended workflow after setup:
+
+```bash
+npm run prisma:generate
+npm run prisma:migrate:status
+```
+
+For Supabase, keep Supabase Auth and Storage calls in the Supabase SDK; use Prisma only from server code for public-schema database reads/writes after checking organization/client permissions in application code.
+
 ## Database migration steps
 
 Run the SQL files in `supabase/migrations` in order:
@@ -42,6 +80,16 @@ Run the SQL files in `supabase/migrations` in order:
 2. `002_fix_rls_policies.sql`
 3. `003_team_member_invitations.sql`
 4. `004_add_organization_active_flag.sql`
+5. `005_add_voucher_attachments.sql`
+6. `006_add_payroll_module.sql`
+
+Prisma also tracks this migration in `prisma/migrations/20250619000000_add_payroll_module/`. Prefer:
+
+```bash
+npm run db:setup
+```
+
+That command requires `SUPABASE_DB_PASSWORD` or `DATABASE_URL` in `.env.local`. Alternatively, paste the contents of `006_add_payroll_module.sql` into the Supabase SQL Editor and run it once.
 
 If you are using the Supabase CLI, the usual flow is:
 
@@ -60,6 +108,9 @@ supabase db reset
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_DB_PASSWORD` (for `npm run db:setup`)
+- `DATABASE_URL`
+- `DIRECT_URL`
 
 ## Add the first admin user
 
@@ -88,5 +139,6 @@ If you need to promote an existing user manually, update `organization_members.r
 5. Review ledger
 6. Generate trial balance
 7. Review balance sheet and profit/loss
-8. Export to Excel
-9. Print vouchers and reports
+8. Manage payroll, import salary sheets, and post accrual/payment vouchers
+9. Export to Excel
+10. Print vouchers and reports

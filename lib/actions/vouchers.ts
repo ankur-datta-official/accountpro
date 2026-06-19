@@ -30,7 +30,9 @@ const createVoucherSchema = z.object({
   paymentModeId: z.string().optional(),
   paymentModeName: z.string().optional(),
   paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
+  showDescription: z.boolean(),
   description: z.string().optional(),
+  showSupportingDocuments: z.boolean(),
   lines: z.array(voucherLineSchema).min(1),
 })
 
@@ -63,21 +65,7 @@ const registerVoucherAttachmentsSchema = z.object({
   attachments: z.array(voucherAttachmentSchema).min(1).max(10),
 })
 
-const openingBalanceLineSchema = z.object({
-  accountHeadId: z.string().min(1),
-  accountsGroup: z.enum(["asset", "liability"]),
-  debitAmount: z.number().min(0),
-  creditAmount: z.number().min(0),
-})
-
-const saveOpeningBalancesSchema = z.object({
-  clientId: z.string().min(1),
-  fiscalYearId: z.string().min(1),
-  lines: z.array(openingBalanceLineSchema).min(1),
-})
-
 export type UpdateVoucherInput = z.input<typeof updateVoucherSchema>
-export type SaveOpeningBalancesInput = z.input<typeof saveOpeningBalancesSchema>
 export type RegisterVoucherAttachmentsInput = z.input<typeof registerVoucherAttachmentsSchema>
 
 type ServerSupabase = ReturnType<typeof createClient>
@@ -280,6 +268,12 @@ function revalidateVoucherPaths(clientId: string, voucherId?: string) {
   revalidatePath(`/clients/${clientId}`)
   revalidatePath(`/clients/${clientId}/vouchers`)
   revalidatePath(`/clients/${clientId}/vouchers/new`)
+  revalidatePath(`/clients/${clientId}/ledger`)
+  revalidatePath(`/clients/${clientId}/day-book`)
+  revalidatePath(`/clients/${clientId}/daybook`)
+  revalidatePath(`/clients/${clientId}/trial-balance`)
+  revalidatePath(`/clients/${clientId}/profit-loss`)
+  revalidatePath(`/clients/${clientId}/balance-sheet`)
 
   if (voucherId) {
     revalidatePath(`/clients/${clientId}/vouchers/${voucherId}`)
@@ -383,7 +377,9 @@ export async function createVoucherAction(input: CreateVoucherInput) {
         values.voucherType === "journal"
           ? paymentModeResult?.paymentMode.id ?? null
           : null,
+      show_description: values.showDescription,
       description: values.description || null,
+      show_supporting_documents: values.showSupportingDocuments,
       month_label: monthLabel,
       is_posted: true,
       created_by: userId,
@@ -431,6 +427,22 @@ export async function createVoucherAction(input: CreateVoucherInput) {
   }
 }
 
+async function findFiscalYearForDate(
+  supabase: ServerSupabase,
+  clientId: string,
+  date: string
+) {
+  const { data: fiscalYear } = await supabase
+    .from("fiscal_years")
+    .select("*")
+    .eq("client_id", clientId)
+    .lte("start_date", date)
+    .gte("end_date", date)
+    .maybeSingle()
+
+  return fiscalYear
+}
+
 export async function updateVoucherAction(input: UpdateVoucherInput) {
   const parsed = updateVoucherSchema.safeParse(input)
 
@@ -457,7 +469,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     return validation
   }
 
-  const { supabase, client, fiscalYear } = validation.context
+  const { supabase, client } = validation.context
 
   const { data: existingVoucher } = await supabase
     .from("vouchers")
@@ -473,10 +485,20 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     }
   }
 
-  if (fiscalYear.is_closed) {
+  // Determine the correct fiscal year for the selected date
+  const targetFiscalYear = await findFiscalYearForDate(supabase, client.id, values.voucherDate)
+
+  if (!targetFiscalYear) {
     return {
       success: false as const,
-      error: "You cannot edit a voucher in a closed fiscal year.",
+      error: "No active fiscal year found for the selected voucher date. Please check your fiscal years in settings.",
+    }
+  }
+
+  if (targetFiscalYear.is_closed) {
+    return {
+      success: false as const,
+      error: "The fiscal year for the selected date is closed.",
     }
   }
 
@@ -522,49 +544,13 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
 
   const voucherNo = await getVoucherNumber(supabase, {
     clientId: client.id,
-    fiscalYearId: fiscalYear.id,
+    fiscalYearId: targetFiscalYear.id,
     desiredVoucherNo: values.voucherNo,
     voucherId: existingVoucher.id,
   })
   const monthLabel = getMonthLabel(new Date(values.voucherDate))
 
-  const { error: voucherError } = await supabase
-    .from("vouchers")
-    .update({
-      voucher_no: voucherNo,
-      voucher_date: values.voucherDate,
-      voucher_type: values.voucherType,
-      payment_mode_id:
-        values.voucherType === "payment" ||
-        values.voucherType === "received" ||
-        values.voucherType === "journal"
-          ? paymentModeResult?.paymentMode.id ?? null
-          : null,
-      description: values.description || null,
-      month_label: monthLabel,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", existingVoucher.id)
-
-  if (voucherError) {
-    return {
-      success: false as const,
-      error: voucherError.message ?? "Unable to update voucher.",
-    }
-  }
-
-  const { error: deleteEntriesError } = await supabase
-    .from("voucher_entries")
-    .delete()
-    .eq("voucher_id", existingVoucher.id)
-
-  if (deleteEntriesError) {
-    return {
-      success: false as const,
-      error: deleteEntriesError.message ?? "Unable to refresh voucher entries.",
-    }
-  }
-
+  // Build new entries based on the LATEST data provided
   const entryResult = await buildVoucherEntries(supabase, {
     clientId: client.id,
     voucherId: existingVoucher.id,
@@ -577,6 +563,93 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     return entryResult
   }
 
+  // Update voucher record
+  const { error: voucherError } = await supabase
+    .from("vouchers")
+    .update({
+      voucher_no: voucherNo,
+      voucher_date: values.voucherDate,
+      voucher_type: values.voucherType,
+      fiscal_year_id: targetFiscalYear.id,
+      payment_mode_id:
+        values.voucherType === "payment" ||
+        values.voucherType === "received" ||
+        values.voucherType === "journal"
+          ? paymentModeResult?.paymentMode.id ?? null
+          : null,
+      show_description: values.showDescription,
+      description: values.description || null,
+      show_supporting_documents: values.showSupportingDocuments,
+      month_label: monthLabel,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", existingVoucher.id)
+
+  if (voucherError) {
+    return {
+      success: false as const,
+      error: voucherError.message ?? "Unable to update voucher.",
+    }
+  }
+
+  // Delete ALL existing entries first. The latest submitted lines are the only
+  // source of truth for the voucher and every ledger/report derived from it.
+  const { data: deletedEntries, error: deleteEntriesError } = await supabase
+    .from("voucher_entries")
+    .delete()
+    .eq("voucher_id", existingVoucher.id)
+    .select("id")
+
+  if (deleteEntriesError) {
+    return {
+      success: false as const,
+      error: deleteEntriesError.message ?? "Unable to refresh voucher entries.",
+    }
+  }
+
+  const { count: remainingEntryCount, error: remainingEntriesError } = await supabase
+    .from("voucher_entries")
+    .select("id", { count: "exact", head: true })
+    .eq("voucher_id", existingVoucher.id)
+
+  if (remainingEntriesError) {
+    return {
+      success: false as const,
+      error: remainingEntriesError.message ?? "Unable to verify voucher entries were refreshed.",
+    }
+  }
+
+  if ((remainingEntryCount ?? 0) > 0) {
+    return {
+      success: false as const,
+      error:
+        "Unable to replace the old voucher entries. Please apply the latest database migration and try again.",
+    }
+  }
+
+  if ((deletedEntries?.length ?? 0) === 0) {
+    const { count: existingEntryCount, error: existingEntriesError } = await supabase
+      .from("voucher_entries")
+      .select("id", { count: "exact", head: true })
+      .eq("voucher_id", existingVoucher.id)
+
+    if (existingEntriesError) {
+      return {
+        success: false as const,
+        error: existingEntriesError.message ?? "Unable to verify voucher entries before update.",
+      }
+    }
+
+    if ((existingEntryCount ?? 0) > 0) {
+      return {
+        success: false as const,
+        error:
+          "Unable to clear the old voucher entries. Please apply the latest database migration and try again.",
+      }
+    }
+  }
+
+  // Insert NEW entries based on the latest updated data only.
   const { error: entryError } = await supabase.from("voucher_entries").insert(entryResult.entries)
 
   if (entryError) {
@@ -855,145 +928,5 @@ export async function registerVoucherAttachmentsAction(input: RegisterVoucherAtt
 
   return {
     success: true as const,
-  }
-}
-
-export async function saveOpeningBalancesAction(input: SaveOpeningBalancesInput) {
-  const parsed = saveOpeningBalancesSchema.safeParse(input)
-
-  if (!parsed.success) {
-    return {
-      success: false as const,
-      error: parsed.error.issues[0]?.message ?? "Invalid opening balance data.",
-    }
-  }
-
-  const values = parsed.data
-  const validation = await getValidatedVoucherContext(values.clientId, values.fiscalYearId)
-
-  if (!validation.success) {
-    return validation
-  }
-
-  const { supabase, client, fiscalYear, userId } = validation.context
-
-  if (fiscalYear.is_closed) {
-    return {
-      success: false as const,
-      error: "You cannot update opening balances for a closed fiscal year.",
-    }
-  }
-
-  const totalDebit = values.lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0)
-  const totalCredit = values.lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0)
-  const difference = Number((totalDebit - totalCredit).toFixed(2))
-
-  if (difference !== 0) {
-    return {
-      success: false as const,
-      error: "Opening balances must be fully balanced before saving.",
-    }
-  }
-
-  const { data: existingOpeningVouchers } = await supabase
-    .from("vouchers")
-    .select("id")
-    .eq("client_id", client.id)
-    .eq("fiscal_year_id", fiscalYear.id)
-    .eq("voucher_type", "bf")
-
-  const existingVoucherIds = (existingOpeningVouchers ?? []).map((voucher) => voucher.id)
-
-  if (existingVoucherIds.length) {
-    await supabase.from("voucher_entries").delete().in("voucher_id", existingVoucherIds)
-    await supabase.from("vouchers").delete().in("id", existingVoucherIds)
-  }
-
-  const voucherNo = await getVoucherNumber(supabase, {
-    clientId: client.id,
-    fiscalYearId: fiscalYear.id,
-  })
-
-  const { data: insertedVoucher, error: voucherError } = await supabase
-    .from("vouchers")
-    .insert({
-      client_id: client.id,
-      fiscal_year_id: fiscalYear.id,
-      voucher_no: voucherNo,
-      voucher_date: fiscalYear.start_date,
-      voucher_type: "bf",
-      payment_mode_id: null,
-      description: "Opening Balance B/F",
-      month_label: getMonthLabel(new Date(fiscalYear.start_date)),
-      is_posted: true,
-      created_by: userId,
-      updated_at: new Date().toISOString(),
-    })
-    .select("*")
-    .single()
-
-  if (voucherError || !insertedVoucher) {
-    return {
-      success: false as const,
-      error: voucherError?.message ?? "Unable to create the opening balance voucher.",
-    }
-  }
-
-  const nonZeroLines = values.lines.filter(
-    (line) => Number(line.debitAmount || 0) > 0 || Number(line.creditAmount || 0) > 0
-  )
-
-  const voucherEntries = nonZeroLines.map((line) => ({
-    voucher_id: insertedVoucher.id,
-    account_head_id: line.accountHeadId,
-    accounts_group: line.accountsGroup,
-    debit: Number(line.debitAmount || 0),
-    credit: Number(line.creditAmount || 0),
-    description: "Last year Balance",
-  }))
-
-  if (voucherEntries.length) {
-    const { error: entriesError } = await supabase.from("voucher_entries").insert(voucherEntries)
-
-    if (entriesError) {
-      await supabase.from("vouchers").delete().eq("id", insertedVoucher.id)
-      return {
-        success: false as const,
-        error: entriesError.message ?? "Unable to save opening balance entries.",
-      }
-    }
-  }
-
-  for (const line of values.lines) {
-    const openingBalance = Math.abs(Number(line.debitAmount || 0) - Number(line.creditAmount || 0))
-    const balanceType = Number(line.creditAmount || 0) > Number(line.debitAmount || 0) ? "credit" : "debit"
-
-    const { error: updateError } = await supabase
-      .from("account_heads")
-      .update({
-        opening_balance: openingBalance,
-        balance_type: openingBalance === 0 ? "debit" : balanceType,
-      })
-      .eq("id", line.accountHeadId)
-      .eq("client_id", client.id)
-
-    if (updateError) {
-      return {
-        success: false as const,
-        error: updateError.message ?? "Unable to update account opening balances.",
-      }
-    }
-  }
-
-  revalidatePath(`/clients/${client.id}`)
-  revalidatePath(`/clients/${client.id}/settings`)
-  revalidatePath(`/clients/${client.id}/vouchers`)
-  revalidatePath(`/clients/${client.id}/vouchers/new`)
-  revalidatePath(`/clients/${client.id}/vouchers/opening-balance`)
-
-  return {
-    success: true as const,
-    voucherId: insertedVoucher.id,
-    voucherNo,
   }
 }

@@ -54,9 +54,6 @@ export default async function ClientLayout({
                   {client.is_active ? "Active" : "Inactive"}
                 </Badge>
               </div>
-              <p className="mt-1 text-sm text-slate-500">
-                Use the side panel for vouchers, accounts, ledger, reports, and settings.
-              </p>
             </div>
             <div className="w-full max-w-[240px]">
               <p className="mb-2 text-sm font-medium text-slate-500">Fiscal Year</p>

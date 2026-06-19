@@ -22,6 +22,8 @@ export function VoucherPrintActions({
   lines,
   totalDebit,
   totalCredit,
+  showDescription = true,
+  showSupportingDocuments = true,
   attachments = [],
   autoPrint = false,
   className,
@@ -36,6 +38,8 @@ export function VoucherPrintActions({
   lines: VoucherPrintLine[]
   totalDebit: number
   totalCredit: number
+  showDescription?: boolean
+  showSupportingDocuments?: boolean
   attachments?: VoucherPrintAttachment[]
   autoPrint?: boolean
   className?: string
@@ -79,6 +83,8 @@ export function VoucherPrintActions({
           lines={lines}
           totalDebit={totalDebit}
           totalCredit={totalCredit}
+          showDescription={showDescription}
+          showSupportingDocuments={showSupportingDocuments}
           attachments={attachments}
         />
       </div>

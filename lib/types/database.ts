@@ -22,6 +22,9 @@ export type VoucherType =
   | "bf"
   | "bp"
   | "br"
+export type PayrollRunStatus = "draft" | "reviewed" | "posted" | "paid" | "cancelled"
+export type PayrollRunSource = "manual" | "import"
+export type PayrollComponentKind = "earning" | "employer_contribution" | "deduction"
 
 export interface Database {
   public: {
@@ -335,7 +338,9 @@ export interface Database {
           voucher_date: string
           voucher_type: VoucherType
           payment_mode_id: string | null
+          show_description: boolean | null
           description: string | null
+          show_supporting_documents: boolean | null
           month_label: string | null
           is_posted: boolean | null
           created_by: string | null
@@ -350,7 +355,9 @@ export interface Database {
           voucher_date: string
           voucher_type: VoucherType
           payment_mode_id?: string | null
+          show_description?: boolean | null
           description?: string | null
+          show_supporting_documents?: boolean | null
           month_label?: string | null
           is_posted?: boolean | null
           created_by?: string | null
@@ -365,7 +372,9 @@ export interface Database {
           voucher_date?: string
           voucher_type?: VoucherType
           payment_mode_id?: string | null
+          show_description?: boolean | null
           description?: string | null
+          show_supporting_documents?: boolean | null
           month_label?: string | null
           is_posted?: boolean | null
           created_by?: string | null
@@ -440,6 +449,255 @@ export interface Database {
           mime_type?: string | null
           uploaded_by?: string | null
           created_at?: string | null
+        }
+        Relationships: []
+      }
+      payroll_employees: {
+        Row: {
+          id: string
+          client_id: string
+          employee_code: string | null
+          name: string
+          designation: string | null
+          grade: string | null
+          phone: string | null
+          email: string | null
+          tin: string | null
+          joining_date: string | null
+          leaving_date: string | null
+          is_active: boolean | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          employee_code?: string | null
+          name: string
+          designation?: string | null
+          grade?: string | null
+          phone?: string | null
+          email?: string | null
+          tin?: string | null
+          joining_date?: string | null
+          leaving_date?: string | null
+          is_active?: boolean | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          employee_code?: string | null
+          name?: string
+          designation?: string | null
+          grade?: string | null
+          phone?: string | null
+          email?: string | null
+          tin?: string | null
+          joining_date?: string | null
+          leaving_date?: string | null
+          is_active?: boolean | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      payroll_salary_structures: {
+        Row: {
+          id: string
+          client_id: string
+          employee_id: string
+          basic: number | null
+          housing: number | null
+          medical: number | null
+          conveyance: number | null
+          employer_pf: number | null
+          staff_pf: number | null
+          tax: number | null
+          effective_from: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          employee_id: string
+          basic?: number | null
+          housing?: number | null
+          medical?: number | null
+          conveyance?: number | null
+          employer_pf?: number | null
+          staff_pf?: number | null
+          tax?: number | null
+          effective_from?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          employee_id?: string
+          basic?: number | null
+          housing?: number | null
+          medical?: number | null
+          conveyance?: number | null
+          employer_pf?: number | null
+          staff_pf?: number | null
+          tax?: number | null
+          effective_from?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      payroll_runs: {
+        Row: {
+          id: string
+          client_id: string
+          fiscal_year_id: string
+          period_label: string
+          period_start: string
+          period_end: string
+          status: PayrollRunStatus
+          source: PayrollRunSource
+          notes: string | null
+          accrual_voucher_id: string | null
+          payment_voucher_id: string | null
+          created_by: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          fiscal_year_id: string
+          period_label: string
+          period_start: string
+          period_end: string
+          status?: PayrollRunStatus
+          source?: PayrollRunSource
+          notes?: string | null
+          accrual_voucher_id?: string | null
+          payment_voucher_id?: string | null
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          fiscal_year_id?: string
+          period_label?: string
+          period_start?: string
+          period_end?: string
+          status?: PayrollRunStatus
+          source?: PayrollRunSource
+          notes?: string | null
+          accrual_voucher_id?: string | null
+          payment_voucher_id?: string | null
+          created_by?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      payroll_run_items: {
+        Row: {
+          id: string
+          payroll_run_id: string
+          employee_id: string | null
+          employee_name: string
+          designation: string | null
+          grade: string | null
+          gross_salary: number | null
+          total_additions: number | null
+          total_deductions: number | null
+          net_payable: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          payroll_run_id: string
+          employee_id?: string | null
+          employee_name: string
+          designation?: string | null
+          grade?: string | null
+          gross_salary?: number | null
+          total_additions?: number | null
+          total_deductions?: number | null
+          net_payable?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          payroll_run_id?: string
+          employee_id?: string | null
+          employee_name?: string
+          designation?: string | null
+          grade?: string | null
+          gross_salary?: number | null
+          total_additions?: number | null
+          total_deductions?: number | null
+          net_payable?: number | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      payroll_run_components: {
+        Row: {
+          id: string
+          run_item_id: string
+          code: string
+          label: string
+          kind: PayrollComponentKind
+          amount: number | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          run_item_id: string
+          code: string
+          label: string
+          kind: PayrollComponentKind
+          amount?: number | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          run_item_id?: string
+          code?: string
+          label?: string
+          kind?: PayrollComponentKind
+          amount?: number | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      payroll_account_mappings: {
+        Row: {
+          id: string
+          client_id: string
+          component_code: string
+          account_head_id: string
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          component_code: string
+          account_head_id: string
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          component_code?: string
+          account_head_id?: string
+          created_at?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }

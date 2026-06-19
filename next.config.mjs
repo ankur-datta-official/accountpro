@@ -15,13 +15,16 @@ const baseConfig = {
       },
     ],
   },
-  experimental: {
-    workerThreads: true,
-    webpackBuildWorker: false,
-  },
   output: "standalone",
   typescript: {
     ignoreBuildErrors: true,
+  },
+  webpack: (config, { dev }) => {
+    if (!dev) {
+      config.cache = false
+    }
+
+    return config
   },
 }
 

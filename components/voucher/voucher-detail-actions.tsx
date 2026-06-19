@@ -21,6 +21,8 @@ export function VoucherDetailActions({
   lines,
   totalDebit,
   totalCredit,
+  showDescription = true,
+  showSupportingDocuments = true,
   attachments = [],
   autoPrint = false,
 }: {
@@ -36,6 +38,8 @@ export function VoucherDetailActions({
   lines: VoucherPrintLine[]
   totalDebit: number
   totalCredit: number
+  showDescription?: boolean
+  showSupportingDocuments?: boolean
   attachments?: VoucherPrintAttachment[]
   autoPrint?: boolean
 }) {
@@ -55,6 +59,8 @@ export function VoucherDetailActions({
         lines={lines}
         totalDebit={totalDebit}
         totalCredit={totalCredit}
+        showDescription={showDescription}
+        showSupportingDocuments={showSupportingDocuments}
         attachments={attachments}
         autoPrint={autoPrint}
         className="rounded-xl border-slate-200"

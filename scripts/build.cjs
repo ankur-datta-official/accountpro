@@ -1,6 +1,7 @@
 const { spawn } = require("child_process")
 const path = require("path")
 
+process.argv[2] = "production"
 require("./clean-next-artifacts.cjs")
 
 const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next")

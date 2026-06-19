@@ -3,6 +3,8 @@ import { format } from "date-fns"
 import { ExternalLink, FileText } from "lucide-react"
 import { notFound } from "next/navigation"
 
+export const dynamic = "force-dynamic"
+
 import {
   getVoucherTypeBadgeClass,
   getVoucherTypeLabel,
@@ -140,6 +142,8 @@ export default async function VoucherDetailPage({
             lines={printLines}
             totalDebit={totalDebit}
             totalCredit={totalCredit}
+            showDescription={voucher.show_description ?? true}
+            showSupportingDocuments={voucher.show_supporting_documents ?? true}
             attachments={attachmentItems.map((attachment) => ({
               id: attachment.id,
               fileName: attachment.file_name,

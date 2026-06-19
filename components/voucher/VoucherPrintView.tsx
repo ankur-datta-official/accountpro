@@ -55,11 +55,13 @@ export const VoucherPrintView = forwardRef<
     voucherNo: number
     voucherDate: string
     paymentModeName: string | null
+    showDescription?: boolean
     description: string | null
     accountHeadName: string
     lines: VoucherPrintLine[]
     totalDebit: number
     totalCredit: number
+    showSupportingDocuments?: boolean
     attachments?: VoucherPrintAttachment[]
   }
 >(
@@ -70,11 +72,13 @@ export const VoucherPrintView = forwardRef<
       voucherNo,
       voucherDate,
       paymentModeName,
+      showDescription = true,
       description,
       accountHeadName,
       lines,
       totalDebit,
       totalCredit,
+      showSupportingDocuments = true,
       attachments = [],
     },
     ref
@@ -192,7 +196,7 @@ export const VoucherPrintView = forwardRef<
                   <td className="border border-slate-300 px-3 py-2">
                     <p className="font-semibold text-slate-950">{line.accountHeadName}</p>
                     <p className="mt-1 text-xs leading-5 text-slate-700">
-                      {line.description || description || "-"}
+                      {line.description || (showDescription ? description : "") || "-"}
                     </p>
                   </td>
                   <td className="border border-slate-300 px-3 py-2 text-right font-semibold">
@@ -204,35 +208,37 @@ export const VoucherPrintView = forwardRef<
                 </tr>
               ))}
 
-              <tr className="voucher-print-row align-top">
-                <td className="border border-slate-300 px-3 py-2 text-center">{lines.length + 1}</td>
-                <td className="border border-slate-300 px-3 py-2">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-950">Supporting documents</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-700">
-                        {hasAttachments
-                          ? `${attachments.length} document${attachments.length > 1 ? "s" : ""} attached with this voucher.`
-                          : "No supporting document attached with this voucher."}
-                      </p>
-                      {hasAttachments ? (
-                        <p className="mt-1 text-xs leading-5 text-slate-600">
-                          {attachments
-                            .slice(0, 3)
-                            .map((attachment) => `${attachment.fileName} (${formatFileSize(attachment.fileSize)})`)
-                            .join(", ")}
-                          {attachments.length > 3 ? `, +${attachments.length - 3} more` : ""}
+              {showSupportingDocuments && (
+                <tr className="voucher-print-row align-top">
+                  <td className="border border-slate-300 px-3 py-2 text-center">{lines.length + 1}</td>
+                  <td className="border border-slate-300 px-3 py-2">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-950">Supporting documents</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-700">
+                          {hasAttachments
+                            ? `${attachments.length} document${attachments.length > 1 ? "s" : ""} attached with this voucher.`
+                            : "No supporting document attached with this voucher."}
                         </p>
-                      ) : null}
+                        {hasAttachments ? (
+                          <p className="mt-1 text-xs leading-5 text-slate-600">
+                            {attachments
+                              .slice(0, 3)
+                              .map((attachment) => `${attachment.fileName} (${formatFileSize(attachment.fileSize)})`)
+                              .join(", ")}
+                            {attachments.length > 3 ? `, +${attachments.length - 3} more` : ""}
+                          </p>
+                        ) : null}
+                      </div>
+                      <span className="shrink-0 rounded border border-slate-400 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-700">
+                        {hasAttachments ? "Attached" : "Not attached"}
+                      </span>
                     </div>
-                    <span className="shrink-0 rounded border border-slate-400 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-700">
-                      {hasAttachments ? "Attached" : "Not attached"}
-                    </span>
-                  </div>
-                </td>
-                <td className="border border-slate-300 px-3 py-2" />
-                <td className="border border-slate-300 px-3 py-2" />
-              </tr>
+                  </td>
+                  <td className="border border-slate-300 px-3 py-2" />
+                  <td className="border border-slate-300 px-3 py-2" />
+                </tr>
+              )}
             </tbody>
             <tfoot>
               <tr className="voucher-print-row bg-slate-100">
@@ -266,10 +272,12 @@ export const VoucherPrintView = forwardRef<
               </div>
             </div>
 
-            <div className="border-b border-slate-900 px-4 py-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Narration</p>
-              <p className="mt-1 min-h-8 text-slate-950">{description || "-"}</p>
-            </div>
+            {showDescription && (
+              <div className="border-b border-slate-900 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Narration</p>
+                <p className="mt-1 min-h-8 text-slate-950">{description || "-"}</p>
+              </div>
+            )}
 
             <div className="grid grid-cols-3 gap-10 px-6 pb-6 pt-14 text-center">
               {["Prepared by", "Checked by", "Approved by"].map((label) => (

@@ -8,6 +8,9 @@ export type {
   OrganizationMemberRole,
   OrganizationPlan,
   PaymentModeType,
+  PayrollComponentKind,
+  PayrollRunSource,
+  PayrollRunStatus,
   VoucherType,
 } from "./database"
 
@@ -58,3 +61,27 @@ export type VoucherEntryUpdate = Database["public"]["Tables"]["voucher_entries"]
 export type VoucherAttachment = Database["public"]["Tables"]["voucher_attachments"]["Row"]
 export type VoucherAttachmentInsert = Database["public"]["Tables"]["voucher_attachments"]["Insert"]
 export type VoucherAttachmentUpdate = Database["public"]["Tables"]["voucher_attachments"]["Update"]
+
+export type PayrollEmployee = Database["public"]["Tables"]["payroll_employees"]["Row"]
+export type PayrollEmployeeInsert = Database["public"]["Tables"]["payroll_employees"]["Insert"]
+export type PayrollEmployeeUpdate = Database["public"]["Tables"]["payroll_employees"]["Update"]
+
+export type PayrollSalaryStructure = Database["public"]["Tables"]["payroll_salary_structures"]["Row"]
+export type PayrollSalaryStructureInsert = Database["public"]["Tables"]["payroll_salary_structures"]["Insert"]
+export type PayrollSalaryStructureUpdate = Database["public"]["Tables"]["payroll_salary_structures"]["Update"]
+
+export type PayrollRun = Database["public"]["Tables"]["payroll_runs"]["Row"]
+export type PayrollRunInsert = Database["public"]["Tables"]["payroll_runs"]["Insert"]
+export type PayrollRunUpdate = Database["public"]["Tables"]["payroll_runs"]["Update"]
+
+export type PayrollRunItem = Database["public"]["Tables"]["payroll_run_items"]["Row"]
+export type PayrollRunItemInsert = Database["public"]["Tables"]["payroll_run_items"]["Insert"]
+export type PayrollRunItemUpdate = Database["public"]["Tables"]["payroll_run_items"]["Update"]
+
+export type PayrollRunComponent = Database["public"]["Tables"]["payroll_run_components"]["Row"]
+export type PayrollRunComponentInsert = Database["public"]["Tables"]["payroll_run_components"]["Insert"]
+export type PayrollRunComponentUpdate = Database["public"]["Tables"]["payroll_run_components"]["Update"]
+
+export type PayrollAccountMapping = Database["public"]["Tables"]["payroll_account_mappings"]["Row"]
+export type PayrollAccountMappingInsert = Database["public"]["Tables"]["payroll_account_mappings"]["Insert"]
+export type PayrollAccountMappingUpdate = Database["public"]["Tables"]["payroll_account_mappings"]["Update"]

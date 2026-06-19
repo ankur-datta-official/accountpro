@@ -1,6 +1,8 @@
 import { eachMonthOfInterval, format } from "date-fns"
 import { notFound } from "next/navigation"
 
+export const dynamic = "force-dynamic"
+
 import { VoucherListManager } from "@/components/voucher/voucher-list-manager"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { createClient } from "@/lib/supabase/server"

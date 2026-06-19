@@ -227,7 +227,6 @@ function LedgerSection({
               <TableRow key={entry.id} className="border-slate-100 hover:bg-slate-50/80">
                 <TableCell className="py-3">
                   <p className="font-medium text-slate-900">{format(new Date(entry.date), "dd MMM yyyy")}</p>
-                  <p className="mt-1 text-xs text-slate-500">{format(new Date(entry.date), "EEE")}</p>
                 </TableCell>
                 <TableCell className="py-3 font-semibold text-slate-950">#{entry.voucherNo}</TableCell>
                 <TableCell className="py-3 uppercase text-slate-600">{entry.voucherType}</TableCell>

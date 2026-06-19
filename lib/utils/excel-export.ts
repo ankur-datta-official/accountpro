@@ -57,10 +57,9 @@ export function exportDayBook(
     [clientName],
     [`Period: ${periodLabel}`],
     [],
-    ["Voucher #", "Date", "Accounts Group", "Accounts Head", "Voucher Type", "Payment Mode", "Receipts", "Payments", "Description", "Month"],
+    ["Voucher #", "Accounts Group", "Accounts Head", "Voucher Type", "Payment Mode", "Receipts", "Payments", "Description"],
     ...data.map((row) => [
       row.voucherNo,
-      row.date,
       row.accountsGroup,
       row.accountHead,
       row.voucherType,
@@ -68,36 +67,35 @@ export function exportDayBook(
       row.receipt,
       row.payment,
       row.description,
-      row.month,
     ]),
   ]
 
   const totalReceipts = data.reduce((sum, row) => sum + row.receipt, 0)
   const totalPayments = data.reduce((sum, row) => sum + row.payment, 0)
-  rows.push(["", "", "", "", "", "Total", totalReceipts, totalPayments, "", ""])
+  rows.push(["", "", "", "", "Total", totalReceipts, totalPayments, ""])
 
   const ws = XLSX.utils.aoa_to_sheet(rows)
-  ws["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 34 }, { wch: 12 }]
+  ws["!cols"] = [{ wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 34 }]
 
   styleCell(ws, "A1", { font: { bold: true, sz: 16 } })
   styleCell(ws, "A2", { font: { bold: true, sz: 12 } })
   styleCell(ws, "A3", { font: { bold: true } })
 
-  for (let col = 0; col < 10; col += 1) {
+  for (let col = 0; col < 8; col += 1) {
     const cell = XLSX.utils.encode_cell({ c: col, r: 4 })
     styleCell(ws, cell, { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
   }
 
   for (let rowIndex = 5; rowIndex < 5 + data.length; rowIndex += 1) {
     if ((rowIndex - 5) % 2 !== 0) continue
-    for (let col = 0; col < 10; col += 1) {
+    for (let col = 0; col < 8; col += 1) {
       const cell = XLSX.utils.encode_cell({ c: col, r: rowIndex })
       styleCell(ws, cell, { fill: { fgColor: { rgb: "F8FAFC" } } })
     }
   }
 
   const totalRowIndex = 5 + data.length
-  for (let col = 0; col < 10; col += 1) {
+  for (let col = 0; col < 8; col += 1) {
     const cell = XLSX.utils.encode_cell({ c: col, r: totalRowIndex })
     styleCell(ws, cell, { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
   }

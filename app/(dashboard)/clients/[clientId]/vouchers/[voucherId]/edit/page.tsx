@@ -1,6 +1,8 @@
 import { format } from "date-fns"
 import { notFound } from "next/navigation"
 
+export const dynamic = "force-dynamic"
+
 import { isAutoBalanceEntry } from "@/lib/accounting/vouchers"
 import { VoucherEntryForm } from "@/components/voucher/voucher-entry-form"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
@@ -29,11 +31,18 @@ export default async function EditVoucherPage({
     notFound()
   }
 
-  const [{ data: fiscalYear }, { data: paymentModes }, { data: entries }] = await Promise.all([
+  const [
+    { data: fiscalYear }, 
+    { data: paymentModes }, 
+    { data: entries }, 
+    paymentModeResult
+  ] = await Promise.all([
     supabase.from("fiscal_years").select("*").eq("id", voucher.fiscal_year_id ?? "").maybeSingle(),
     supabase.from("payment_modes").select("*").eq("client_id", client.id).order("name"),
     supabase.from("voucher_entries").select("*").eq("voucher_id", voucher.id),
+    voucher.payment_mode_id ? supabase.from("payment_modes").select("*").eq("id", voucher.payment_mode_id).maybeSingle() : Promise.resolve(null),
   ])
+  const paymentMode = paymentModeResult?.data ?? null
 
   if (!fiscalYear) {
     notFound()
@@ -76,7 +85,11 @@ export default async function EditVoucherPage({
           voucherDate: voucher.voucher_date,
           voucherType: voucher.voucher_type,
           paymentModeId: voucher.payment_mode_id ?? "",
+          paymentModeName: paymentMode?.name ?? "",
+          paymentModeType: paymentMode?.type ?? undefined,
+          showDescription: voucher.show_description ?? true,
           description: voucher.description ?? "",
+          showSupportingDocuments: voucher.show_supporting_documents ?? true,
           lines: formEntries,
         }}
         disabled={Boolean(fiscalYear.is_closed)}

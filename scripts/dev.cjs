@@ -1,10 +1,11 @@
 const { spawn } = require("child_process")
 const path = require("path")
 
+process.argv[2] = "development"
 require("./clean-next-artifacts.cjs")
 
-const serverPath = path.join(process.cwd(), "server.js")
-const child = spawn(process.execPath, [serverPath], {
+const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next")
+const child = spawn(process.execPath, [nextBin, "dev"], {
   stdio: "inherit",
   env: process.env,
 })

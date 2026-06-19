@@ -42,7 +42,9 @@ const voucherFormSchema = z.object({
   paymentModeId: z.string().optional(),
   paymentModeName: z.string().optional(),
   paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
+  showDescription: z.boolean(),
   description: z.string().optional(),
+  showSupportingDocuments: z.boolean(),
   lines: z
     .array(
       z.object({
@@ -169,6 +171,19 @@ function buildFormValues({
     selectedPaymentMode?.name ??
     (normalizedDraftPaymentModeName || defaultCashMode?.name || "Cash")
 
+  const validatedLines = values?.lines?.length 
+    ? values.lines.map(line => line 
+      ? { 
+        accountsGroup: line.accountsGroup ?? "",
+        accountHeadId: line.accountHeadId ?? "",
+        debitAmount: Number(line.debitAmount ?? 0),
+        creditAmount: Number(line.creditAmount ?? 0),
+        description: line.description ?? ""
+      } 
+      : defaultLine()
+    )
+    : [defaultLine()]
+
   return {
     clientId,
     fiscalYearId,
@@ -178,8 +193,10 @@ function buildFormValues({
     paymentModeId: selectedPaymentMode?.id ?? (paymentModeType === "cash" ? defaultCashMode?.id ?? "" : ""),
     paymentModeName,
     paymentModeType,
+    showDescription: values?.showDescription ?? true,
     description: values?.description ?? "",
-    lines: values?.lines?.length ? values.lines : [defaultLine()],
+    showSupportingDocuments: values?.showSupportingDocuments ?? true,
+    lines: validatedLines,
   }
 }
 
@@ -213,6 +230,7 @@ export function VoucherEntryForm({
   const [draftRestored, setDraftRestored] = useState(false)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const { flatAccounts, isLoading: accountsLoading } = useChartOfAccounts(clientId)
+  const shouldUseDraft = mode === "create"
   const draftKey =
     mode === "edit"
       ? `accountpro:voucher-draft:${clientId}:${voucherId ?? fiscalYearId}:edit`
@@ -286,8 +304,15 @@ export function VoucherEntryForm({
   const difference = Number((totalDebit - totalCredit).toFixed(2))
   const isBalanced = difference === 0
 
+  // Only restore draft ONCE when component mounts
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (typeof window === "undefined" || draftRestored) {
+      return
+    }
+
+    if (!shouldUseDraft) {
+      window.localStorage.removeItem(draftKey)
+      setDraftRestored(true)
       return
     }
 
@@ -303,23 +328,14 @@ export function VoucherEntryForm({
           values: JSON.parse(existingDraft) as VoucherFormValues,
         })
       )
-    } else {
-      form.reset(
-        buildFormValues({
-          clientId,
-          fiscalYearId,
-          defaultVoucherNo,
-          paymentModes,
-          values: initialValues,
-        })
-      )
     }
 
     setDraftRestored(true)
-  }, [clientId, defaultVoucherNo, draftKey, fiscalYearId, form, initialValues, paymentModes])
+  }, [clientId, defaultVoucherNo, draftKey, fiscalYearId, form, initialValues, paymentModes, draftRestored, shouldUseDraft])
 
+  // Auto-save draft
   useEffect(() => {
-    if (!draftRestored || disabled) {
+    if (!shouldUseDraft || !draftRestored || disabled) {
       return
     }
 
@@ -328,9 +344,25 @@ export function VoucherEntryForm({
     }, 30000)
 
     return () => window.clearInterval(interval)
-  }, [disabled, draftKey, draftRestored, form])
+  }, [disabled, draftKey, draftRestored, form, shouldUseDraft])
 
-  const handleAddLine = () => append(defaultLine())
+  const handleAddLine = () => {
+    append(defaultLine())
+    if (shouldUseDraft) {
+      window.localStorage.setItem(draftKey, JSON.stringify(form.getValues()))
+    }
+  }
+
+  const handleRemoveLine = (index: number) => {
+    if (fields.length > 1) {
+      remove(index)
+    } else {
+      replace([defaultLine()])
+    }
+    if (shouldUseDraft) {
+      window.localStorage.setItem(draftKey, JSON.stringify(form.getValues()))
+    }
+  }
 
   const handleAttachmentChange = (files: FileList | null) => {
     if (!files?.length) {
@@ -549,24 +581,6 @@ export function VoucherEntryForm({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight text-slate-950">
-            {mode === "edit" ? "Edit Voucher" : "New Voucher"}
-          </h2>
-          <p className="mt-2 text-sm leading-7 text-slate-500">
-            {mode === "edit"
-              ? `Update voucher details for ${clientName} in fiscal year ${fiscalYearLabel}.`
-              : `Record a new voucher for ${clientName} in fiscal year ${fiscalYearLabel}.`}
-          </p>
-          {lastUpdated ? (
-            <p className="mt-2 text-sm text-slate-500">Last updated: {lastUpdated}</p>
-          ) : null}
-        </div>
-        <Button asChild variant="outline" className="rounded-xl border-slate-200">
-          <Link href={`/clients/${clientId}/vouchers`}>Back to vouchers</Link>
-        </Button>
-      </div>
 
       <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
         <fieldset disabled={disabled || isPending} className="space-y-6 disabled:opacity-70">
@@ -574,7 +588,7 @@ export function VoucherEntryForm({
             <CardHeader>
               <CardTitle className="text-xl text-slate-950">Voucher Header</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-5 lg:grid-cols-2">
+            <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
               <div className="space-y-2">
                 <Label htmlFor="voucherNo">Voucher No</Label>
                 <Input
@@ -604,71 +618,68 @@ export function VoucherEntryForm({
                 </select>
               </div>
               {showPaymentMode ? (
-                <div className="space-y-2">
+                <div className="space-y-2 md:col-span-2 xl:col-span-2">
                   <Label>Payment Mode</Label>
-                  <div className="grid gap-3">
-                    <div className="grid gap-3 sm:grid-cols-[200px_minmax(0,1fr)]">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <select
+                      className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
+                      value={selectedPaymentModeGroup}
+                      onChange={(event) => handlePaymentModeGroupChange(event.target.value as PaymentModeType)}
+                    >
+                      {PAYMENT_MODE_GROUPS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    {selectedPaymentModeGroup === "cash" ? (
+                      <Input value={values.paymentModeName || "Cash"} readOnly />
+                    ) : null}
+
+                    {selectedPaymentModeGroup === "mobile_banking" ? (
                       <select
                         className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
-                        value={selectedPaymentModeGroup}
-                        onChange={(event) => handlePaymentModeGroupChange(event.target.value as PaymentModeType)}
+                        value={namedPaymentModeValue}
+                        onChange={(event) =>
+                          handleNamedPaymentModeChange(event.target.value, "mobile_banking")
+                        }
                       >
-                        {PAYMENT_MODE_GROUPS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
+                        <option value="">Select mobile banking option</option>
+                        {mobileBankingOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
                           </option>
                         ))}
                       </select>
+                    ) : null}
 
-                      {selectedPaymentModeGroup === "cash" ? (
-                        <Input value={values.paymentModeName || "Cash"} readOnly />
-                      ) : null}
+                    {selectedPaymentModeGroup === "bank" ? (
+                      <select
+                        className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
+                        value={namedPaymentModeValue}
+                        onChange={(event) => handleNamedPaymentModeChange(event.target.value, "bank")}
+                      >
+                        <option value="">Select bank</option>
+                        {bankOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
 
-                      {selectedPaymentModeGroup === "mobile_banking" ? (
-                        <select
-                          className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
-                          value={namedPaymentModeValue}
-                          onChange={(event) =>
-                            handleNamedPaymentModeChange(event.target.value, "mobile_banking")
-                          }
-                        >
-                          <option value="">Select mobile banking option</option>
-                          {mobileBankingOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-
-                      {selectedPaymentModeGroup === "bank" ? (
-                        <select
-                          className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none"
-                          value={namedPaymentModeValue}
-                          onChange={(event) => handleNamedPaymentModeChange(event.target.value, "bank")}
-                        >
-                          <option value="">Select bank</option>
-                          {bankOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-
-                      {selectedPaymentModeGroup === "other" ? (
-                        <Input
-                          placeholder="Enter other payment mode"
-                          value={values.paymentModeName ?? ""}
-                          onChange={(event) => {
-                            form.setValue("paymentModeId", "")
-                            form.setValue("paymentModeName", event.target.value)
-                            form.setValue("paymentModeType", "other")
-                          }}
-                        />
-                      ) : null}
-                    </div>
-
+                    {selectedPaymentModeGroup === "other" ? (
+                      <Input
+                        placeholder="Enter other payment mode"
+                        value={values.paymentModeName ?? ""}
+                        onChange={(event) => {
+                          form.setValue("paymentModeId", "")
+                          form.setValue("paymentModeName", event.target.value)
+                          form.setValue("paymentModeType", "other")
+                        }}
+                      />
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -676,13 +687,106 @@ export function VoucherEntryForm({
           </Card>
 
           <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-xl text-slate-950">Supporting Documents</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="text-xl text-slate-950">Entry Lines</CardTitle>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl border-slate-200"
+                onClick={handleAddLine}
+                disabled={disabled}
+              >
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Add Line
+              </Button>
             </CardHeader>
             <CardContent className="space-y-4">
+              {fields.map((field, index) => {
+                const line = values.lines[index] ?? defaultLine()
+                return (
+                <VoucherLineRow
+                  key={field.id}
+                  index={index}
+                  line={line}
+                  accounts={flatAccounts}
+                  onRemove={() => handleRemoveLine(index)}
+                  onAddLine={handleAddLine}
+                  register={(name) => form.register(name)}
+                  setValue={(name, value) => form.setValue(name, value)}
+                  disabled={disabled}
+                />
+              )})}
+              {accountsLoading ? (
+                <p className="text-sm text-slate-500">Loading chart of accounts...</p>
+              ) : null}
+
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="description">Narration / Description</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={values.showDescription ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => form.setValue("showDescription", true)}
+                      className="rounded-xl"
+                      disabled={disabled || isPending}
+                    >
+                      Yes
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={!values.showDescription ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => form.setValue("showDescription", false)}
+                      className="rounded-xl"
+                      disabled={disabled || isPending}
+                    >
+                      No
+                    </Button>
+                  </div>
+                </div>
+                <Textarea 
+                  id="description" 
+                  rows={4} 
+                  {...form.register("description")} 
+                  disabled={disabled || isPending || !values.showDescription}
+                  className={!values.showDescription ? "opacity-50" : ""}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="text-xl text-slate-950">Supporting Documents</CardTitle>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={values.showSupportingDocuments ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => form.setValue("showSupportingDocuments", true)}
+                  className="rounded-xl"
+                  disabled={disabled || isPending}
+                >
+                  Yes
+                </Button>
+                <Button
+                  type="button"
+                  variant={!values.showSupportingDocuments ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => form.setValue("showSupportingDocuments", false)}
+                  className="rounded-xl"
+                  disabled={disabled || isPending}
+                >
+                  No
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className={`space-y-4 ${!values.showSupportingDocuments ? "opacity-50" : ""}`}>
               <label
                 htmlFor="voucherAttachments"
-                className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center transition hover:border-slate-400 hover:bg-slate-100"
+                className={`flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center transition hover:border-slate-400 hover:bg-slate-100 ${!values.showSupportingDocuments ? "pointer-events-none" : ""}`}
               >
                 <UploadCloud className="h-8 w-8 text-slate-500" />
                 <span className="mt-3 text-sm font-medium text-slate-900">Attach documents</span>
@@ -699,6 +803,7 @@ export function VoucherEntryForm({
                     handleAttachmentChange(event.target.files)
                     event.target.value = ""
                   }}
+                  disabled={disabled || isPending || !values.showSupportingDocuments}
                 />
               </label>
 
@@ -724,7 +829,7 @@ export function VoucherEntryForm({
                         size="icon"
                         className="h-9 w-9 rounded-xl"
                         onClick={() => removeAttachment(index)}
-                        disabled={disabled || isPending}
+                        disabled={disabled || isPending || !values.showSupportingDocuments}
                         aria-label={`Remove ${file.name}`}
                       >
                         <X className="h-4 w-4" />
@@ -737,45 +842,6 @@ export function VoucherEntryForm({
                   Documents are optional. Add purchase bills, receipts, bank slips, or other voucher proofs when needed.
                 </p>
               )}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <CardTitle className="text-xl text-slate-950">Entry Lines</CardTitle>
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-xl border-slate-200"
-                onClick={handleAddLine}
-                disabled={disabled}
-              >
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Add Line
-              </Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {fields.map((field, index) => (
-                <VoucherLineRow
-                  key={field.id}
-                  index={index}
-                  line={values.lines[index]}
-                  accounts={flatAccounts}
-                  onRemove={() => (fields.length > 1 ? remove(index) : replace([defaultLine()]))}
-                  onAddLine={handleAddLine}
-                  register={(name) => form.register(name)}
-                  setValue={(name, value) => form.setValue(name, value)}
-                  disabled={disabled}
-                />
-              ))}
-              {accountsLoading ? (
-                <p className="text-sm text-slate-500">Loading chart of accounts...</p>
-              ) : null}
-
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="description">Narration / Description</Label>
-                <Textarea id="description" rows={4} {...form.register("description")} />
-              </div>
             </CardContent>
           </Card>
 
