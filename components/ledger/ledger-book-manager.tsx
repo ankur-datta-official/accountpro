@@ -411,9 +411,7 @@ export function LedgerBookManager({
   }, [])
 
   const handleExport = () => {
-    if (!printSections.length) {
-      return
-    }
+    if (!printSections.length) return
 
     exportLedgerBook(
       printSections.map((section) => ({
@@ -543,7 +541,7 @@ export function LedgerBookManager({
             <p className="mt-1 text-sm text-slate-500">
               {accountHeadsWithDataCount === 1 
                 ? `Showing ${accountHeadsWithDataCount} account for ${periodLabel}`
-                : `Showing ${accountHeadsWithDataCount} accounts for ${periodLabel}`
+                : `Showing ${accountHeadsWithDataCount} accounts for ${periodLabel}`}
             </p>
           </div>
           <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
