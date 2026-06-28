@@ -123,6 +123,7 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onFocus={() => setSearch("")}
               className="h-11 rounded-xl border-slate-200 pl-10"
               placeholder="Search account head or sub-group"
             />

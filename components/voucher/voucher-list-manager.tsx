@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/EmptyState"
 import { ErrorFallback } from "@/components/ui/ErrorBoundary"
+import { Autocomplete } from "@/components/ui/autocomplete"
 import { Input } from "@/components/ui/input"
 import { LoadingTable } from "@/components/ui/LoadingTable"
 import { ActionBar, FilterPanel, MetricCard, PageHeader } from "@/components/ui/page-shell"
@@ -265,32 +266,20 @@ export function VoucherListManager({
                 ))}
               </SelectContent>
             </Select>
-            <div>
-              <Input
-                list={`voucher-account-heads-${clientId}`}
-                value={accountHeadSearch}
-                onChange={(event) => {
-                  const nextValue = event.target.value
-                  setAccountHeadSearch(nextValue)
-                  const matchedAccount = accountOptions.find(
-                    (account) => account.label === nextValue || account.name === nextValue
-                  )
-
-                  updateFilter("accountHeadId", matchedAccount?.id)
-
-                  if (!nextValue) {
-                    updateFilter("accountHeadId", undefined)
-                  }
-                }}
-                className="h-11 rounded-xl border-slate-200"
-                placeholder="Search account head"
-              />
-              <datalist id={`voucher-account-heads-${clientId}`}>
-                {accountOptions.map((account) => (
-                  <option key={account.id} value={account.label} />
-                ))}
-              </datalist>
-            </div>
+            <Autocomplete
+              options={accountOptions.map((account) => ({
+                id: account.id,
+                value: account.id,
+                label: account.label,
+              }))}
+              value={filters.accountHeadId}
+              onChange={(newValue, option) => {
+                updateFilter("accountHeadId", newValue || undefined)
+                setAccountHeadSearch(option?.label ?? "")
+              }}
+              onInputChange={(value) => setAccountHeadSearch(value)}
+              placeholder="Search account head"
+            />
             <Select
               value={filters.month ?? "all"}
               onValueChange={(value) => updateFilter("month", value === "all" ? undefined : value)}

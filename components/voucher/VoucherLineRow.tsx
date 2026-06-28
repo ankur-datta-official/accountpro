@@ -38,6 +38,7 @@ export function VoucherLineRow({
   index,
   line,
   accounts,
+  voucherType,
   onRemove,
   onAddLine,
   register,
@@ -47,6 +48,7 @@ export function VoucherLineRow({
   index: number
   line?: VoucherLineFormValues["lines"][number]
   accounts: ChartFlatAccount[]
+  voucherType: string
   onRemove: () => void
   onAddLine: () => void
   register: RegisterLineDescription
@@ -57,7 +59,21 @@ export function VoucherLineRow({
     return null
   }
   
-  const filteredAccounts = accounts.filter((account) => account.groupType === line.accountsGroup)
+  const isContraVoucher = voucherType === "contra"
+  
+  let filteredAccounts: ChartFlatAccount[]
+  if (isContraVoucher) {
+    // For contra vouchers, only show Cash & Bank Balance accounts
+    filteredAccounts = accounts.filter(
+      (account) => 
+        account.semiSubGroupName === "Cash & Bank Balance" && 
+        account.groupType === "asset"
+    )
+  } else {
+    // For other voucher types, normal filtering
+    filteredAccounts = accounts.filter((account) => account.groupType === line.accountsGroup)
+  }
+  
   const groupedAccounts = filteredAccounts.reduce<Record<string, ChartFlatAccount[]>>((acc, account) => {
     if (!acc[account.subGroupName]) {
       acc[account.subGroupName] = []

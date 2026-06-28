@@ -74,6 +74,10 @@ const deletePayrollRunSchema = z.object({
   payrollRunId: z.string().min(1),
 })
 
+const rerunPayrollRunSchema = deletePayrollRunSchema.extend({
+  reason: z.string().trim().optional(),
+})
+
 const postAccrualSchema = deletePayrollRunSchema.extend({
   voucherDate: z.string().min(1),
 })
@@ -382,6 +386,77 @@ async function findOrCreateEmployee(
   return inserted?.id ?? null
 }
 
+function dbAmount(value: unknown) {
+  const numeric = Number(value ?? 0)
+  return Number.isFinite(numeric) ? numeric : 0
+}
+
+async function getPayrollRowsFromSalaryStructures(supabase: ServerSupabase, clientId: string) {
+  const [employeesResult, salariesResult] = await Promise.all([
+    supabase
+      .from("payroll_employees")
+      .select("*")
+      .eq("client_id", clientId)
+      .neq("is_active", false)
+      .order("name"),
+    supabase.from("payroll_salary_structures").select("*").eq("client_id", clientId),
+  ])
+
+  if (employeesResult.error) {
+    return { success: false as const, error: employeesResult.error.message }
+  }
+
+  if (salariesResult.error) {
+    return { success: false as const, error: salariesResult.error.message }
+  }
+
+  const salariesByEmployee = new Map((salariesResult.data ?? []).map((salary) => [salary.employee_id, salary]))
+  const rows = (employeesResult.data ?? []).map((employee) => {
+    const salary = salariesByEmployee.get(employee.id)
+
+    return {
+      employeeId: employee.id,
+      employeeName: employee.name,
+      designation: employee.designation ?? undefined,
+      grade: employee.grade ?? undefined,
+      components: [
+        { code: "basic" as const, amount: dbAmount(salary?.basic) },
+        { code: "housing" as const, amount: dbAmount(salary?.housing) },
+        { code: "medical" as const, amount: dbAmount(salary?.medical) },
+        { code: "conveyance" as const, amount: dbAmount(salary?.conveyance) },
+        { code: "employer_pf" as const, amount: dbAmount(salary?.employer_pf) },
+        { code: "staff_pf" as const, amount: dbAmount(salary?.staff_pf) },
+        { code: "tax" as const, amount: dbAmount(salary?.tax) },
+      ],
+    } satisfies PayrollDraftRow
+  })
+
+  return { success: true as const, rows: normalizePayrollRows(rows) }
+}
+
+async function recordPayrollAuditTrail(
+  supabase: ServerSupabase,
+  input: {
+    payrollRunId: string
+    action: string
+    details: string
+    userId?: string | null
+  }
+) {
+  const { error } = await supabase.from("payroll_audit_trail").insert({
+    payroll_run_id: input.payrollRunId,
+    action: input.action,
+    details: input.details,
+    changed_by: input.userId ?? null,
+  })
+
+  if (error && !error.message.toLowerCase().includes("payroll_audit_trail")) {
+    return { success: false as const, error: error.message }
+  }
+
+  return { success: true as const }
+}
+
 export async function createPayrollRunAction(input: z.input<typeof createPayrollRunSchema>) {
   const parsed = createPayrollRunSchema.safeParse(input)
   if (!parsed.success) {
@@ -491,6 +566,13 @@ export async function createPayrollRunAction(input: z.input<typeof createPayroll
     }
   }
 
+  await recordPayrollAuditTrail(supabase, {
+    payrollRunId: payrollRun.id,
+    action: "created",
+    details: `Payroll run created from ${parsed.data.source === "import" ? "Excel import" : "saved salary setup"}.`,
+    userId: user?.id,
+  })
+
   revalidatePayrollPaths(client.id, payrollRun.id)
   return { success: true as const, payrollRunId: payrollRun.id }
 }
@@ -521,6 +603,127 @@ export async function deletePayrollRunAction(input: z.input<typeof deletePayroll
   if (error) return { success: false as const, error: error.message ?? "Unable to delete payroll run." }
 
   revalidatePayrollPaths(client.id)
+  return { success: true as const }
+}
+
+export async function rerunPayrollRunAction(input: z.input<typeof rerunPayrollRunSchema>) {
+  const parsed = rerunPayrollRunSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false as const, error: parsed.error.issues[0]?.message ?? "Invalid payroll run." }
+  }
+
+  const context = await getAuthorizedClient(parsed.data.clientId)
+  if (!context.success) return context
+
+  const { supabase, client } = context
+  const { data: payrollRun } = await supabase
+    .from("payroll_runs")
+    .select("*")
+    .eq("id", parsed.data.payrollRunId)
+    .eq("client_id", client.id)
+    .maybeSingle()
+
+  if (!payrollRun) return { success: false as const, error: "Payroll run not found." }
+  if (payrollRun.accrual_voucher_id || payrollRun.payment_voucher_id || payrollRun.status === "posted" || payrollRun.status === "paid") {
+    return { success: false as const, error: "Posted or paid payroll runs are locked. Create an adjustment run instead." }
+  }
+
+  const rowsResult = await getPayrollRowsFromSalaryStructures(supabase, client.id)
+  if (!rowsResult.success) return rowsResult
+  if (!rowsResult.rows.length) {
+    return { success: false as const, error: "No active employees with salary amounts were found." }
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  const { data: existingItems } = await supabase
+    .from("payroll_run_items")
+    .select("id")
+    .eq("payroll_run_id", payrollRun.id)
+
+  const existingItemIds = (existingItems ?? []).map((item) => item.id)
+  if (existingItemIds.length) {
+    const { error: componentDeleteError } = await supabase
+      .from("payroll_run_components")
+      .delete()
+      .in("run_item_id", existingItemIds)
+
+    if (componentDeleteError) {
+      return { success: false as const, error: componentDeleteError.message ?? "Unable to clear payroll components." }
+    }
+  }
+
+  const { error: itemDeleteError } = await supabase
+    .from("payroll_run_items")
+    .delete()
+    .eq("payroll_run_id", payrollRun.id)
+
+  if (itemDeleteError) {
+    return { success: false as const, error: itemDeleteError.message ?? "Unable to clear payroll rows." }
+  }
+
+  for (const row of rowsResult.rows) {
+    const summary = calculatePayrollRowSummary(row.components)
+    const { data: item, error: itemError } = await supabase
+      .from("payroll_run_items")
+      .insert({
+        payroll_run_id: payrollRun.id,
+        employee_id: row.employeeId ?? null,
+        employee_name: row.employeeName,
+        designation: row.designation || null,
+        grade: row.grade || null,
+        gross_salary: summary.grossSalary,
+        total_additions: summary.totalAdditions,
+        total_deductions: summary.totalDeductions,
+        net_payable: summary.netPayable,
+      })
+      .select("id")
+      .single()
+
+    if (itemError || !item) {
+      return { success: false as const, error: itemError?.message ?? "Unable to recreate payroll rows." }
+    }
+
+    const componentRows = row.components.map((component) => {
+      const definition = PAYROLL_COMPONENTS[component.code]
+      return {
+        run_item_id: item.id,
+        code: component.code,
+        label: definition.label,
+        kind: definition.kind,
+        amount: component.amount,
+      }
+    })
+
+    const { error: componentError } = await supabase.from("payroll_run_components").insert(componentRows)
+    if (componentError) {
+      return { success: false as const, error: componentError.message ?? "Unable to recreate payroll components." }
+    }
+  }
+
+  const { error: runUpdateError } = await supabase
+    .from("payroll_runs")
+    .update({
+      status: "draft",
+      notes: parsed.data.reason || payrollRun.notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", payrollRun.id)
+
+  if (runUpdateError) {
+    return { success: false as const, error: runUpdateError.message ?? "Unable to update payroll run." }
+  }
+
+  await recordPayrollAuditTrail(supabase, {
+    payrollRunId: payrollRun.id,
+    action: "rerun",
+    details: parsed.data.reason || "Payroll re-run from current employee salary setup.",
+    userId: user?.id,
+  })
+
+  revalidatePayrollPaths(client.id, payrollRun.id)
   return { success: true as const }
 }
 
@@ -651,6 +854,12 @@ export async function postPayrollAccrualAction(input: z.input<typeof postAccrual
 
   if (error) return { success: false as const, error: error.message ?? "Unable to link payroll voucher." }
 
+  await recordPayrollAuditTrail(supabase, {
+    payrollRunId: payrollRun.id,
+    action: "posted",
+    details: `Posted to accounts as voucher #${result.voucherNo}.`,
+  })
+
   revalidatePayrollPaths(client.id, payrollRun.id)
   return { success: true as const, voucherId: result.voucherId, voucherNo: result.voucherNo }
 }
@@ -717,6 +926,12 @@ export async function postPayrollPaymentAction(input: z.input<typeof postPayment
     .eq("id", payrollRun.id)
 
   if (error) return { success: false as const, error: error.message ?? "Unable to link payroll payment voucher." }
+
+  await recordPayrollAuditTrail(supabase, {
+    payrollRunId: payrollRun.id,
+    action: "paid",
+    details: `Payment recorded as voucher #${result.voucherNo}.`,
+  })
 
   revalidatePayrollPaths(client.id, payrollRun.id)
   return { success: true as const, voucherId: result.voucherId, voucherNo: result.voucherNo }

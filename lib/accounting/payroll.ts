@@ -154,16 +154,20 @@ export function calculatePayrollRowSummary(components: PayrollDraftComponent[]):
       continue
     }
 
-    if (definition.kind === "earning") {
+    if (definition.kind === "earning" || definition.kind === "employer_contribution") {
       grossSalary += value
-    } else if (definition.kind === "employer_contribution") {
+    }
+
+    if (definition.kind === "employer_contribution") {
       employerContributions += value
-    } else {
+    }
+
+    if (definition.kind === "deduction") {
       totalDeductions += value
     }
   }
 
-  const totalAdditions = grossSalary + employerContributions
+  const totalAdditions = grossSalary
 
   return {
     grossSalary: amount(grossSalary),

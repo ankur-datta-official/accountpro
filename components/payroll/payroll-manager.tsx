@@ -1,9 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState, useTransition } from "react"
+import { memo, useCallback, useMemo, useState, useTransition } from "react"
 import { format } from "date-fns"
-import { Calculator, FileSpreadsheet, Loader2, Plus, Save, Send, UploadCloud, WalletCards } from "lucide-react"
+import { Banknote, Calculator, CheckCircle2, HelpCircle, Loader2, PlayCircle, Save, Send, Settings, Trash2, UploadCloud, Users, WalletCards } from "lucide-react"
 import { toast } from "sonner"
 import * as XLSX from "xlsx"
 
@@ -13,15 +13,16 @@ import {
   ensurePayrollDefaultsAction,
   postPayrollAccrualAction,
   postPayrollPaymentAction,
+  rerunPayrollRunAction,
   savePayrollEmployeeAction,
 } from "@/lib/actions/payroll"
 import {
   PAYROLL_COMPONENTS,
+  calculatePayrollRowSummary,
   filterSalaryBillRowsForMonth,
   getPayrollRunTotals,
   normalizePayrollRows,
   type ParsedSalaryBillRow,
-  type PayrollComponentCode,
   type PayrollDraftRow,
 } from "@/lib/accounting/payroll"
 import type { PayrollRunStatus } from "@/lib/types"
@@ -39,6 +40,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 type PayrollEmployeeRow = {
   id: string
@@ -139,10 +141,10 @@ const emptyEmployeeForm: EmployeeFormState = {
 
 const tabs = [
   { id: "dashboard", label: "Dashboard", icon: Calculator },
-  { id: "employees", label: "Employees", icon: Plus },
-  { id: "runs", label: "Payroll Runs", icon: WalletCards },
-  { id: "import", label: "Import", icon: UploadCloud },
-  { id: "settings", label: "Settings", icon: FileSpreadsheet },
+  { id: "employees", label: "Employees", icon: Users },
+  { id: "run", label: "Run Payroll", icon: PlayCircle },
+  { id: "review", label: "Review Payroll", icon: WalletCards },
+  { id: "settings", label: "Settings", icon: Settings },
 ] as const
 
 function currency(value: number) {
@@ -169,6 +171,10 @@ function getStatusClass(status: PayrollRunStatus) {
     default:
       return "bg-amber-100 text-amber-700 hover:bg-amber-100"
   }
+}
+
+function statusLabel(status: PayrollRunStatus) {
+  return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function employeeToForm(employee: PayrollEmployeeRow): EmployeeFormState {
@@ -332,15 +338,23 @@ export function PayrollManager({
   const manualTotals = useMemo(() => getPayrollRunTotals(manualRows), [manualRows])
   const importTotals = useMemo(() => getPayrollRunTotals(importRows), [importRows])
   const latestRun = payrollRuns[0]
-  const totalPayrollPaid = payrollRuns
-    .filter((run) => run.status === "paid")
-    .reduce((sum, run) => sum + run.totals.netPayable, 0)
+  const activeEmployeeCount = useMemo(
+    () => employees.filter((employee) => employee.is_active !== false).length,
+    [employees]
+  )
+  const totalPayrollPaid = useMemo(
+    () =>
+      payrollRuns
+        .filter((run) => run.status === "paid")
+        .reduce((sum, run) => sum + run.totals.netPayable, 0),
+    [payrollRuns]
+  )
 
-  const updateEmployeeForm = (key: keyof EmployeeFormState, value: string | boolean) => {
+  const updateEmployeeForm = useCallback((key: keyof EmployeeFormState, value: string | boolean) => {
     setEmployeeForm((current) => ({ ...current, [key]: value }))
-  }
+  }, [])
 
-  const saveEmployee = () => {
+  const saveEmployee = useCallback(() => {
     startTransition(async () => {
       const result = await savePayrollEmployeeAction({
         clientId,
@@ -374,9 +388,9 @@ export function PayrollManager({
       toast.success("Employee and salary structure saved.")
       setEmployeeForm(emptyEmployeeForm)
     })
-  }
+  }, [clientId, employeeForm])
 
-  const createManualRun = () => {
+  const createManualRun = useCallback(() => {
     startTransition(async () => {
       const result = await createPayrollRunAction({
         clientId,
@@ -395,11 +409,11 @@ export function PayrollManager({
 
       toast.success("Payroll run created from salary structures.")
       setRunNotes("")
-      setActiveTab("runs")
+      setActiveTab("review")
     })
-  }
+  }, [clientId, fiscalYearId, manualRows, runMonth, runNotes])
 
-  const saveImportedRun = () => {
+  const saveImportedRun = useCallback(() => {
     startTransition(async () => {
       const result = await createPayrollRunAction({
         clientId,
@@ -419,9 +433,9 @@ export function PayrollManager({
       toast.success("Imported payroll run saved as draft.")
       setImportSourceRows([])
       setImportSheetName("")
-      setActiveTab("runs")
+      setActiveTab("review")
     })
-  }
+  }, [clientId, fiscalYearId, importMonth, importRows])
 
   const handleImportFile = async (file: File | null) => {
     if (!file) return
@@ -452,7 +466,7 @@ export function PayrollManager({
     }
   }
 
-  const postAccrual = (payrollRunId: string) => {
+  const postAccrual = useCallback((payrollRunId: string) => {
     startTransition(async () => {
       const result = await postPayrollAccrualAction({
         clientId,
@@ -467,9 +481,9 @@ export function PayrollManager({
 
       toast.success(`Payroll accrual posted as voucher #${result.voucherNo}.`)
     })
-  }
+  }, [clientId])
 
-  const postPayment = (payrollRunId: string) => {
+  const postPayment = useCallback((payrollRunId: string) => {
     const mode = paymentModes.find((item) => item.id === paymentModeId)
 
     startTransition(async () => {
@@ -489,9 +503,9 @@ export function PayrollManager({
 
       toast.success(`Payroll payment posted as voucher #${result.voucherNo}.`)
     })
-  }
+  }, [clientId, paymentModeId, paymentModes])
 
-  const deleteRun = (payrollRunId: string) => {
+  const deleteRun = useCallback((payrollRunId: string) => {
     startTransition(async () => {
       const result = await deletePayrollRunAction({ clientId, payrollRunId })
 
@@ -502,9 +516,27 @@ export function PayrollManager({
 
       toast.success("Draft payroll run deleted.")
     })
-  }
+  }, [clientId])
 
-  const ensureDefaults = () => {
+  const rerunPayroll = useCallback((payrollRunId: string) => {
+    startTransition(async () => {
+      const result = await rerunPayrollRunAction({
+        clientId,
+        payrollRunId,
+        reason: "Re-run after employee salary edits.",
+      })
+
+      if (!result.success) {
+        toast.error(result.error)
+        return
+      }
+
+      toast.success("Payroll re-run with the latest salary setup.")
+      setActiveTab("review")
+    })
+  }, [clientId])
+
+  const ensureDefaults = useCallback(() => {
     startTransition(async () => {
       const result = await ensurePayrollDefaultsAction({ clientId })
 
@@ -515,16 +547,17 @@ export function PayrollManager({
 
       toast.success("Payroll ledger defaults are ready.")
     })
-  }
+  }, [clientId])
 
-  const statCards = [
-    { label: "Active Employees", value: employees.filter((employee) => employee.is_active !== false).length },
+  const statCards = useMemo(() => [
+    { label: "Active Employees", value: activeEmployeeCount },
     { label: "Payroll Runs", value: payrollRuns.length },
-    { label: "Latest Net Payable", value: currency(latestRun?.totals.netPayable ?? 0) },
+    { label: "Latest Net Pay", value: currency(latestRun?.totals.netPayable ?? 0) },
     { label: "Paid Payroll", value: currency(totalPayrollPaid) },
-  ]
+  ], [activeEmployeeCount, latestRun?.totals.netPayable, payrollRuns.length, totalPayrollPaid])
 
   return (
+    <TooltipProvider delayDuration={150}>
     <div className="space-y-6">
       {!schemaReady ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
@@ -541,7 +574,7 @@ export function PayrollManager({
       <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-slate-950">Payroll</h2>
-          <p className="mt-1 text-sm text-slate-500">Fiscal year: {fiscalYearLabel}</p>
+          <p className="mt-1 text-sm text-slate-500">Fiscal year: {fiscalYearLabel}. Create payroll, review it, post it, then pay employees.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {tabs.map((tab) => {
@@ -565,6 +598,7 @@ export function PayrollManager({
 
       {activeTab === "dashboard" ? (
         <div className="space-y-6">
+          <WorkflowGuide />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {statCards.map((stat) => (
               <Card key={stat.label} className="rounded-2xl border-slate-200 bg-white shadow-sm">
@@ -585,6 +619,7 @@ export function PayrollManager({
             setPaymentModeId={setPaymentModeId}
             postAccrual={postAccrual}
             postPayment={postPayment}
+            rerunPayroll={rerunPayroll}
             deleteRun={deleteRun}
             isPending={isPending}
           />
@@ -596,26 +631,27 @@ export function PayrollManager({
           <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
             <CardHeader>
               <CardTitle>{employeeForm.employeeId ? "Edit Employee" : "Add Employee"}</CardTitle>
+              <p className="text-sm text-slate-500">Keep employee details and regular salary amounts in one simple form.</p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Code" value={employeeForm.employeeCode} onChange={(value) => updateEmployeeForm("employeeCode", value)} />
-                <Field label="Name" value={employeeForm.name} onChange={(value) => updateEmployeeForm("name", value)} />
-                <Field label="Designation" value={employeeForm.designation} onChange={(value) => updateEmployeeForm("designation", value)} />
-                <Field label="Grade" value={employeeForm.grade} onChange={(value) => updateEmployeeForm("grade", value)} />
-                <Field label="Phone" value={employeeForm.phone} onChange={(value) => updateEmployeeForm("phone", value)} />
-                <Field label="Email" value={employeeForm.email} onChange={(value) => updateEmployeeForm("email", value)} />
-                <Field label="TIN" value={employeeForm.tin} onChange={(value) => updateEmployeeForm("tin", value)} />
-                <Field label="Joining Date" type="date" value={employeeForm.joiningDate} onChange={(value) => updateEmployeeForm("joiningDate", value)} />
+                <Field label="Employee Code" help="Optional staff ID used in salary sheets and reports." value={employeeForm.employeeCode} onChange={(value) => updateEmployeeForm("employeeCode", value)} />
+                <Field label="Employee Name" help="Full name shown on payroll reports." value={employeeForm.name} onChange={(value) => updateEmployeeForm("name", value)} />
+                <Field label="Job Title" help="The employee's role or designation." value={employeeForm.designation} onChange={(value) => updateEmployeeForm("designation", value)} />
+                <Field label="Grade" help="Optional salary grade or level." value={employeeForm.grade} onChange={(value) => updateEmployeeForm("grade", value)} />
+                <Field label="Phone" help="Optional contact number." value={employeeForm.phone} onChange={(value) => updateEmployeeForm("phone", value)} />
+                <Field label="Email" help="Optional work or personal email." value={employeeForm.email} onChange={(value) => updateEmployeeForm("email", value)} />
+                <Field label="TIN" help="Tax identification number, if applicable." value={employeeForm.tin} onChange={(value) => updateEmployeeForm("tin", value)} />
+                <Field label="Joining Date" help="Start date for employee records." type="date" value={employeeForm.joiningDate} onChange={(value) => updateEmployeeForm("joiningDate", value)} />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Basic" type="number" value={employeeForm.basic} onChange={(value) => updateEmployeeForm("basic", value)} />
-                <Field label="Housing" type="number" value={employeeForm.housing} onChange={(value) => updateEmployeeForm("housing", value)} />
-                <Field label="Medical" type="number" value={employeeForm.medical} onChange={(value) => updateEmployeeForm("medical", value)} />
-                <Field label="Conveyance" type="number" value={employeeForm.conveyance} onChange={(value) => updateEmployeeForm("conveyance", value)} />
-                <Field label="Employer PF" type="number" value={employeeForm.employerPf} onChange={(value) => updateEmployeeForm("employerPf", value)} />
-                <Field label="Staff PF" type="number" value={employeeForm.staffPf} onChange={(value) => updateEmployeeForm("staffPf", value)} />
-                <Field label="Tax" type="number" value={employeeForm.tax} onChange={(value) => updateEmployeeForm("tax", value)} />
+                <Field label="Basic Salary" help="Main fixed salary amount." type="number" value={employeeForm.basic} onChange={(value) => updateEmployeeForm("basic", value)} />
+                <Field label="House Rent" help="Monthly housing allowance." type="number" value={employeeForm.housing} onChange={(value) => updateEmployeeForm("housing", value)} />
+                <Field label="Medical Allowance" help="Monthly medical allowance." type="number" value={employeeForm.medical} onChange={(value) => updateEmployeeForm("medical", value)} />
+                <Field label="Travel Allowance" help="Monthly conveyance or travel allowance." type="number" value={employeeForm.conveyance} onChange={(value) => updateEmployeeForm("conveyance", value)} />
+                <Field label="Employer PF" help="Company provident fund contribution." type="number" value={employeeForm.employerPf} onChange={(value) => updateEmployeeForm("employerPf", value)} />
+                <Field label="Employee PF" help="Provident fund deducted from employee salary." type="number" value={employeeForm.staffPf} onChange={(value) => updateEmployeeForm("staffPf", value)} />
+                <Field label="Tax Deduction" help="Monthly tax deducted from salary." type="number" value={employeeForm.tax} onChange={(value) => updateEmployeeForm("tax", value)} />
               </div>
               <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input
@@ -628,7 +664,7 @@ export function PayrollManager({
               <div className="flex gap-2">
                 <Button type="button" onClick={saveEmployee} disabled={isPending || !schemaReady}>
                   {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Save
+                  Save Employee
                 </Button>
                 <Button type="button" variant="outline" onClick={() => setEmployeeForm(emptyEmployeeForm)}>
                   Clear
@@ -639,7 +675,8 @@ export function PayrollManager({
 
           <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
             <CardHeader>
-              <CardTitle>Employees & Salary Structures</CardTitle>
+              <CardTitle>Employees</CardTitle>
+              <p className="text-sm text-slate-500">Review regular salary setup before running payroll.</p>
             </CardHeader>
             <CardContent>
               <Table>
@@ -647,27 +684,29 @@ export function PayrollManager({
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Designation</TableHead>
-                    <TableHead>Gross</TableHead>
-                    <TableHead>Net Base</TableHead>
+                    <TableHead>Gross Salary</TableHead>
+                    <TableHead>Net Pay</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {employees.map((employee) => {
-                    const gross =
-                      numberValue(employee.salary?.basic) +
-                      numberValue(employee.salary?.housing) +
-                      numberValue(employee.salary?.medical) +
-                      numberValue(employee.salary?.conveyance) +
-                      numberValue(employee.salary?.employer_pf)
-                    const deductions = numberValue(employee.salary?.staff_pf) + numberValue(employee.salary?.tax)
+                    const summary = calculatePayrollRowSummary([
+                      { code: "basic", amount: numberValue(employee.salary?.basic) },
+                      { code: "housing", amount: numberValue(employee.salary?.housing) },
+                      { code: "medical", amount: numberValue(employee.salary?.medical) },
+                      { code: "conveyance", amount: numberValue(employee.salary?.conveyance) },
+                      { code: "employer_pf", amount: numberValue(employee.salary?.employer_pf) },
+                      { code: "staff_pf", amount: numberValue(employee.salary?.staff_pf) },
+                      { code: "tax", amount: numberValue(employee.salary?.tax) },
+                    ])
                     return (
                       <TableRow key={employee.id}>
                         <TableCell className="font-medium text-slate-950">{employee.name}</TableCell>
                         <TableCell>{employee.designation || "-"}</TableCell>
-                        <TableCell>{currency(gross)}</TableCell>
-                        <TableCell>{currency(gross - deductions)}</TableCell>
+                        <TableCell>{currency(summary.grossSalary)}</TableCell>
+                        <TableCell>{currency(summary.netPayable)}</TableCell>
                         <TableCell>{employee.is_active === false ? "Inactive" : "Active"}</TableCell>
                         <TableCell className="text-right">
                           <Button type="button" variant="outline" size="sm" onClick={() => setEmployeeForm(employeeToForm(employee))}>
@@ -684,28 +723,96 @@ export function PayrollManager({
         </div>
       ) : null}
 
-      {activeTab === "runs" ? (
+      {activeTab === "run" ? (
         <div className="space-y-6">
           <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
             <CardHeader>
-              <CardTitle>Create Payroll Run</CardTitle>
+              <CardTitle>Run Payroll</CardTitle>
+              <p className="text-sm text-slate-500">Step 1: create a draft from saved salaries or an Excel salary sheet.</p>
             </CardHeader>
-            <CardContent className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_auto] lg:items-end">
-              <Field label="Month" type="month" value={runMonth} onChange={setRunMonth} />
-              <div className="space-y-2">
-                <Label>Notes</Label>
-                <Textarea value={runNotes} onChange={(event) => setRunNotes(event.target.value)} rows={1} />
+            <CardContent className="space-y-5">
+              <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_auto] lg:items-end">
+                <Field label="Payroll Month" help="Choose the month you want to pay." type="month" value={runMonth} onChange={setRunMonth} />
+                <div className="space-y-2">
+                  <LabelWithHelp label="Notes" help="Optional note saved with this payroll run." />
+                  <Textarea value={runNotes} onChange={(event) => setRunNotes(event.target.value)} rows={1} />
+                </div>
+                <Button type="button" onClick={createManualRun} disabled={isPending || manualRows.length === 0}>
+                  <PlayCircle className="mr-2 h-4 w-4" />
+                  Run Payroll
+                </Button>
+                <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600 lg:col-span-3">
+                  {manualRows.length} employee(s) ready from saved salaries. Gross Salary {currency(manualTotals.grossSalary)} | Deductions{" "}
+                  {currency(manualTotals.totalDeductions)} | Net Pay {currency(manualTotals.netPayable)}
+                </div>
               </div>
-              <Button type="button" onClick={createManualRun} disabled={isPending || manualRows.length === 0}>
-                <Plus className="mr-2 h-4 w-4" />
-                Create From Structures
-              </Button>
-              <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600 lg:col-span-3">
-                Ready rows: {manualRows.length} | Gross {currency(manualTotals.grossSalary)} | Deductions{" "}
-                {currency(manualTotals.totalDeductions)} | Net {currency(manualTotals.netPayable)}
+
+              <div className="border-t border-slate-100 pt-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-slate-950">Use Excel Salary Sheet</h3>
+                  <HelpTooltip text="Use this when payroll amounts come from a monthly salary sheet instead of saved employee salaries." />
+                </div>
+                <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_auto] lg:items-end">
+                  <Field
+                    label="Payroll Month"
+                    help="The month to read from the uploaded sheet."
+                    type="month"
+                    value={importMonth}
+                    onChange={(value) => {
+                      setImportMonth(value)
+                      if (importSourceRows.length) {
+                        const filtered = filterSalaryBillRowsForMonth(importSourceRows, fiscalYearStart, value)
+                        setImportFilterMode(filtered.mode)
+                        setImportSerial(filtered.serial)
+                      }
+                    }}
+                  />
+                  <label className="flex h-11 cursor-pointer items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 text-sm text-slate-600">
+                    <UploadCloud className="h-4 w-4" />
+                    Upload Excel salary sheet
+                    <input
+                      type="file"
+                      className="sr-only"
+                      accept=".xlsx,.xls"
+                      onChange={(event) => {
+                        handleImportFile(event.target.files?.[0] ?? null)
+                        event.target.value = ""
+                      }}
+                    />
+                  </label>
+                  <Button type="button" variant="outline" onClick={saveImportedRun} disabled={isPending || importRows.length === 0 || !schemaReady}>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save Draft
+                  </Button>
+                </div>
+                {importSourceRows.length ? (
+                  <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                    Source sheet: {importSheetName || "Salary"} | Employees found: {importSourceRows.length}
+                    {importFilterMode === "yearly_bill" ? (
+                      <>
+                        {" "}
+                        | Using fiscal month serial {importSerial} for {importMonth}
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className="mt-4 grid gap-4 md:grid-cols-4">
+                  <SummaryTile label="Employees" value={String(importRows.length)} />
+                  <SummaryTile label="Gross Salary" value={currency(importTotals.grossSalary)} />
+                  <SummaryTile label="Deductions" value={currency(importTotals.totalDeductions)} />
+                  <SummaryTile label="Net Pay" value={currency(importTotals.netPayable)} />
+                </div>
+                {importSourceRows.length ? <PayrollRowsPreview rows={importRows} /> : null}
               </div>
             </CardContent>
           </Card>
+          <WorkflowGuide compact />
+        </div>
+      ) : null}
+
+      {activeTab === "review" ? (
+        <div className="space-y-6">
+          <WorkflowGuide compact />
           <PayrollRunsTable
             clientId={clientId}
             payrollRuns={payrollRuns}
@@ -714,76 +821,22 @@ export function PayrollManager({
             setPaymentModeId={setPaymentModeId}
             postAccrual={postAccrual}
             postPayment={postPayment}
+            rerunPayroll={rerunPayroll}
             deleteRun={deleteRun}
             isPending={isPending}
           />
         </div>
       ) : null}
 
-      {activeTab === "import" ? (
-        <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle>Import Salary Sheet</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_auto] lg:items-end">
-              <Field
-                label="Payroll Month"
-                type="month"
-                value={importMonth}
-                onChange={(value) => {
-                  setImportMonth(value)
-                  if (importSourceRows.length) {
-                    const filtered = filterSalaryBillRowsForMonth(importSourceRows, fiscalYearStart, value)
-                    setImportFilterMode(filtered.mode)
-                    setImportSerial(filtered.serial)
-                  }
-                }}
-              />
-              <label className="flex h-11 cursor-pointer items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 text-sm text-slate-600">
-                <UploadCloud className="h-4 w-4" />
-                Upload Excel salary sheet
-                <input
-                  type="file"
-                  className="sr-only"
-                  accept=".xlsx,.xls"
-                  onChange={(event) => {
-                    handleImportFile(event.target.files?.[0] ?? null)
-                    event.target.value = ""
-                  }}
-                />
-              </label>
-              <Button type="button" onClick={saveImportedRun} disabled={isPending || importRows.length === 0 || !schemaReady}>
-                Save Draft Run
-              </Button>
-            </div>
-            {importSourceRows.length ? (
-              <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-                Source sheet: {importSheetName || "Salary"} | Parsed rows: {importSourceRows.length}
-                {importFilterMode === "yearly_bill" ? (
-                  <>
-                    {" "}
-                    | Using fiscal month serial {importSerial} for {importMonth}
-                  </>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="grid gap-4 md:grid-cols-4">
-              <SummaryTile label="Rows" value={String(importRows.length)} />
-              <SummaryTile label="Gross" value={currency(importTotals.grossSalary)} />
-              <SummaryTile label="Deductions" value={currency(importTotals.totalDeductions)} />
-              <SummaryTile label="Net Payable" value={currency(importTotals.netPayable)} />
-            </div>
-            <PayrollRowsPreview rows={importRows} />
-          </CardContent>
-        </Card>
-      ) : null}
-
       {activeTab === "settings" ? (
         <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-4">
-            <CardTitle>Payroll Account Mappings</CardTitle>
+            <div>
+              <CardTitle>Payroll Settings</CardTitle>
+              <p className="mt-1 text-sm text-slate-500">Ledger accounts used when payroll is posted.</p>
+            </div>
             <Button type="button" variant="outline" onClick={ensureDefaults} disabled={isPending}>
+              <CheckCircle2 className="mr-2 h-4 w-4" />
               Prepare Defaults
             </Button>
           </CardHeader>
@@ -808,24 +861,81 @@ export function PayrollManager({
         </Card>
       ) : null}
     </div>
+    </TooltipProvider>
   )
 }
 
 function Field({
   label,
+  help,
   value,
   onChange,
   type = "text",
 }: {
   label: string
+  help?: string
   value: string
   onChange: (value: string) => void
   type?: string
 }) {
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <LabelWithHelp label={label} help={help} />
       <Input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
+  )
+}
+
+function LabelWithHelp({ label, help }: { label: string; help?: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Label>{label}</Label>
+      {help ? <HelpTooltip text={help} /> : null}
+    </div>
+  )
+}
+
+function HelpTooltip({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" className="text-slate-400 transition hover:text-slate-600" aria-label={text}>
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64 text-xs">{text}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function WorkflowGuide({ compact = false }: { compact?: boolean }) {
+  const steps = [
+    { label: "Run Payroll", description: "Create payroll for the month.", icon: PlayCircle },
+    { label: "Review Payroll", description: "Check gross salary, deductions, and net pay.", icon: Calculator },
+    { label: "Post to Accounts", description: "Create the payroll accounting voucher.", icon: Send },
+    { label: "Make Payment", description: "Record salary payment from cash or bank.", icon: Banknote },
+  ]
+
+  return (
+    <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${compact ? "p-4" : "p-5"}`}>
+      <div className="grid gap-3 md:grid-cols-4">
+        {steps.map((step, index) => {
+          const Icon = step.icon
+          return (
+            <div key={step.label} className="flex gap-3 rounded-xl bg-slate-50 p-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-slate-700 shadow-sm">
+                <Icon className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-950">
+                  {index + 1}. {step.label}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{step.description}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -839,15 +949,16 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   )
 }
 
-function PayrollRowsPreview({ rows }: { rows: PayrollDraftRow[] }) {
+const PayrollRowsPreview = memo(function PayrollRowsPreview({ rows }: { rows: PayrollDraftRow[] }) {
   return (
+    <div className="mt-4">
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Employee</TableHead>
-          <TableHead>Designation</TableHead>
-          <TableHead>Components</TableHead>
-          <TableHead>Net</TableHead>
+          <TableHead>Job Title</TableHead>
+          <TableHead>Salary Details</TableHead>
+          <TableHead>Net Pay</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -876,10 +987,11 @@ function PayrollRowsPreview({ rows }: { rows: PayrollDraftRow[] }) {
         )}
       </TableBody>
     </Table>
+    </div>
   )
-}
+})
 
-function PayrollRunsTable({
+const PayrollRunsTable = memo(function PayrollRunsTable({
   clientId,
   payrollRuns,
   paymentModeId,
@@ -887,6 +999,7 @@ function PayrollRunsTable({
   setPaymentModeId,
   postAccrual,
   postPayment,
+  rerunPayroll,
   deleteRun,
   isPending,
 }: {
@@ -897,24 +1010,31 @@ function PayrollRunsTable({
   setPaymentModeId: (value: string) => void
   postAccrual: (payrollRunId: string) => void
   postPayment: (payrollRunId: string) => void
+  rerunPayroll: (payrollRunId: string) => void
   deleteRun: (payrollRunId: string) => void
   isPending: boolean
 }) {
   return (
     <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <CardTitle>Payroll Runs</CardTitle>
-        <select
-          className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-          value={paymentModeId}
-          onChange={(event) => setPaymentModeId(event.target.value)}
-        >
-          {paymentModes.map((mode) => (
-            <option key={mode.id} value={mode.id}>
-              {mode.name}
-            </option>
-          ))}
-        </select>
+        <div>
+          <CardTitle>Review Payroll Runs</CardTitle>
+          <p className="mt-1 text-sm text-slate-500">Review totals, re-run drafts after edits, then post to accounts and make payment.</p>
+        </div>
+        <div className="space-y-1.5">
+          <LabelWithHelp label="Pay From" help="Choose the cash or bank account used when you click Pay Now." />
+          <select
+            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+            value={paymentModeId}
+            onChange={(event) => setPaymentModeId(event.target.value)}
+          >
+            {paymentModes.map((mode) => (
+              <option key={mode.id} value={mode.id}>
+                {mode.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </CardHeader>
       <CardContent>
         <Table>
@@ -922,11 +1042,11 @@ function PayrollRunsTable({
             <TableRow>
               <TableHead>Period</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Gross</TableHead>
+              <TableHead>Gross Salary</TableHead>
               <TableHead>Deductions</TableHead>
-              <TableHead>Net Payable</TableHead>
+              <TableHead>Net Pay</TableHead>
               <TableHead>Vouchers</TableHead>
-              <TableHead />
+              <TableHead className="text-right">Next Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -938,7 +1058,7 @@ function PayrollRunsTable({
                     <p className="text-xs text-slate-500">{run.source}</p>
                   </TableCell>
                   <TableCell>
-                    <Badge className={getStatusClass(run.status)}>{run.status}</Badge>
+                    <Badge className={getStatusClass(run.status)}>{statusLabel(run.status)}</Badge>
                   </TableCell>
                   <TableCell>{currency(run.totals.grossSalary)}</TableCell>
                   <TableCell>{currency(run.totals.totalDeductions)}</TableCell>
@@ -946,17 +1066,17 @@ function PayrollRunsTable({
                   <TableCell className="space-y-1">
                     {run.accrual_voucher_id ? (
                       <Link className="block text-sm text-blue-700 hover:underline" href={`/clients/${clientId}/vouchers/${run.accrual_voucher_id}`}>
-                        Accrual #{run.accrual_voucher_no ?? "-"}
+                        Posted voucher #{run.accrual_voucher_no ?? "-"}
                       </Link>
                     ) : (
-                      <span className="block text-sm text-slate-400">No accrual</span>
+                      <span className="block text-sm text-slate-400">Not posted</span>
                     )}
                     {run.payment_voucher_id ? (
                       <Link className="block text-sm text-blue-700 hover:underline" href={`/clients/${clientId}/vouchers/${run.payment_voucher_id}`}>
                         Payment #{run.payment_voucher_no ?? "-"}
                       </Link>
                     ) : (
-                      <span className="block text-sm text-slate-400">No payment</span>
+                      <span className="block text-sm text-slate-400">Not paid</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right">
@@ -964,19 +1084,28 @@ function PayrollRunsTable({
                       {!run.accrual_voucher_id ? (
                         <Button type="button" size="sm" onClick={() => postAccrual(run.id)} disabled={isPending}>
                           <Send className="mr-2 h-4 w-4" />
-                          Post
+                          Post to Accounts
                         </Button>
                       ) : null}
                       {run.accrual_voucher_id && !run.payment_voucher_id ? (
                         <Button type="button" size="sm" variant="outline" onClick={() => postPayment(run.id)} disabled={isPending || !paymentModeId}>
-                          Pay
+                          <Banknote className="mr-2 h-4 w-4" />
+                          Make Payment
+                        </Button>
+                      ) : null}
+                      {(run.status === "draft" || run.status === "reviewed") && !run.accrual_voucher_id ? (
+                        <Button type="button" size="sm" variant="outline" onClick={() => rerunPayroll(run.id)} disabled={isPending}>
+                          <PlayCircle className="mr-2 h-4 w-4" />
+                          Re-run
                         </Button>
                       ) : null}
                       {(run.status === "draft" || run.status === "reviewed") && !run.accrual_voucher_id ? (
                         <Button type="button" size="sm" variant="outline" onClick={() => deleteRun(run.id)} disabled={isPending}>
+                          <Trash2 className="mr-2 h-4 w-4" />
                           Delete
                         </Button>
                       ) : null}
+                      {run.payment_voucher_id ? <span className="text-sm font-medium text-emerald-700">Paid</span> : null}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -993,4 +1122,4 @@ function PayrollRunsTable({
       </CardContent>
     </Card>
   )
-}
+})

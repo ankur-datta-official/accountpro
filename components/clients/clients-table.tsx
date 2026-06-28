@@ -154,10 +154,10 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
         accessorKey: "name",
         header: "Name",
         cell: ({ row }) => (
-          <div>
-            <p className="font-medium text-slate-900">{row.original.name}</p>
+          <Link href={`/clients/${row.original.id}`} className="block">
+            <p className="font-medium text-slate-900 hover:text-slate-600 transition-colors">{row.original.name}</p>
             <p className="text-xs text-slate-500">{row.original.fiscalYearLabel}</p>
-          </div>
+          </Link>
         ),
       },
       {
@@ -294,6 +294,7 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
             <Input
               value={globalFilter}
               onChange={(event) => setGlobalFilter(event.target.value)}
+              onFocus={() => setGlobalFilter("")}
               className="h-11 rounded-xl border-slate-200 pl-10"
               placeholder="Search clients by name, type, TIN, or BIN"
             />

@@ -92,9 +92,16 @@ const clientModuleItems = (clientId: string): NavItem[] => [
 
 const booksOfAccountsItems = (clientId: string): NavItem[] => [
   {
+    href: `/clients/${clientId}/vouchers/new`,
+    label: "Add New Voucher",
+    icon: Plus,
+    exact: true,
+  },
+  {
     href: `/clients/${clientId}/vouchers`,
-    label: "Vouchers",
+    label: "Posted Vouchers",
     icon: ReceiptText,
+    exact: true,
   },
   { href: `/clients/${clientId}/accounts`, label: "Chart of Accounts", icon: BookMarked },
   { href: `/clients/${clientId}/ledger`, label: "Ledger", icon: BookOpenText },
@@ -105,9 +112,6 @@ const booksOfAccountsItems = (clientId: string): NavItem[] => [
     aliases: [`/clients/${clientId}/daybook`],
   },
   { href: `/clients/${clientId}/trial-balance`, label: "Trial Balance", icon: FileSpreadsheet },
-]
-
-const operationsItems = (clientId: string): NavItem[] => [
   { href: `/clients/${clientId}/payroll`, label: "Payroll", icon: BadgeDollarSign },
 ]
 
@@ -158,8 +162,8 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
   if (currentClient) {
     const clientId = currentClient.id
     const clientRoutes: Array<[string, string]> = [
-      [`/clients/${clientId}/vouchers/new`, "New Voucher"],
-      [`/clients/${clientId}/vouchers`, "Vouchers"],
+      [`/clients/${clientId}/vouchers/new`, "Add New Voucher"],
+      [`/clients/${clientId}/vouchers`, "Posted Vouchers"],
       [`/clients/${clientId}/accounts`, "Chart of Accounts"],
       [`/clients/${clientId}/ledger`, "Ledger"],
       [`/clients/${clientId}/daybook`, "Day Book"],
@@ -266,12 +270,6 @@ function ClientModuleSection({
             pathname={pathname}
           />
           <CollapsibleNavGroup
-            label="Operations"
-            icon={WalletCards}
-            items={operationsItems(clientId)}
-            pathname={pathname}
-          />
-          <CollapsibleNavGroup
             label="Financial Statements"
             icon={FileSpreadsheet}
             items={financialStatementItems(clientId)}
@@ -350,7 +348,13 @@ function CollapsibleNavGroup({
   )
 }
 
-function ClientSelectSection({ clients }: { clients: SidebarClient[] }) {
+function ClientSwitcher({
+  clients,
+  currentClient,
+}: {
+  clients: SidebarClient[]
+  currentClient?: SidebarClient | null
+}) {
   const [query, setQuery] = useState("")
   const normalizedQuery = query.trim().toLowerCase()
   const filteredClients = useMemo(() => {
@@ -363,66 +367,6 @@ function ClientSelectSection({ clients }: { clients: SidebarClient[] }) {
     })
   }, [clients, normalizedQuery])
 
-  return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Select organization</SidebarGroupLabel>
-      <SidebarGroupContent className="space-y-2">
-        {clients.length ? (
-          <div className="relative group-data-[collapsible=icon]:hidden">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search organizations..."
-              aria-label="Search organizations"
-              className="h-9 rounded-lg border-slate-200 bg-white pl-9 pr-3 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-slate-300 focus-visible:ring-offset-0"
-            />
-          </div>
-        ) : null}
-
-        <SidebarMenu>
-          {filteredClients.length ? (
-            filteredClients.map((client) => (
-              <SidebarMenuItem key={client.id}>
-                <SidebarMenuButton asChild tooltip={client.name} className="h-9 rounded-lg">
-                  <Link href={`/clients/${client.id}`} prefetch>
-                    <Building2 className="h-4 w-4" />
-                    <span className="truncate">{client.name}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))
-          ) : clients.length ? (
-            <SidebarMenuItem>
-              <SidebarMenuButton disabled tooltip="No organizations found" className="h-9 rounded-lg">
-                <Search className="h-4 w-4" />
-                <span>No organizations found</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ) : (
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Add Organization" className="h-9 rounded-lg">
-                <Link href="/clients/new" prefetch>
-                  <Plus className="h-4 w-4" />
-                  <span>Add Organization</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  )
-}
-
-function ClientSwitcher({
-  clients,
-  currentClient,
-}: {
-  clients: SidebarClient[]
-  currentClient?: SidebarClient | null
-}) {
   return (
     <div className="px-2">
       <DropdownMenu>
@@ -446,30 +390,51 @@ function ClientSwitcher({
             <ChevronDown className="h-4 w-4 text-slate-400 group-data-[collapsible=icon]:hidden" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-72">
+        <DropdownMenuContent align="start" className="w-72" onCloseAutoFocus={(e) => e.preventDefault()}>
           <DropdownMenuLabel>Active organizations</DropdownMenuLabel>
+          <div className="p-2" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onPointerDown={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder="Search organizations..."
+                aria-label="Search organizations"
+                autoFocus
+                className="h-9 rounded-lg border-slate-200 bg-white pl-9 pr-3 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-slate-300 focus-visible:ring-offset-0"
+              />
+            </div>
+          </div>
           <DropdownMenuSeparator />
-          {clients.length ? (
-            clients.slice(0, 10).map((client) => (
+          {filteredClients.length ? (
+            filteredClients.map((client) => (
               <DropdownMenuItem key={client.id} asChild>
-                <Link href={`/clients/${client.id}`} prefetch className="cursor-pointer">
+                <Link href={`/clients/${client.id}`} prefetch className="cursor-pointer select-none">
                   <Building2 className="h-4 w-4" />
                   <span className="truncate">{client.name}</span>
                 </Link>
               </DropdownMenuItem>
             ))
+          ) : clients.length ? (
+            <DropdownMenuItem disabled>
+              <Search className="h-4 w-4" />
+              <span>No organizations found</span>
+            </DropdownMenuItem>
           ) : (
             <DropdownMenuItem disabled>No active organizations yet</DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link href="/clients/new" prefetch className="cursor-pointer">
+            <Link href="/clients/new" prefetch className="cursor-pointer select-none">
               <Plus className="h-4 w-4" />
               Add Organization
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/clients" prefetch className="cursor-pointer">
+            <Link href="/clients" prefetch className="cursor-pointer select-none">
               <ArrowUpRight className="h-4 w-4" />
               View All Organizations
             </Link>
@@ -479,7 +444,6 @@ function ClientSwitcher({
     </div>
   )
 }
-
 function AppSidebar({
   orgName,
   userName,
@@ -511,14 +475,12 @@ function AppSidebar({
       <SidebarContent className="gap-1 px-2 py-3">
         <NavSection label="Workspace" items={workspaceItems} pathname={pathname} />
 
-        {currentClient ? (
+        {currentClient && (
           <>
             <SidebarSeparator />
             <ClientModuleSection clientId={currentClient.id} pathname={pathname} />
             <NavSection label="Organization Settings" items={clientSettingsItems(currentClient.id)} pathname={pathname} />
           </>
-        ) : (
-          <ClientSelectSection clients={clients} />
         )}
 
         <SidebarSeparator />

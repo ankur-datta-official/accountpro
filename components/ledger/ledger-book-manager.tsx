@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
-import { BookOpenText, CalendarDays, Download, Layers3, Printer, Search, WalletCards } from "lucide-react"
+import { BookOpenText, Download, Layers3, Printer, Search } from "lucide-react"
 import { useReactToPrint } from "react-to-print"
 
 import { LedgerPrint, type PrintableLedgerSection } from "@/components/ledger/LedgerPrint"
@@ -53,6 +53,7 @@ function LedgerSection({
   toDate,
   periodLabel,
   onLoaded,
+  hideEmpty = false,
 }: {
   clientId: string
   accountHeadId: string
@@ -61,6 +62,7 @@ function LedgerSection({
   toDate: string
   periodLabel: string
   onLoaded?: (section: PrintableLedgerSection) => void
+  hideEmpty?: boolean
 }) {
   const { ledger, isLoading } = useLedger({
     clientId,
@@ -127,6 +129,25 @@ function LedgerSection({
   }
 
   if (!ledger?.accountHead) {
+    if (hideEmpty) return null
+    return (
+      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+        <CardContent className="py-12">
+          <EmptyState
+            icon={BookOpenText}
+            title="No ledger data available"
+            description="There are no ledger rows for this account in the selected period."
+          />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (ledger.entries.length === 0 && hideEmpty) {
+    return null
+  }
+
+  if (ledger.entries.length === 0 && !hideEmpty) {
     return (
       <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
         <CardContent className="py-12">
@@ -326,8 +347,6 @@ export function LedgerBookManager({
   const [fromDate, setFromDate] = useState(defaultFrom)
   const [toDate, setToDate] = useState(defaultTo)
   const [accountSearch, setAccountSearch] = useState("")
-  const [accountHeadId, setAccountHeadId] = useState("")
-  const [allLedgersMode, setAllLedgersMode] = useState(false)
   const [allLedgerCache, setAllLedgerCache] = useState<Record<string, PrintableLedgerSection>>({})
   const { flatAccounts } = useChartOfAccounts(clientId)
 
@@ -353,81 +372,39 @@ export function LedgerBookManager({
     [flatAccounts]
   )
 
-  const selectedAccount = accountOptions.find((account) => account.id === accountHeadId) ?? null
-  const suggestedAccounts = useMemo(() => {
+  // Filter account heads based on search only (cache gets populated as they render)
+  const filteredAccountHeads = useMemo(() => {
     const search = accountSearch.trim().toLowerCase()
-    const filtered = search
-      ? accountOptions.filter(
-          (account) =>
-            account.name.toLowerCase().includes(search) ||
-            account.hierarchyLabel.toLowerCase().includes(search)
-        )
-      : accountOptions
-
-    return filtered.slice(0, 8)
+    
+    if (!search) {
+      return accountOptions
+    }
+    
+    return accountOptions.filter((account) =>
+      account.name.toLowerCase().includes(search) ||
+      account.hierarchyLabel.toLowerCase().includes(search)
+    )
   }, [accountOptions, accountSearch])
 
-  const singleLedger = useLedger(
-    accountHeadId
-      ? {
-          clientId,
-          accountHeadId,
-          fiscalYearId,
-          from: fromDate,
-          to: toDate,
-        }
-      : null
-  )
+  // Count of account heads that actually have data
+  const accountHeadsWithDataCount = useMemo(() => {
+    return filteredAccountHeads.filter((account) => {
+      const section = allLedgerCache[account.id]
+      return section && section.rows.length > 0
+    }).length
+  }, [filteredAccountHeads, allLedgerCache])
 
   const periodLabel = `${format(new Date(fromDate), "dd MMM yyyy")} - ${format(new Date(toDate), "dd MMM yyyy")}`
 
   const printSections = useMemo<PrintableLedgerSection[]>(() => {
-    if (allLedgersMode) {
-      return accountOptions
-        .map((account) => allLedgerCache[account.id])
-        .filter((section): section is PrintableLedgerSection => Boolean(section))
-    }
-
-    if (!singleLedger.ledger?.accountHead) {
-      return []
-    }
-
-    const section = singleLedger.ledger
-    const accountHead = section.accountHead
-
-    if (!accountHead) {
-      return []
-    }
-
-    return [
-      {
-        accountHeadId: accountHead.id,
-        accountName: accountHead.name,
-        groupName: accountHead.groupName,
-        groupType: accountHead.groupType,
-        periodLabel,
-        openingBalanceLabel: signedBalanceToLabel(section.openingBalanceAmount, accountHead.groupType),
-        totalDebit: section.totals.debit,
-        totalCredit: section.totals.credit,
-        closingBalance: section.totals.closingBalance,
-        rows: section.entries.map((entry) => ({
-          id: entry.id,
-          date: entry.date,
-          voucherNo: entry.voucherNo,
-          voucherType: entry.voucherType,
-          paymentMode: entry.paymentMode,
-          description: entry.description,
-          debit: entry.debit,
-          credit: entry.credit,
-          runningBalance: entry.runningBalance,
-        })),
-      },
-    ]
-  }, [accountOptions, allLedgerCache, allLedgersMode, periodLabel, singleLedger.ledger])
+    return filteredAccountHeads
+      .map((account) => allLedgerCache[account.id])
+      .filter((section): section is PrintableLedgerSection => Boolean(section) && section.rows.length > 0)
+  }, [filteredAccountHeads, allLedgerCache])
 
   useEffect(() => {
     setAllLedgerCache({})
-  }, [fiscalYearId, fromDate, toDate, allLedgersMode])
+  }, [fiscalYearId, fromDate, toDate])
 
   const handleSectionLoaded = useCallback((section: PrintableLedgerSection) => {
     setAllLedgerCache((current) => ({ ...current, [section.accountHeadId]: section }))
@@ -471,186 +448,114 @@ export function LedgerBookManager({
         icon={BookOpenText}
         actions={
           <>
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-lg border-slate-200"
-            onClick={() => setAllLedgersMode((current) => !current)}
-          >
-            {allLedgersMode ? "Single Ledger" : "All Ledgers"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-lg border-slate-200"
-            onClick={() => void handlePrint()}
-            disabled={!printSections.length}
-          >
-            <Printer className="mr-2 h-4 w-4" />
-            Print
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-lg border-slate-200"
-            onClick={handleExport}
-            disabled={!printSections.length}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Export to Excel
-          </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-lg border-slate-200"
+              onClick={() => void handlePrint()}
+              disabled={!printSections.length}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Print
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-lg border-slate-200"
+              onClick={handleExport}
+              disabled={!printSections.length}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export to Excel
+            </Button>
           </>
         }
       />
 
-      <FilterPanel title="Ledger controls" description="Choose a focused account ledger or switch to all ledgers for printing and export.">
+      <FilterPanel title="Ledger controls" description="Search and filter account heads, or adjust fiscal year and date range.">
         <div className="grid gap-4 xl:grid-cols-4">
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700">Account head</label>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              list={`ledger-account-heads-${clientId}`}
-              value={accountSearch}
-              onChange={(event) => {
-                const value = event.target.value
-                setAccountSearch(value)
-                const matched = accountOptions.find(
-                  (account) =>
-                    account.hierarchyLabel === value ||
-                    account.name === value ||
-                    account.id === value
-                )
-                setAccountHeadId(matched?.id ?? "")
-              }}
-              className="h-11 rounded-xl border-slate-200 pl-10"
-              placeholder="Search Account Head"
-              disabled={allLedgersMode}
-            />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                type="text"
+                value={accountSearch}
+                onChange={(event) => setAccountSearch(event.target.value)}
+                placeholder="Search account heads..."
+                className="h-11 rounded-xl border-slate-200 pl-10"
+              />
             </div>
-            <datalist id={`ledger-account-heads-${clientId}`}>
-              {accountOptions.map((account) => (
-                <option key={account.id} value={account.hierarchyLabel} />
-              ))}
-            </datalist>
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700">Fiscal year</label>
-          <Select
-            value={fiscalYearId}
-            onValueChange={(value) => {
-              setFiscalYearId(value)
-              const year = fiscalYears.find((item) => item.id === value)
-              if (year) {
-                setFromDate(year.start_date)
-                setToDate(year.end_date)
-              }
-            }}
-          >
-            <SelectTrigger className="h-11 rounded-xl border-slate-200">
-              <SelectValue placeholder="Fiscal year" />
-            </SelectTrigger>
-            <SelectContent>
-              {fiscalYears.map((year) => (
-                <SelectItem key={year.id} value={year.id}>
-                  {year.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            <Select
+              value={fiscalYearId}
+              onValueChange={(value) => {
+                setFiscalYearId(value)
+                const year = fiscalYears.find((item) => item.id === value)
+                if (year) {
+                  setFromDate(year.start_date)
+                  setToDate(year.end_date)
+                }
+              }}
+            >
+              <SelectTrigger className="h-11 rounded-xl border-slate-200">
+                <SelectValue placeholder="Fiscal year" />
+              </SelectTrigger>
+              <SelectContent>
+                {fiscalYears.map((year) => (
+                  <SelectItem key={year.id} value={year.id}>
+                    {year.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700">From date</label>
-          <Input
-            type="date"
-            value={fromDate}
-            onChange={(event) => setFromDate(event.target.value)}
-            className="h-11 rounded-xl border-slate-200"
-          />
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(event) => setFromDate(event.target.value)}
+              className="h-11 rounded-xl border-slate-200"
+            />
           </div>
+          
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700">To date</label>
-          <Input
-            type="date"
-            value={toDate}
-            onChange={(event) => setToDate(event.target.value)}
-            className="h-11 rounded-xl border-slate-200"
-          />
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(event) => setToDate(event.target.value)}
+              className="h-11 rounded-xl border-slate-200"
+            />
           </div>
         </div>
       </FilterPanel>
 
-      {!allLedgersMode ? (
-        <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-lg text-slate-950">Account browser</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Pick an account to open its ledger instantly.</p>
-            </div>
-            {selectedAccount ? (
-              <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-                <WalletCards className="mr-1.5 h-3.5 w-3.5" />
-                {selectedAccount.name}
-              </span>
-            ) : null}
-          </CardHeader>
-          <CardContent>
-            {suggestedAccounts.length ? (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {suggestedAccounts.map((account) => (
-                  <button
-                    key={account.id}
-                    type="button"
-                    className={`rounded-2xl border px-4 py-3 text-left transition ${
-                      account.id === accountHeadId
-                        ? "border-slate-950 bg-slate-950 text-white"
-                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                    }`}
-                    onClick={() => {
-                      setAccountHeadId(account.id)
-                      setAccountSearch(account.hierarchyLabel)
-                    }}
-                  >
-                    <p className="truncate text-sm font-semibold">{account.name}</p>
-                    <p
-                      className={`mt-1 truncate text-xs ${
-                        account.id === accountHeadId ? "text-slate-300" : "text-slate-500"
-                      }`}
-                    >
-                      {account.groupName} / {account.subGroupName}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
-                No matching account heads found.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-semibold text-slate-950">All ledgers mode</p>
-              <p className="mt-1 text-sm text-slate-500">
-                Showing {accountOptions.length} account ledgers for {periodLabel}.
-              </p>
-            </div>
-            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-              <Layers3 className="mr-1.5 h-3.5 w-3.5" />
-              Batch review
-            </span>
-          </CardContent>
-        </Card>
-      )}
+      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold text-slate-950">Ledgers</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {accountHeadsWithDataCount === 1 
+                ? `Showing ${accountHeadsWithDataCount} account for ${periodLabel}`
+                : `Showing ${accountHeadsWithDataCount} accounts for ${periodLabel}`
+            </p>
+          </div>
+          <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            <Layers3 className="mr-1.5 h-3.5 w-3.5" />
+            Batch review
+          </span>
+        </CardContent>
+      </Card>
 
-      {allLedgersMode ? (
+      {accountHeadsWithDataCount > 0 ? (
         <div className="space-y-5">
-          {accountOptions.map((account) => (
+          {filteredAccountHeads.map((account) => (
             <LedgerSection
               key={account.id}
               clientId={clientId}
@@ -660,25 +565,21 @@ export function LedgerBookManager({
               toDate={toDate}
               periodLabel={periodLabel}
               onLoaded={handleSectionLoaded}
+              hideEmpty={true}
             />
           ))}
         </div>
-      ) : accountHeadId ? (
-        <LedgerSection
-          clientId={clientId}
-          accountHeadId={accountHeadId}
-          fiscalYearId={fiscalYearId}
-          fromDate={fromDate}
-          toDate={toDate}
-          periodLabel={periodLabel}
-        />
       ) : (
         <Card className="rounded-[1.5rem] border-dashed border-slate-300 bg-white shadow-sm">
           <CardContent className="py-14">
             <EmptyState
-              icon={CalendarDays}
-              title="Choose an account head"
-              description="Use search or the account browser above to open a ledger for the selected fiscal year and period."
+              icon={BookOpenText}
+              title={accountSearch ? "No matching account heads" : "No ledger data available"}
+              description={
+                accountSearch 
+                  ? "Try clearing your search or adjusting your filters."
+                  : "There are no ledger entries for the selected fiscal year and date range."
+              }
             />
           </CardContent>
         </Card>

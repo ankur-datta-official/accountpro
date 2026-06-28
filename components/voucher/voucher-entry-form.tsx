@@ -709,6 +709,7 @@ export function VoucherEntryForm({
                   index={index}
                   line={line}
                   accounts={flatAccounts}
+                  voucherType={values.voucherType}
                   onRemove={() => handleRemoveLine(index)}
                   onAddLine={handleAddLine}
                   register={(name) => form.register(name)}

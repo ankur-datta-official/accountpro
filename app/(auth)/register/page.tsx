@@ -73,7 +73,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div>
+    <div suppressHydrationWarning>
       <AuthFormHeader
         title="Create your AccountPro workspace"
         description="Set up your organization and invite your team later from the dashboard."

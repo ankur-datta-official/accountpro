@@ -56,7 +56,7 @@ function LoginForm() {
   }
 
   return (
-    <div>
+    <div suppressHydrationWarning>
       <AuthFormHeader
         title="Sign in to your workspace"
         description="Access your firm dashboard, client records, and reporting workspace."
@@ -102,7 +102,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Loading...</div>}>
       <LoginForm />
     </Suspense>
   )
