@@ -348,6 +348,7 @@ export function LedgerBookManager({
   const [toDate, setToDate] = useState(defaultTo)
   const [accountSearch, setAccountSearch] = useState("")
   const [allLedgerCache, setAllLedgerCache] = useState<Record<string, PrintableLedgerSection>>({})
+  const [isLoading, setIsLoading] = useState(true)
   const { flatAccounts } = useChartOfAccounts(clientId)
 
   const handlePrint = useReactToPrint({
@@ -394,6 +395,18 @@ export function LedgerBookManager({
     }).length
   }, [filteredAccountHeads, allLedgerCache])
 
+  // Check if we've loaded all account heads
+  const allAccountHeadsLoaded = useMemo(() => {
+    return filteredAccountHeads.every(account => account.id in allLedgerCache)
+  }, [filteredAccountHeads, allLedgerCache])
+
+  // Update isLoading when all account heads are loaded or when filters change
+  useEffect(() => {
+    if (filteredAccountHeads.length > 0 && allAccountHeadsLoaded) {
+      setIsLoading(false)
+    }
+  }, [filteredAccountHeads, allAccountHeadsLoaded])
+
   const periodLabel = `${format(new Date(fromDate), "dd MMM yyyy")} - ${format(new Date(toDate), "dd MMM yyyy")}`
 
   const printSections = useMemo<PrintableLedgerSection[]>(() => {
@@ -404,6 +417,7 @@ export function LedgerBookManager({
 
   useEffect(() => {
     setAllLedgerCache({})
+    setIsLoading(true)
   }, [fiscalYearId, fromDate, toDate])
 
   const handleSectionLoaded = useCallback((section: PrintableLedgerSection) => {
@@ -551,7 +565,23 @@ export function LedgerBookManager({
         </CardContent>
       </Card>
 
-      {accountHeadsWithDataCount > 0 ? (
+      {isLoading ? (
+        <div className="space-y-5">
+          {filteredAccountHeads.map((account) => (
+            <LedgerSection
+              key={account.id}
+              clientId={clientId}
+              accountHeadId={account.id}
+              fiscalYearId={fiscalYearId}
+              fromDate={fromDate}
+              toDate={toDate}
+              periodLabel={periodLabel}
+              onLoaded={handleSectionLoaded}
+              hideEmpty={true}
+            />
+          ))}
+        </div>
+      ) : accountHeadsWithDataCount > 0 ? (
         <div className="space-y-5">
           {filteredAccountHeads.map((account) => (
             <LedgerSection

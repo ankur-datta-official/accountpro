@@ -96,8 +96,8 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   "text/plain",
 ])
 
-const defaultLine = (): VoucherFormValues["lines"][number] => ({
-  accountsGroup: "",
+const defaultLine = (voucherType?: string): VoucherFormValues["lines"][number] => ({
+  accountsGroup: voucherType === "contra" ? "asset" : "",
   accountHeadId: "",
   debitAmount: 0,
   creditAmount: 0,
@@ -171,18 +171,20 @@ function buildFormValues({
     selectedPaymentMode?.name ??
     (normalizedDraftPaymentModeName || defaultCashMode?.name || "Cash")
 
+  const voucherType = values?.voucherType ?? "payment"
+
   const validatedLines = values?.lines?.length 
     ? values.lines.map(line => line 
       ? { 
-        accountsGroup: line.accountsGroup ?? "",
+        accountsGroup: voucherType === "contra" ? "asset" : (line.accountsGroup ?? ""),
         accountHeadId: line.accountHeadId ?? "",
         debitAmount: Number(line.debitAmount ?? 0),
         creditAmount: Number(line.creditAmount ?? 0),
         description: line.description ?? ""
       } 
-      : defaultLine()
+      : defaultLine(voucherType)
     )
-    : [defaultLine()]
+    : [defaultLine(voucherType)]
 
   return {
     clientId,
@@ -253,6 +255,18 @@ export function VoucherEntryForm({
   })
 
   const values = form.watch()
+
+  // When voucher type changes to contra, set accountsGroup to asset for all lines
+  useEffect(() => {
+    if (values.voucherType === "contra") {
+      values.lines.forEach((line, index) => {
+        form.setValue(`lines.${index}.accountsGroup`, "asset")
+        // Also reset accountHeadId since contra only allows cash/bank
+        form.setValue(`lines.${index}.accountHeadId`, "")
+      })
+    }
+  }, [values.voucherType, form])
+
   const showPaymentMode =
     values.voucherType === "payment" ||
     values.voucherType === "received" ||
@@ -347,7 +361,7 @@ export function VoucherEntryForm({
   }, [disabled, draftKey, draftRestored, form, shouldUseDraft])
 
   const handleAddLine = () => {
-    append(defaultLine())
+    append(defaultLine(values.voucherType))
     if (shouldUseDraft) {
       window.localStorage.setItem(draftKey, JSON.stringify(form.getValues()))
     }
@@ -357,7 +371,7 @@ export function VoucherEntryForm({
     if (fields.length > 1) {
       remove(index)
     } else {
-      replace([defaultLine()])
+      replace([defaultLine(values.voucherType)])
     }
     if (shouldUseDraft) {
       window.localStorage.setItem(draftKey, JSON.stringify(form.getValues()))
@@ -461,13 +475,15 @@ export function VoucherEntryForm({
   const handleCreateAnother = () => {
     window.localStorage.removeItem(draftKey)
     setSelectedFiles([])
-    replace([defaultLine()])
+    const newVoucherType = "payment" // default to payment when creating another
+    replace([defaultLine(newVoucherType)])
     form.reset(
       buildFormValues({
         clientId,
         fiscalYearId,
         defaultVoucherNo: defaultVoucherNo + 1,
         paymentModes,
+        values: { voucherType: newVoucherType },
       })
     )
   }
@@ -534,20 +550,25 @@ export function VoucherEntryForm({
         }),
       }
 
-      const result =
-        mode === "edit" && voucherId
-          ? await updateVoucherAction({ ...payload, voucherId })
-          : await createVoucherAction(payload)
+      try {
+        const result =
+          mode === "edit" && voucherId
+            ? await updateVoucherAction({ ...payload, voucherId })
+            : await createVoucherAction(payload)
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
-      }
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to save voucher")
+          return
+        }
 
-      const attachmentResult = await uploadVoucherAttachments(result.voucherId)
+        const attachmentResult = await uploadVoucherAttachments(result.voucherId)
 
-      if (!attachmentResult.success) {
-        toast.error(`Voucher saved, but documents were not attached. ${attachmentResult.error}`)
+        if (!attachmentResult?.success) {
+          toast.error(`Voucher saved, but documents were not attached. ${attachmentResult?.error || ""}`)
+          return
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to save voucher")
         return
       }
 

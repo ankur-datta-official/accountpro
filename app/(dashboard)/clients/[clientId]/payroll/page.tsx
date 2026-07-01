@@ -7,10 +7,15 @@ import { createClient } from "@/lib/supabase/server"
 import type { Database } from "@/lib/types"
 
 type PayrollRunItem = Database["public"]["Tables"]["payroll_run_items"]["Row"]
+type PayrollRunComponent = Database["public"]["Tables"]["payroll_run_components"]["Row"]
 
 function isMissingPayrollSchemaError(message?: string | null) {
   if (!message) return false
-  return message.includes("payroll_employees") || message.includes("schema cache")
+  return (
+    message.includes("payroll_employees") || 
+    message.includes("payroll_policies") || 
+    message.includes("schema cache")
+  )
 }
 
 function amount(value: number | null | undefined) {
@@ -40,6 +45,8 @@ export default async function PayrollPage({
     runsResult,
     paymentModesResult,
     mappingsResult,
+    policyResult,
+    accountHeadsResult,
   ] = await Promise.all([
     supabase
       .from("payroll_employees")
@@ -66,6 +73,17 @@ export default async function PayrollPage({
       .from("payroll_account_mappings")
       .select("*")
       .eq("client_id", client.id),
+    supabase
+      .from("payroll_policies")
+      .select("*")
+      .eq("client_id", client.id)
+      .maybeSingle(),
+    supabase
+      .from("account_heads")
+      .select("*")
+      .eq("client_id", client.id)
+      .eq("is_active", true)
+      .order("name"),
   ])
 
   const schemaReady = ![
@@ -73,7 +91,8 @@ export default async function PayrollPage({
     salaryResult.error,
     runsResult.error,
     mappingsResult.error,
-  ].some((error) => isMissingPayrollSchemaError(error?.message))
+    policyResult.error,
+  ].some((error) => isMissingPayrollSchemaError(error?.message));
 
   if (schemaReady && !(mappingsResult.data ?? []).length) {
     const defaultsResult = await ensurePayrollDefaultsAction({ clientId: client.id })
@@ -105,9 +124,13 @@ export default async function PayrollPage({
   )
   const mappingHeadIds = (mappingsResult.data ?? []).map((mapping) => mapping.account_head_id)
 
-  const [itemsResult, vouchersResult, accountHeadsResult] = await Promise.all([
-    runIds.length
-      ? supabase.from("payroll_run_items").select("*").in("payroll_run_id", runIds)
+  const itemsResult = runIds.length
+    ? await supabase.from("payroll_run_items").select("*").in("payroll_run_id", runIds)
+    : { data: [] }
+  const runItemIds = itemsResult.data?.map(i => i.id) ?? []
+  const [componentsResult, vouchersResult, accountHeadsByIdResult] = await Promise.all([
+    runItemIds.length
+      ? supabase.from("payroll_run_components").select("*").in("run_item_id", runItemIds)
       : Promise.resolve({ data: [] }),
     voucherIds.length
       ? supabase.from("vouchers").select("id,voucher_no").in("id", voucherIds)
@@ -118,9 +141,11 @@ export default async function PayrollPage({
   ])
 
   const voucherNoById = new Map((vouchersResult.data ?? []).map((voucher) => [voucher.id, voucher.voucher_no]))
-  const accountHeadNameById = new Map((accountHeadsResult.data ?? []).map((head) => [head.id, head.name]))
+  const accountHeadNameById = new Map((accountHeadsByIdResult.data ?? []).map((head) => [head.id, head.name]))
   const payrollItems = (itemsResult.data ?? []) as PayrollRunItem[]
+  const payrollComponents = (componentsResult.data ?? []) as PayrollRunComponent[]
   const itemsByRun = new Map<string, PayrollRunItem[]>()
+  const componentsByItem = new Map<string, PayrollRunComponent[]>()
 
   for (const item of payrollItems) {
     const current = itemsByRun.get(item.payroll_run_id) ?? []
@@ -128,8 +153,18 @@ export default async function PayrollPage({
     itemsByRun.set(item.payroll_run_id, current)
   }
 
+  for (const component of payrollComponents) {
+    const current = componentsByItem.get(component.run_item_id) ?? []
+    current.push(component)
+    componentsByItem.set(component.run_item_id, current)
+  }
+
   const runs = payrollRuns.map((run) => {
     const items = itemsByRun.get(run.id) ?? []
+    const itemsWithComponents = items.map(item => ({
+      ...item,
+      components: componentsByItem.get(item.id) ?? []
+    }))
     const totals = items.reduce(
       (acc, item) => {
         acc.grossSalary += amount(item.gross_salary)
@@ -148,6 +183,7 @@ export default async function PayrollPage({
 
     return {
       ...run,
+      items: itemsWithComponents,
       accrual_voucher_no: run.accrual_voucher_id ? voucherNoById.get(run.accrual_voucher_id) ?? null : null,
       payment_voucher_no: run.payment_voucher_id ? voucherNoById.get(run.payment_voucher_id) ?? null : null,
       totals,
@@ -159,6 +195,17 @@ export default async function PayrollPage({
     account_head_id: mapping.account_head_id,
     account_head_name: accountHeadNameById.get(mapping.account_head_id) ?? "Missing account head",
   }))
+
+  const payrollPolicy = policyResult.data ? {
+    housingPercent: policyResult.data.housing_percent,
+    medicalPercent: policyResult.data.medical_percent,
+    conveyancePercent: policyResult.data.conveyance_percent,
+    employerPfPercent: policyResult.data.employer_pf_percent,
+    staffPfPercent: policyResult.data.staff_pf_percent,
+    taxPercent: policyResult.data.tax_percent,
+  } : null
+
+  const accountHeads = accountHeadsResult.data ?? []
 
   return (
     <PayrollManager
@@ -175,6 +222,8 @@ export default async function PayrollPage({
         type: mode.type,
       }))}
       accountMappings={accountMappings}
+      payrollPolicy={payrollPolicy}
+      accountHeads={accountHeads}
     />
   )
 }

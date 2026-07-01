@@ -342,3 +342,156 @@ export function exportProfitLoss(clientName: string, data: ProfitLossResult): Bl
 export function exportLedgerBook(sections: LedgerExportSection[], clientName: string): void {
   exportLedger(sections, clientName, sections[0]?.period ?? "")
 }
+
+export type PayrollExportRow = {
+  sl: number
+  employeeCode: string | null
+  staffName: string
+  designation: string | null
+  grade: string | null
+  basic: number
+  housing: number
+  medical: number
+  conveyance: number
+  subTotal: number
+  pfOrgPart: number
+  bonus: number
+  arrear: number
+  totalSalary: number
+  pfTotal: number
+  loanInstallment: number
+  loanInterest: number
+  tax: number
+  totalDeduction: number
+  netPay: number
+  month: string
+}
+
+export function exportPayroll(
+  data: PayrollExportRow[],
+  clientName: string,
+  period: string
+): Blob {
+  const rows: Array<Array<string | number>> = [
+    ["Payroll"],
+    [clientName],
+    [`Period: ${period}`],
+    [],
+    [
+      "Sl",
+      "Employee Code",
+      "Staff Name",
+      "Designation",
+      "Grade",
+      "Basic",
+      "Housing",
+      "Medical",
+      "Conveyance",
+      "SubTotal",
+      "PF (Org Part)",
+      "Bonus",
+      "Arrear",
+      "Total Salary",
+      "PF (Total)",
+      "Loan Installment",
+      "Loan Interest",
+      "Tax",
+      "Total Deduction",
+      "Net Pay",
+      "Month"
+    ],
+    ...data.map((row) => [
+      row.sl,
+      row.employeeCode ?? "",
+      row.staffName,
+      row.designation ?? "",
+      row.grade ?? "",
+      row.basic,
+      row.housing,
+      row.medical,
+      row.conveyance,
+      row.subTotal,
+      row.pfOrgPart,
+      row.bonus,
+      row.arrear,
+      row.totalSalary,
+      row.pfTotal,
+      row.loanInstallment,
+      row.loanInterest,
+      row.tax,
+      row.totalDeduction,
+      row.netPay,
+      row.month
+    ]),
+    [],
+    [
+      "",
+      "",
+      "Total",
+      "",
+      "",
+      data.reduce((sum, r) => sum + r.basic, 0),
+      data.reduce((sum, r) => sum + r.housing, 0),
+      data.reduce((sum, r) => sum + r.medical, 0),
+      data.reduce((sum, r) => sum + r.conveyance, 0),
+      data.reduce((sum, r) => sum + r.subTotal, 0),
+      data.reduce((sum, r) => sum + r.pfOrgPart, 0),
+      data.reduce((sum, r) => sum + r.bonus, 0),
+      data.reduce((sum, r) => sum + r.arrear, 0),
+      data.reduce((sum, r) => sum + r.totalSalary, 0),
+      data.reduce((sum, r) => sum + r.pfTotal, 0),
+      data.reduce((sum, r) => sum + r.loanInstallment, 0),
+      data.reduce((sum, r) => sum + r.loanInterest, 0),
+      data.reduce((sum, r) => sum + r.tax, 0),
+      data.reduce((sum, r) => sum + r.totalDeduction, 0),
+      data.reduce((sum, r) => sum + r.netPay, 0),
+      ""
+    ]
+  ]
+
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  ws["!cols"] = [
+    { wch: 5 },
+    { wch: 14 },
+    { wch: 20 },
+    { wch: 14 },
+    { wch: 8 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 10 },
+    { wch: 16 },
+    { wch: 14 },
+    { wch: 10 }
+  ]
+
+  styleCell(ws, "A1", { font: { bold: true, sz: 16 } })
+  styleCell(ws, "A2", { font: { bold: true, sz: 12 } })
+  styleCell(ws, "A3", { font: { bold: true } })
+
+  for (let col = 0; col < 21; col += 1) {
+    const cell = XLSX.utils.encode_cell({ c: col, r: 4 })
+    styleCell(ws, cell, { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
+  }
+
+  const totalRowIndex = 5 + data.length
+  for (let col = 0; col < 21; col += 1) {
+    const cell = XLSX.utils.encode_cell({ c: col, r: totalRowIndex })
+    styleCell(ws, cell, { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
+  }
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, "Payroll")
+  const blob = workbookToBlob(wb)
+  downloadExcelBlob(blob, `${clientName}-payroll`)
+  return blob
+}

@@ -75,6 +75,7 @@ model Client {
   payrollSalaryStructures PayrollSalaryStructure[]
   payrollRuns             PayrollRun[]
   payrollAccountMappings  PayrollAccountMapping[]
+  payrollPolicy           PayrollPolicy?
 
   @@map("clients")
 }
@@ -350,4 +351,22 @@ model PayrollAccountMapping {
   @@unique([clientId, componentCode])
   @@index([clientId], map: "idx_payroll_account_mappings_client")
   @@map("payroll_account_mappings")
+}
+
+model PayrollPolicy {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId      String    @map("client_id") @db.Uuid
+  housingPercent Decimal?   @default(0) @map("housing_percent") @db.Decimal(5,2)
+  medicalPercent Decimal?   @default(0) @map("medical_percent") @db.Decimal(5,2)
+  conveyancePercent Decimal? @default(0) @map("conveyance_percent") @db.Decimal(5,2)
+  employerPfPercent Decimal? @default(0) @map("employer_pf_percent") @db.Decimal(5,2)
+  staffPfPercent Decimal?    @default(0) @map("staff_pf_percent") @db.Decimal(5,2)
+  taxPercent     Decimal?   @default(0) @map("tax_percent") @db.Decimal(5,2)
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId])
+  @@index([clientId], map: "idx_payroll_policies_client")
+  @@map("payroll_policies")
 }

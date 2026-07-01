@@ -701,6 +701,72 @@ export interface Database {
         }
         Relationships: []
       }
+      payroll_policies: {
+        Row: {
+          id: string
+          client_id: string
+          housing_percent: number | null
+          medical_percent: number | null
+          conveyance_percent: number | null
+          employer_pf_percent: number | null
+          staff_pf_percent: number | null
+          tax_percent: number | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          housing_percent?: number | null
+          medical_percent?: number | null
+          conveyance_percent?: number | null
+          employer_pf_percent?: number | null
+          staff_pf_percent?: number | null
+          tax_percent?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          housing_percent?: number | null
+          medical_percent?: number | null
+          conveyance_percent?: number | null
+          employer_pf_percent?: number | null
+          staff_pf_percent?: number | null
+          tax_percent?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      payroll_audit_trail: {
+        Row: {
+          id: string
+          payroll_run_id: string
+          action: string
+          details: string
+          changed_by: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          payroll_run_id: string
+          action: string
+          details: string
+          changed_by?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          payroll_run_id?: string
+          action?: string
+          details?: string
+          changed_by?: string | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>

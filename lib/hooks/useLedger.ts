@@ -83,6 +83,7 @@ async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
     .select("*")
     .eq("client_id", filters.clientId)
     .eq("fiscal_year_id", filters.fiscalYearId)
+    .eq("is_posted", true)
     .order("voucher_date", { ascending: true })
     .order("voucher_no", { ascending: true })
 

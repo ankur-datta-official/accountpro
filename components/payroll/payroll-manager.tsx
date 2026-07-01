@@ -1,11 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { memo, useCallback, useMemo, useState, useTransition } from "react"
+import { memo, useCallback, useMemo, useState, useTransition, useEffect } from "react"
 import { format } from "date-fns"
-import { Banknote, Calculator, CheckCircle2, HelpCircle, Loader2, PlayCircle, Save, Send, Settings, Trash2, UploadCloud, Users, WalletCards } from "lucide-react"
+import { X, Calculator, BookOpen, Wallet, Banknote, CheckCircle2, ChevronDown, HelpCircle, Loader2, PlayCircle, Save, Send, Settings, Trash2, UserPlus, Users, WalletCards, UploadCloud } from "lucide-react"
 import { toast } from "sonner"
-import * as XLSX from "xlsx"
 
 import {
   createPayrollRunAction,
@@ -15,14 +14,15 @@ import {
   postPayrollPaymentAction,
   rerunPayrollRunAction,
   savePayrollEmployeeAction,
+  savePayrollPolicyAction,
+  savePayrollAccountMappingsAction,
 } from "@/lib/actions/payroll"
+import { exportPayroll } from "@/lib/utils"
 import {
   PAYROLL_COMPONENTS,
   calculatePayrollRowSummary,
-  filterSalaryBillRowsForMonth,
   getPayrollRunTotals,
   normalizePayrollRows,
-  type ParsedSalaryBillRow,
   type PayrollDraftRow,
 } from "@/lib/accounting/payroll"
 import type { PayrollRunStatus } from "@/lib/types"
@@ -143,7 +143,6 @@ const tabs = [
   { id: "dashboard", label: "Dashboard", icon: Calculator },
   { id: "employees", label: "Employees", icon: Users },
   { id: "run", label: "Run Payroll", icon: PlayCircle },
-  { id: "review", label: "Review Payroll", icon: WalletCards },
   { id: "settings", label: "Settings", icon: Settings },
 ] as const
 
@@ -220,78 +219,15 @@ function buildManualRows(employees: PayrollEmployeeRow[]): PayrollDraftRow[] {
     }))
 }
 
-function cellNumber(row: unknown[], index: number) {
-  return numberValue(row[index] as number | string | null | undefined)
-}
 
-function parseSalaryWorkbook(file: File) {
-  return file.arrayBuffer().then((buffer) => {
-    const workbook = XLSX.read(buffer)
-    const sheetName = workbook.SheetNames.find((name) => name.toLowerCase().includes("salary")) ?? workbook.SheetNames[0]
-    const sheet = workbook.Sheets[sheetName]
-    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, blankrows: false, defval: null })
-    const headerIndex = rows.findIndex((row) => row.some((cell) => String(cell ?? "").trim().toLowerCase() === "staff name"))
 
-    if (headerIndex < 0) {
-      throw new Error("No recognizable salary header found in the workbook.")
-    }
-
-    const header = rows[headerIndex].map((cell) => String(cell ?? "").trim().toLowerCase())
-    const indexOf = (...names: string[]) =>
-      header.findIndex((cell) => names.some((name) => cell === name || cell.includes(name)))
-
-    const serialIndex = indexOf("sl.", "sl", "sl no", "serial")
-    const nameIndex = indexOf("staff name")
-    const designationIndex = indexOf("desig")
-    const gradeIndex = indexOf("grade")
-    const basicIndex = indexOf("basic")
-    const housingIndex = indexOf("housing")
-    const medicalIndex = indexOf("medical")
-    const conveyanceIndex = indexOf("conveyance")
-    const employerPfIndex = indexOf("p.f. (org. part)", "org. part")
-    const arrearIndex = indexOf("arear salary", "arrear salary")
-    const bonusIndex = indexOf("bonus")
-    const pfTotalIndex = indexOf("pf (org.+ staff)", "pf (org")
-    const loanInstallmentIndex = indexOf("loan installment")
-    const loanInterestIndex = indexOf("loan interest")
-    const taxIndex = indexOf("tax")
-
-    const parsedRows = rows
-      .slice(headerIndex + 1)
-      .map((row) => {
-        const employeeName = String(row[nameIndex] ?? "").trim()
-        if (!employeeName || employeeName.toLowerCase().includes("total")) return null
-
-        const serialValue = serialIndex >= 0 ? Number(row[serialIndex]) : NaN
-        const serial = Number.isFinite(serialValue) && serialValue > 0 ? serialValue : undefined
-
-        return {
-          serial,
-          employeeName,
-          designation: String(row[designationIndex] ?? "").trim() || undefined,
-          grade: String(row[gradeIndex] ?? "").trim() || undefined,
-          components: [
-            { code: "basic" as const, amount: cellNumber(row, basicIndex) },
-            { code: "housing" as const, amount: cellNumber(row, housingIndex) },
-            { code: "medical" as const, amount: cellNumber(row, medicalIndex) },
-            { code: "conveyance" as const, amount: cellNumber(row, conveyanceIndex) },
-            { code: "employer_pf" as const, amount: cellNumber(row, employerPfIndex) },
-            { code: "arrear_salary" as const, amount: cellNumber(row, arrearIndex) },
-            { code: "bonus" as const, amount: cellNumber(row, bonusIndex) },
-            { code: "pf_total" as const, amount: cellNumber(row, pfTotalIndex) },
-            { code: "loan_installment" as const, amount: cellNumber(row, loanInstallmentIndex) },
-            { code: "loan_interest" as const, amount: cellNumber(row, loanInterestIndex) },
-            { code: "tax" as const, amount: cellNumber(row, taxIndex) },
-          ],
-        }
-      })
-      .filter(Boolean) as ParsedSalaryBillRow[]
-
-    return {
-      sheetName,
-      rows: parsedRows,
-    }
-  })
+type PayrollPolicy = {
+  housingPercent: number | null
+  medicalPercent: number | null
+  conveyancePercent: number | null
+  employerPfPercent: number | null
+  staffPfPercent: number | null
+  taxPercent: number | null
 }
 
 export function PayrollManager({
@@ -304,6 +240,8 @@ export function PayrollManager({
   payrollRuns,
   paymentModes,
   accountMappings,
+  payrollPolicy,
+  accountHeads,
 }: {
   clientId: string
   fiscalYearId: string
@@ -314,29 +252,153 @@ export function PayrollManager({
   payrollRuns: PayrollRunRow[]
   paymentModes: PaymentModeOption[]
   accountMappings: AccountMappingRow[]
+  payrollPolicy: PayrollPolicy | null
+  accountHeads: { id: string; name: string }[]
 }) {
+  // Initialize with default true, then sync with localStorage on client
+  const [showGuide, setShowGuide] = useState(true)
+  const [isHydrated, setIsHydrated] = useState(false)
+
+  // Hydration: sync with localStorage after component mounts
+  useEffect(() => {
+    setIsHydrated(true)
+    const workflowClosed = localStorage.getItem(`payroll-workflow-closed-${clientId}`)
+    setShowGuide(workflowClosed !== 'true')
+  }, [clientId])
+
+  const handleDismissGuide = useCallback(() => {
+    setShowGuide(false)
+    localStorage.setItem(`payroll-workflow-closed-${clientId}`, 'true')
+  }, [clientId])
+
+  const handleShowGuide = useCallback(() => {
+    setShowGuide(true)
+    localStorage.setItem(`payroll-workflow-closed-${clientId}`, 'false')
+  }, [clientId])
+
+  const [policyForm, setPolicyForm] = useState({
+    housingPercent: String(payrollPolicy?.housingPercent ?? 0),
+    medicalPercent: String(payrollPolicy?.medicalPercent ?? 0),
+    conveyancePercent: String(payrollPolicy?.conveyancePercent ?? 0),
+    employerPfPercent: String(payrollPolicy?.employerPfPercent ?? 0),
+    staffPfPercent: String(payrollPolicy?.staffPfPercent ?? 0),
+    taxPercent: String(payrollPolicy?.taxPercent ?? 0),
+  })
+
+  const [mappingForm, setMappingForm] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {}
+    for (const mapping of accountMappings) {
+      initial[mapping.component_code] = mapping.account_head_id
+    }
+    return initial
+  })
+
+  const savePayrollPolicy = useCallback(() => {
+    startTransition(async () => {
+      try {
+        const result = await savePayrollPolicyAction({
+          clientId,
+          housingPercent: Number(policyForm.housingPercent),
+          medicalPercent: Number(policyForm.medicalPercent),
+          conveyancePercent: Number(policyForm.conveyancePercent),
+          employerPfPercent: Number(policyForm.employerPfPercent),
+          staffPfPercent: Number(policyForm.staffPfPercent),
+          taxPercent: Number(policyForm.taxPercent),
+        })
+
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to save payroll policy")
+          return
+        }
+
+        toast.success("Payroll policy saved!")
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to save payroll policy")
+      }
+    })
+  }, [clientId, policyForm])
+
+  const saveAccountMappings = useCallback(() => {
+    startTransition(async () => {
+      try {
+        const mappings = Object.entries(mappingForm).map(([componentCode, accountHeadId]) => ({
+          componentCode,
+          accountHeadId,
+        }))
+
+        const result = await savePayrollAccountMappingsAction({
+          clientId,
+          mappings,
+        })
+
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to save account mappings")
+          return
+        }
+
+        toast.success("Account mappings saved!")
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to save account mappings")
+      }
+    })
+  }, [clientId, mappingForm])
+
+  const autoCalculateFromBasic = useCallback((basic: number) => {
+    const policy = payrollPolicy
+    if (!policy) return {}
+
+    return {
+      housing: String((basic * (policy.housingPercent ?? 0)) / 100),
+      medical: String((basic * (policy.medicalPercent ?? 0)) / 100),
+      conveyance: String((basic * (policy.conveyancePercent ?? 0)) / 100),
+      employerPf: String((basic * (policy.employerPfPercent ?? 0)) / 100),
+      staffPf: String((basic * (policy.staffPfPercent ?? 0)) / 100),
+      tax: String((basic * (policy.taxPercent ?? 0)) / 100),
+    }
+  }, [payrollPolicy])
+
+  // Sync localEmployees with employees prop
+  useEffect(() => {
+    setLocalEmployees(employees)
+  }, [employees])
+
+  // Handle employee salary component changes with auto-calc when basic changes
+  const handleEmployeeSalaryChange = useCallback((employeeId: string, component: keyof PayrollEmployeeRow['salary'], newValue: string) => {
+    setLocalEmployees(prev => prev.map(emp => {
+      if (emp.id !== employeeId) return emp
+      
+      let newSalary = { ...emp.salary, [component]: numberValue(newValue) }
+      
+      // If basic changed, auto-calculate other components
+      if (component === 'basic') {
+        const calculated = autoCalculateFromBasic(numberValue(newValue))
+        newSalary = {
+          ...newSalary,
+          housing: numberValue(calculated.housing),
+          medical: numberValue(calculated.medical),
+          conveyance: numberValue(calculated.conveyance),
+          employer_pf: numberValue(calculated.employerPf),
+          staff_pf: numberValue(calculated.staffPf),
+          tax: numberValue(calculated.tax)
+        }
+      }
+      
+      return { ...emp, salary: newSalary }
+    }))
+  }, [autoCalculateFromBasic])
+
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("dashboard")
   const [employeeForm, setEmployeeForm] = useState<EmployeeFormState>(emptyEmployeeForm)
+  const [isAddEmployeeFormOpen, setIsAddEmployeeFormOpen] = useState(false)
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
+  const [localEmployees, setLocalEmployees] = useState<PayrollEmployeeRow[]>(employees)
   const [runMonth, setRunMonth] = useState(format(new Date(), "yyyy-MM"))
   const [runNotes, setRunNotes] = useState("")
-  const [importSourceRows, setImportSourceRows] = useState<ParsedSalaryBillRow[]>([])
-  const [importSheetName, setImportSheetName] = useState("")
-  const [importMonth, setImportMonth] = useState(format(new Date(), "yyyy-MM"))
-  const [importFilterMode, setImportFilterMode] = useState<"single_month" | "yearly_bill" | "out_of_range">("single_month")
-  const [importSerial, setImportSerial] = useState<number | null>(null)
   const [paymentModeId, setPaymentModeId] = useState(paymentModes[0]?.id ?? "")
   const [isPending, startTransition] = useTransition()
 
-  const importRows = useMemo(() => {
-    if (!importSourceRows.length) return [] as PayrollDraftRow[]
-
-    const filtered = filterSalaryBillRowsForMonth(importSourceRows, fiscalYearStart, importMonth)
-    return normalizePayrollRows(filtered.rows)
-  }, [importSourceRows, fiscalYearStart, importMonth])
-
   const manualRows = useMemo(() => normalizePayrollRows(buildManualRows(employees)), [employees])
   const manualTotals = useMemo(() => getPayrollRunTotals(manualRows), [manualRows])
-  const importTotals = useMemo(() => getPayrollRunTotals(importRows), [importRows])
   const latestRun = payrollRuns[0]
   const activeEmployeeCount = useMemo(
     () => employees.filter((employee) => employee.is_active !== false).length,
@@ -349,137 +411,133 @@ export function PayrollManager({
         .reduce((sum, run) => sum + run.totals.netPayable, 0),
     [payrollRuns]
   )
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState("all")
+  
+  const dashboardStats = useMemo(() => {
+    const totalRuns = payrollRuns.length
+    const totalGross = payrollRuns.reduce((sum, run) => sum + run.totals.grossSalary, 0)
+    const totalDeductions = payrollRuns.reduce((sum, run) => sum + run.totals.totalDeductions, 0)
+    const totalNet = payrollRuns.reduce((sum, run) => sum + run.totals.netPayable, 0)
+    return { totalRuns, totalGross, totalDeductions, totalNet }
+  }, [payrollRuns])
+
+  const filteredPayrollRuns = useMemo(() => {
+    return payrollRuns.filter((run) => {
+      const matchesSearch = run.period_label.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchesStatus = statusFilter === "all" || run.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [payrollRuns, searchQuery, statusFilter])
 
   const updateEmployeeForm = useCallback((key: keyof EmployeeFormState, value: string | boolean) => {
-    setEmployeeForm((current) => ({ ...current, [key]: value }))
-  }, [])
+    if (key === "isActive") {
+      // Only isActive is boolean, others are string
+      setEmployeeForm((current) => ({ ...current, [key]: value as boolean }))
+    } else {
+      // All other keys are string
+      const stringValue = value as string
+      if (key === "basic") {
+        const calculatedFields = autoCalculateFromBasic(Number(stringValue))
+        setEmployeeForm((current) => ({
+          ...current,
+          [key]: stringValue,
+          ...calculatedFields,
+        }))
+      } else {
+        setEmployeeForm((current) => ({ ...current, [key]: stringValue }))
+      }
+    }
+  }, [autoCalculateFromBasic])
 
   const saveEmployee = useCallback(() => {
     startTransition(async () => {
-      const result = await savePayrollEmployeeAction({
-        clientId,
-        employeeId: employeeForm.employeeId || undefined,
-        employeeCode: employeeForm.employeeCode || undefined,
-        name: employeeForm.name,
-        designation: employeeForm.designation || undefined,
-        grade: employeeForm.grade || undefined,
-        phone: employeeForm.phone || undefined,
-        email: employeeForm.email || undefined,
-        tin: employeeForm.tin || undefined,
-        joiningDate: employeeForm.joiningDate || undefined,
-        leavingDate: employeeForm.leavingDate || undefined,
-        isActive: employeeForm.isActive,
-        salary: {
-          basic: numberValue(employeeForm.basic),
-          housing: numberValue(employeeForm.housing),
-          medical: numberValue(employeeForm.medical),
-          conveyance: numberValue(employeeForm.conveyance),
-          employerPf: numberValue(employeeForm.employerPf),
-          staffPf: numberValue(employeeForm.staffPf),
-          tax: numberValue(employeeForm.tax),
-        },
-      })
+      try {
+        const result = await savePayrollEmployeeAction({
+          clientId,
+          employeeId: employeeForm.employeeId || undefined,
+          employeeCode: employeeForm.employeeCode || undefined,
+          name: employeeForm.name,
+          designation: employeeForm.designation || undefined,
+          grade: employeeForm.grade || undefined,
+          phone: employeeForm.phone || undefined,
+          email: employeeForm.email || undefined,
+          tin: employeeForm.tin || undefined,
+          joiningDate: employeeForm.joiningDate || undefined,
+          leavingDate: employeeForm.leavingDate || undefined,
+          isActive: employeeForm.isActive,
+          salary: {
+            basic: numberValue(employeeForm.basic),
+            housing: numberValue(employeeForm.housing),
+            medical: numberValue(employeeForm.medical),
+            conveyance: numberValue(employeeForm.conveyance),
+            employerPf: numberValue(employeeForm.employerPf),
+            staffPf: numberValue(employeeForm.staffPf),
+            tax: numberValue(employeeForm.tax),
+          },
+        })
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to save employee")
+          return
+        }
+
+        toast.success("Employee and salary structure saved.")
+        setEmployeeForm(emptyEmployeeForm)
+        setIsAddEmployeeFormOpen(false)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to save employee")
       }
-
-      toast.success("Employee and salary structure saved.")
-      setEmployeeForm(emptyEmployeeForm)
     })
   }, [clientId, employeeForm])
 
   const createManualRun = useCallback(() => {
     startTransition(async () => {
-      const result = await createPayrollRunAction({
-        clientId,
-        fiscalYearId,
-        month: runMonth,
-        source: "manual",
-        notes: runNotes || undefined,
-        rows: manualRows,
-        createMissingEmployees: false,
-      })
+      try {
+        const result = await createPayrollRunAction({
+          clientId,
+          fiscalYearId,
+          month: runMonth,
+          source: "manual",
+          notes: runNotes || undefined,
+          rows: manualRows,
+          createMissingEmployees: false,
+        })
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to create payroll run")
+          return
+        }
+
+        toast.success("Payroll run created from salary structures.")
+        setRunNotes("")
+        setActiveTab("dashboard")
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to create payroll run")
       }
-
-      toast.success("Payroll run created from salary structures.")
-      setRunNotes("")
-      setActiveTab("review")
     })
   }, [clientId, fiscalYearId, manualRows, runMonth, runNotes])
 
-  const saveImportedRun = useCallback(() => {
-    startTransition(async () => {
-      const result = await createPayrollRunAction({
-        clientId,
-        fiscalYearId,
-        month: importMonth,
-        source: "import",
-        notes: "Created from imported salary sheet",
-        rows: importRows,
-        createMissingEmployees: true,
-      })
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
-      }
-
-      toast.success("Imported payroll run saved as draft.")
-      setImportSourceRows([])
-      setImportSheetName("")
-      setActiveTab("review")
-    })
-  }, [clientId, fiscalYearId, importMonth, importRows])
-
-  const handleImportFile = async (file: File | null) => {
-    if (!file) return
-
-    try {
-      const parsed = await parseSalaryWorkbook(file)
-      const filtered = filterSalaryBillRowsForMonth(parsed.rows, fiscalYearStart, importMonth)
-      setImportSourceRows(parsed.rows)
-      setImportSheetName(parsed.sheetName)
-      setImportFilterMode(filtered.mode)
-      setImportSerial(filtered.serial)
-
-      if (filtered.mode === "out_of_range") {
-        toast.error("Selected payroll month is outside the active fiscal year.")
-        return
-      }
-
-      const readyRows = normalizePayrollRows(filtered.rows)
-      if (filtered.mode === "yearly_bill") {
-        toast.success(
-          `${readyRows.length} employee row(s) loaded for month serial ${filtered.serial} from ${parsed.sheetName}.`
-        )
-      } else {
-        toast.success(`${readyRows.length} payroll rows parsed from ${file.name}.`)
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to parse salary sheet.")
-    }
-  }
 
   const postAccrual = useCallback((payrollRunId: string) => {
     startTransition(async () => {
-      const result = await postPayrollAccrualAction({
-        clientId,
-        payrollRunId,
-        voucherDate: format(new Date(), "yyyy-MM-dd"),
-      })
+      try {
+        const result = await postPayrollAccrualAction({
+          clientId,
+          payrollRunId,
+          voucherDate: format(new Date(), "yyyy-MM-dd"),
+        })
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to post payroll accrual")
+          return
+        }
+
+        toast.success(`Payroll accrual posted as voucher #${result.voucherNo}.`)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to post payroll accrual")
       }
-
-      toast.success(`Payroll accrual posted as voucher #${result.voucherNo}.`)
     })
   }, [clientId])
 
@@ -487,74 +545,132 @@ export function PayrollManager({
     const mode = paymentModes.find((item) => item.id === paymentModeId)
 
     startTransition(async () => {
-      const result = await postPayrollPaymentAction({
-        clientId,
-        payrollRunId,
-        voucherDate: format(new Date(), "yyyy-MM-dd"),
-        paymentModeId: mode?.id,
-        paymentModeName: mode?.name,
-        paymentModeType: (mode?.type ?? "cash") as "bank" | "cash" | "mobile_banking" | "other",
-      })
+      try {
+        const result = await postPayrollPaymentAction({
+          clientId,
+          payrollRunId,
+          voucherDate: format(new Date(), "yyyy-MM-dd"),
+          paymentModeId: mode?.id,
+          paymentModeName: mode?.name,
+          paymentModeType: (mode?.type ?? "cash") as "bank" | "cash" | "mobile_banking" | "other",
+        })
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to post payroll payment")
+          return
+        }
+
+        toast.success(`Payroll payment posted as voucher #${result.voucherNo}.`)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to post payroll payment")
       }
-
-      toast.success(`Payroll payment posted as voucher #${result.voucherNo}.`)
     })
   }, [clientId, paymentModeId, paymentModes])
 
   const deleteRun = useCallback((payrollRunId: string) => {
     startTransition(async () => {
-      const result = await deletePayrollRunAction({ clientId, payrollRunId })
+      try {
+        const result = await deletePayrollRunAction({ clientId, payrollRunId })
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to delete payroll run")
+          return
+        }
+
+        toast.success("Draft payroll run deleted.")
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to delete payroll run")
       }
-
-      toast.success("Draft payroll run deleted.")
     })
   }, [clientId])
 
   const rerunPayroll = useCallback((payrollRunId: string) => {
     startTransition(async () => {
-      const result = await rerunPayrollRunAction({
-        clientId,
-        payrollRunId,
-        reason: "Re-run after employee salary edits.",
-      })
+      try {
+        const result = await rerunPayrollRunAction({
+          clientId,
+          payrollRunId,
+          reason: "Re-run after employee salary edits.",
+        })
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to re-run payroll")
+          return
+        }
+
+        toast.success("Payroll re-run with the latest salary setup.")
+        setActiveTab("dashboard")
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to re-run payroll")
       }
-
-      toast.success("Payroll re-run with the latest salary setup.")
-      setActiveTab("review")
     })
   }, [clientId])
 
   const ensureDefaults = useCallback(() => {
     startTransition(async () => {
-      const result = await ensurePayrollDefaultsAction({ clientId })
+      try {
+        const result = await ensurePayrollDefaultsAction({ clientId })
 
-      if (!result.success) {
-        toast.error(result.error)
-        return
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to set up payroll defaults")
+          return
+        }
+
+        toast.success("Payroll ledger defaults are ready.")
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to set up payroll defaults")
       }
-
-      toast.success("Payroll ledger defaults are ready.")
     })
   }, [clientId])
 
+  const handleExportEmployees = useCallback(() => {
+    const exportData = employees.map((employee, index) => {
+      const summary = calculatePayrollRowSummary([
+        { code: "basic", amount: numberValue(employee.salary?.basic) },
+        { code: "housing", amount: numberValue(employee.salary?.housing) },
+        { code: "medical", amount: numberValue(employee.salary?.medical) },
+        { code: "conveyance", amount: numberValue(employee.salary?.conveyance) },
+        { code: "employer_pf", amount: numberValue(employee.salary?.employer_pf) },
+        { code: "staff_pf", amount: numberValue(employee.salary?.staff_pf) },
+        { code: "tax", amount: numberValue(employee.salary?.tax) },
+        { code: "loan_installment", amount: 0 },
+        { code: "loan_interest", amount: 0 },
+        { code: "bonus", amount: 0 },
+        { code: "arrear_salary", amount: 0 },
+      ])
+      return {
+        sl: index + 1,
+        employeeCode: employee.employee_code,
+        staffName: employee.name,
+        designation: employee.designation,
+        grade: employee.grade,
+        basic: numberValue(employee.salary?.basic),
+        housing: numberValue(employee.salary?.housing),
+        medical: numberValue(employee.salary?.medical),
+        conveyance: numberValue(employee.salary?.conveyance),
+        subTotal: summary.subTotal,
+        pfOrgPart: numberValue(employee.salary?.employer_pf),
+        bonus: 0,
+        arrear: 0,
+        totalSalary: summary.totalSalary,
+        pfTotal: summary.pfTotal,
+        loanInstallment: 0,
+        loanInterest: 0,
+        tax: numberValue(employee.salary?.tax),
+        totalDeduction: summary.totalDeductions,
+        netPay: summary.netPayable,
+        month: format(new Date(), "MMMM yyyy"),
+      }
+    })
+    exportPayroll(exportData, "Employee Salary Sheet", format(new Date(), "MMMM yyyy"))
+  }, [employees])
+
   const statCards = useMemo(() => [
-    { label: "Active Employees", value: activeEmployeeCount },
-    { label: "Payroll Runs", value: payrollRuns.length },
-    { label: "Latest Net Pay", value: currency(latestRun?.totals.netPayable ?? 0) },
-    { label: "Paid Payroll", value: currency(totalPayrollPaid) },
-  ], [activeEmployeeCount, latestRun?.totals.netPayable, payrollRuns.length, totalPayrollPaid])
+    { label: "Total Payroll Runs", value: dashboardStats.totalRuns },
+    { label: "Total Gross Salary", value: currency(dashboardStats.totalGross) },
+    { label: "Total Deductions", value: currency(dashboardStats.totalDeductions) },
+    { label: "Total Net Pay", value: currency(dashboardStats.totalNet) },
+  ], [dashboardStats])
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -598,7 +714,7 @@ export function PayrollManager({
 
       {activeTab === "dashboard" ? (
         <div className="space-y-6">
-          <WorkflowGuide />
+          {showGuide && <WorkflowGuide onDismiss={handleDismissGuide} payrollRuns={payrollRuns} />}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {statCards.map((stat) => (
               <Card key={stat.label} className="rounded-2xl border-slate-200 bg-white shadow-sm">
@@ -613,7 +729,7 @@ export function PayrollManager({
           </div>
           <PayrollRunsTable
             clientId={clientId}
-            payrollRuns={payrollRuns.slice(0, 5)}
+            payrollRuns={filteredPayrollRuns}
             paymentModeId={paymentModeId}
             paymentModes={paymentModes}
             setPaymentModeId={setPaymentModeId}
@@ -622,104 +738,280 @@ export function PayrollManager({
             rerunPayroll={rerunPayroll}
             deleteRun={deleteRun}
             isPending={isPending}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
           />
         </div>
       ) : null}
 
       {activeTab === "employees" ? (
-        <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <div className="space-y-6">
           <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <CardTitle>{employeeForm.employeeId ? "Edit Employee" : "Add Employee"}</CardTitle>
-              <p className="text-sm text-slate-500">Keep employee details and regular salary amounts in one simple form.</p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Employee Code" help="Optional staff ID used in salary sheets and reports." value={employeeForm.employeeCode} onChange={(value) => updateEmployeeForm("employeeCode", value)} />
-                <Field label="Employee Name" help="Full name shown on payroll reports." value={employeeForm.name} onChange={(value) => updateEmployeeForm("name", value)} />
-                <Field label="Job Title" help="The employee's role or designation." value={employeeForm.designation} onChange={(value) => updateEmployeeForm("designation", value)} />
-                <Field label="Grade" help="Optional salary grade or level." value={employeeForm.grade} onChange={(value) => updateEmployeeForm("grade", value)} />
-                <Field label="Phone" help="Optional contact number." value={employeeForm.phone} onChange={(value) => updateEmployeeForm("phone", value)} />
-                <Field label="Email" help="Optional work or personal email." value={employeeForm.email} onChange={(value) => updateEmployeeForm("email", value)} />
-                <Field label="TIN" help="Tax identification number, if applicable." value={employeeForm.tin} onChange={(value) => updateEmployeeForm("tin", value)} />
-                <Field label="Joining Date" help="Start date for employee records." type="date" value={employeeForm.joiningDate} onChange={(value) => updateEmployeeForm("joiningDate", value)} />
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle>Employee Salary Sheet</CardTitle>
+                <p className="text-sm text-slate-500">Responsive salary sheet with expandable details for each employee.</p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Basic Salary" help="Main fixed salary amount." type="number" value={employeeForm.basic} onChange={(value) => updateEmployeeForm("basic", value)} />
-                <Field label="House Rent" help="Monthly housing allowance." type="number" value={employeeForm.housing} onChange={(value) => updateEmployeeForm("housing", value)} />
-                <Field label="Medical Allowance" help="Monthly medical allowance." type="number" value={employeeForm.medical} onChange={(value) => updateEmployeeForm("medical", value)} />
-                <Field label="Travel Allowance" help="Monthly conveyance or travel allowance." type="number" value={employeeForm.conveyance} onChange={(value) => updateEmployeeForm("conveyance", value)} />
-                <Field label="Employer PF" help="Company provident fund contribution." type="number" value={employeeForm.employerPf} onChange={(value) => updateEmployeeForm("employerPf", value)} />
-                <Field label="Employee PF" help="Provident fund deducted from employee salary." type="number" value={employeeForm.staffPf} onChange={(value) => updateEmployeeForm("staffPf", value)} />
-                <Field label="Tax Deduction" help="Monthly tax deducted from salary." type="number" value={employeeForm.tax} onChange={(value) => updateEmployeeForm("tax", value)} />
-              </div>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={employeeForm.isActive}
-                  onChange={(event) => updateEmployeeForm("isActive", event.target.checked)}
-                />
-                Active employee
-              </label>
               <div className="flex gap-2">
-                <Button type="button" onClick={saveEmployee} disabled={isPending || !schemaReady}>
-                  {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Save Employee
+                <Button type="button" variant="outline" onClick={() => {
+                  setEmployeeForm(emptyEmployeeForm);
+                  setIsAddEmployeeFormOpen(true);
+                }}>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add Employee
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setEmployeeForm(emptyEmployeeForm)}>
-                  Clear
+                <Button type="button" variant="outline" onClick={() => handleExportEmployees()}>
+                  <UploadCloud className="mr-2 h-4 w-4" />
+                  Export Excel
                 </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4">
+                {localEmployees.map((employee, index) => {
+                  const summary = calculatePayrollRowSummary([
+                    { code: "basic", amount: numberValue(employee.salary?.basic) },
+                    { code: "housing", amount: numberValue(employee.salary?.housing) },
+                    { code: "medical", amount: numberValue(employee.salary?.medical) },
+                    { code: "conveyance", amount: numberValue(employee.salary?.conveyance) },
+                    { code: "employer_pf", amount: numberValue(employee.salary?.employer_pf) },
+                    { code: "staff_pf", amount: numberValue(employee.salary?.staff_pf) },
+                    { code: "tax", amount: numberValue(employee.salary?.tax) },
+                    { code: "loan_installment", amount: 0 },
+                    { code: "loan_interest", amount: 0 },
+                    { code: "bonus", amount: 0 },
+                    { code: "arrear_salary", amount: 0 },
+                  ])
+                  const isExpanded = expandedRowId === employee.id
+                  return (
+                    <div
+                      key={employee.id}
+                      className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm"
+                    >
+                      <div
+                        className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
+                        onClick={() => setExpandedRowId(isExpanded ? null : employee.id)}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-sm font-semibold text-slate-600">
+                            {index + 1}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-slate-950">{employee.name}</div>
+                            <div className="text-sm text-slate-500">
+                              {employee.designation || "-"} • Grade {employee.grade || "-"} • {employee.employee_code || "No code"}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-6">
+                          <div className="text-right hidden sm:block">
+                            <div className="text-xs text-slate-500">Net Pay</div>
+                            <div className="font-semibold text-emerald-700">{currency(summary.netPayable)}</div>
+                          </div>
+                          <Badge className={employee.is_active === false ? "bg-slate-100 text-slate-700" : "bg-emerald-100 text-emerald-700"}>
+                            {employee.is_active === false ? "Inactive" : "Active"}
+                          </Badge>
+                          <Button type="button" variant="outline" size="sm" onClick={(e) => {
+                            e.stopPropagation();
+                            setEmployeeForm(employeeToForm(employee));
+                            setIsAddEmployeeFormOpen(false);
+                          }}>
+                            Edit
+                          </Button>
+                          <div className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+                            <ChevronDown className="h-5 w-5 text-slate-400" />
+                          </div>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div className="border-t border-slate-200 p-4 bg-slate-50">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                              <h4 className="text-sm font-semibold text-slate-950 mb-3">Salary Components</h4>
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center text-sm gap-2">
+                                  <span className="text-slate-600">Basic</span>
+                                  <Input
+                                    type="number"
+                                    value={numberValue(employee.salary?.basic)}
+                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'basic', e.target.value)}
+                                    className="h-8 w-32 text-right"
+                                  />
+                                </div>
+                                <div className="flex justify-between items-center text-sm gap-2">
+                                  <span className="text-slate-600">Housing</span>
+                                  <Input
+                                    type="number"
+                                    value={numberValue(employee.salary?.housing)}
+                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'housing', e.target.value)}
+                                    className="h-8 w-32 text-right"
+                                  />
+                                </div>
+                                <div className="flex justify-between items-center text-sm gap-2">
+                                  <span className="text-slate-600">Medical</span>
+                                  <Input
+                                    type="number"
+                                    value={numberValue(employee.salary?.medical)}
+                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'medical', e.target.value)}
+                                    className="h-8 w-32 text-right"
+                                  />
+                                </div>
+                                <div className="flex justify-between items-center text-sm gap-2">
+                                  <span className="text-slate-600">Conveyance</span>
+                                  <Input
+                                    type="number"
+                                    value={numberValue(employee.salary?.conveyance)}
+                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'conveyance', e.target.value)}
+                                    className="h-8 w-32 text-right"
+                                  />
+                                </div>
+                                <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
+                                  <span className="text-slate-700">SubTotal</span>
+                                  <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.subTotal)}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-semibold text-slate-950 mb-3">Additions</h4>
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center text-sm gap-2">
+                                  <span className="text-slate-600">PF (Org Part)</span>
+                                  <Input
+                                    type="number"
+                                    value={numberValue(employee.salary?.employer_pf)}
+                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'employer_pf', e.target.value)}
+                                    className="h-8 w-32 text-right"
+                                  />
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-600">Bonus</span>
+                                  <span className="font-medium">-</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-600">Arrear</span>
+                                  <span className="font-medium">-</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
+                                  <span className="text-slate-700">Total Salary</span>
+                                  <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.totalSalary)}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-semibold text-slate-950 mb-3">Deductions</h4>
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center text-sm gap-2">
+                                  <span className="text-slate-600">PF Total</span>
+                                  <Input
+                                    type="number"
+                                    value={summary.pfTotal}
+                                    onChange={(e) => {
+                                      const newPfTotal = numberValue(e.target.value)
+                                      const staffPf = newPfTotal - numberValue(employee.salary?.employer_pf)
+                                      handleEmployeeSalaryChange(employee.id, 'staff_pf', String(staffPf))
+                                    }}
+                                    className="h-8 w-32 text-right"
+                                  />
+                                </div>
+                                <div className="flex justify-between items-center text-sm gap-2">
+                                  <span className="text-slate-600">Tax</span>
+                                  <Input
+                                    type="number"
+                                    value={numberValue(employee.salary?.tax)}
+                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'tax', e.target.value)}
+                                    className="h-8 w-32 text-right"
+                                  />
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-600">Loan Installment</span>
+                                  <span className="font-medium">-</span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-slate-600">Loan Interest</span>
+                                  <span className="font-medium">-</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
+                                  <span className="text-slate-700">Total Deductions</span>
+                                  <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.totalDeductions)}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
+                                  <span className="text-emerald-700">Net Pay</span>
+                                  <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">{currency(summary.netPayable)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-4 flex justify-end">
+                            <Button type="button" onClick={(e) => {
+                              e.stopPropagation();
+                              setEmployeeForm(employeeToForm(employee));
+                              saveEmployee();
+                            }} disabled={isPending}>
+                              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                              Save Employee
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </CardContent>
           </Card>
 
-          <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
-            <CardHeader>
-              <CardTitle>Employees</CardTitle>
-              <p className="text-sm text-slate-500">Review regular salary setup before running payroll.</p>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Designation</TableHead>
-                    <TableHead>Gross Salary</TableHead>
-                    <TableHead>Net Pay</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {employees.map((employee) => {
-                    const summary = calculatePayrollRowSummary([
-                      { code: "basic", amount: numberValue(employee.salary?.basic) },
-                      { code: "housing", amount: numberValue(employee.salary?.housing) },
-                      { code: "medical", amount: numberValue(employee.salary?.medical) },
-                      { code: "conveyance", amount: numberValue(employee.salary?.conveyance) },
-                      { code: "employer_pf", amount: numberValue(employee.salary?.employer_pf) },
-                      { code: "staff_pf", amount: numberValue(employee.salary?.staff_pf) },
-                      { code: "tax", amount: numberValue(employee.salary?.tax) },
-                    ])
-                    return (
-                      <TableRow key={employee.id}>
-                        <TableCell className="font-medium text-slate-950">{employee.name}</TableCell>
-                        <TableCell>{employee.designation || "-"}</TableCell>
-                        <TableCell>{currency(summary.grossSalary)}</TableCell>
-                        <TableCell>{currency(summary.netPayable)}</TableCell>
-                        <TableCell>{employee.is_active === false ? "Inactive" : "Active"}</TableCell>
-                        <TableCell className="text-right">
-                          <Button type="button" variant="outline" size="sm" onClick={() => setEmployeeForm(employeeToForm(employee))}>
-                            Edit
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          {/* Add/Edit Employee Form */}
+          {isAddEmployeeFormOpen || employeeForm.employeeId ? (
+            <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+              <CardHeader>
+                <CardTitle>{employeeForm.employeeId ? "Edit Employee" : "Add Employee"}</CardTitle>
+                <p className="text-sm text-slate-500">Keep employee details and regular salary amounts in one simple form.</p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Employee Code" help="Optional staff ID used in salary sheets and reports." value={employeeForm.employeeCode} onChange={(value) => updateEmployeeForm("employeeCode", value)} />
+                  <Field label="Employee Name" help="Full name shown on payroll reports." value={employeeForm.name} onChange={(value) => updateEmployeeForm("name", value)} />
+                  <Field label="Job Title" help="The employee's role or designation." value={employeeForm.designation} onChange={(value) => updateEmployeeForm("designation", value)} />
+                  <Field label="Grade" help="Optional salary grade or level." value={employeeForm.grade} onChange={(value) => updateEmployeeForm("grade", value)} />
+                  <Field label="Phone" help="Optional contact number." value={employeeForm.phone} onChange={(value) => updateEmployeeForm("phone", value)} />
+                  <Field label="Email" help="Optional work or personal email." value={employeeForm.email} onChange={(value) => updateEmployeeForm("email", value)} />
+                  <Field label="TIN" help="Tax identification number, if applicable." value={employeeForm.tin} onChange={(value) => updateEmployeeForm("tin", value)} />
+                  <Field label="Joining Date" help="Start date for employee records." type="date" value={employeeForm.joiningDate} onChange={(value) => updateEmployeeForm("joiningDate", value)} />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Basic Salary" help="Main fixed salary amount. Enter this to auto-calculate other components based on payroll policy." type="number" value={employeeForm.basic} onChange={(value) => updateEmployeeForm("basic", value)} />
+                  <Field label="House Rent" help={`Monthly housing allowance${payrollPolicy?.housingPercent ? ` (${payrollPolicy.housingPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={employeeForm.housing} onChange={(value) => updateEmployeeForm("housing", value)} />
+                  <Field label="Medical Allowance" help={`Monthly medical allowance${payrollPolicy?.medicalPercent ? ` (${payrollPolicy.medicalPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={employeeForm.medical} onChange={(value) => updateEmployeeForm("medical", value)} />
+                  <Field label="Travel Allowance" help={`Monthly conveyance or travel allowance${payrollPolicy?.conveyancePercent ? ` (${payrollPolicy.conveyancePercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={employeeForm.conveyance} onChange={(value) => updateEmployeeForm("conveyance", value)} />
+                  <Field label="Employer PF" help={`Company provident fund contribution${payrollPolicy?.employerPfPercent ? ` (${payrollPolicy.employerPfPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={employeeForm.employerPf} onChange={(value) => updateEmployeeForm("employerPf", value)} />
+                  <Field label="Employee PF" help={`Provident fund deducted from employee salary${payrollPolicy?.staffPfPercent ? ` (${payrollPolicy.staffPfPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={employeeForm.staffPf} onChange={(value) => updateEmployeeForm("staffPf", value)} />
+                  <Field label="Tax Deduction" help={`Monthly tax deducted from salary${payrollPolicy?.taxPercent ? ` (${payrollPolicy.taxPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={employeeForm.tax} onChange={(value) => updateEmployeeForm("tax", value)} />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={employeeForm.isActive}
+                    onChange={(event) => updateEmployeeForm("isActive", event.target.checked)}
+                  />
+                  Active employee
+                </label>
+                <div className="flex gap-2">
+                  <Button type="button" onClick={saveEmployee} disabled={isPending || !schemaReady}>
+                    {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save Employee
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => {
+                    setEmployeeForm(emptyEmployeeForm);
+                    setIsAddEmployeeFormOpen(false);
+                  }}>
+                    Clear
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       ) : null}
 
@@ -747,118 +1039,120 @@ export function PayrollManager({
                 </div>
               </div>
 
-              <div className="border-t border-slate-100 pt-5">
-                <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-slate-950">Use Excel Salary Sheet</h3>
-                  <HelpTooltip text="Use this when payroll amounts come from a monthly salary sheet instead of saved employee salaries." />
-                </div>
-                <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_auto] lg:items-end">
-                  <Field
-                    label="Payroll Month"
-                    help="The month to read from the uploaded sheet."
-                    type="month"
-                    value={importMonth}
-                    onChange={(value) => {
-                      setImportMonth(value)
-                      if (importSourceRows.length) {
-                        const filtered = filterSalaryBillRowsForMonth(importSourceRows, fiscalYearStart, value)
-                        setImportFilterMode(filtered.mode)
-                        setImportSerial(filtered.serial)
-                      }
-                    }}
-                  />
-                  <label className="flex h-11 cursor-pointer items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 text-sm text-slate-600">
-                    <UploadCloud className="h-4 w-4" />
-                    Upload Excel salary sheet
-                    <input
-                      type="file"
-                      className="sr-only"
-                      accept=".xlsx,.xls"
-                      onChange={(event) => {
-                        handleImportFile(event.target.files?.[0] ?? null)
-                        event.target.value = ""
-                      }}
-                    />
-                  </label>
-                  <Button type="button" variant="outline" onClick={saveImportedRun} disabled={isPending || importRows.length === 0 || !schemaReady}>
-                    <Save className="mr-2 h-4 w-4" />
-                    Save Draft
+
+            </CardContent>
+          </Card>
+          {showGuide && <WorkflowGuide payrollRuns={payrollRuns} />}
+        </div>
+      ) : null}
+
+
+
+      {activeTab === "settings" ? (
+        <div className="space-y-6">
+          {!showGuide && (
+            <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+              <CardContent className="pt-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">Payroll Workflow Guide</p>
+                    <p className="text-sm text-slate-500 mt-1">View the interactive workflow guide to understand payroll operations.</p>
+                  </div>
+                  <Button type="button" variant="outline" onClick={handleShowGuide}>
+                    <HelpCircle className="mr-2 h-4 w-4" />
+                    Show Workflow Guide
                   </Button>
                 </div>
-                {importSourceRows.length ? (
-                  <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-                    Source sheet: {importSheetName || "Salary"} | Employees found: {importSourceRows.length}
-                    {importFilterMode === "yearly_bill" ? (
-                      <>
-                        {" "}
-                        | Using fiscal month serial {importSerial} for {importMonth}
-                      </>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="mt-4 grid gap-4 md:grid-cols-4">
-                  <SummaryTile label="Employees" value={String(importRows.length)} />
-                  <SummaryTile label="Gross Salary" value={currency(importTotals.grossSalary)} />
-                  <SummaryTile label="Deductions" value={currency(importTotals.totalDeductions)} />
-                  <SummaryTile label="Net Pay" value={currency(importTotals.netPayable)} />
-                </div>
-                {importSourceRows.length ? <PayrollRowsPreview rows={importRows} /> : null}
+              </CardContent>
+            </Card>
+          )}
+          <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle>Payroll Policy</CardTitle>
+                <p className="mt-1 text-sm text-slate-500">Set percentage allocations from Basic Salary to auto-calculate other components.</p>
+              </div>
+              <Button type="button" onClick={savePayrollPolicy} disabled={isPending || !schemaReady}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Policy
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                <Field label="House Rent (%)" help="Percentage of Basic Salary for housing allowance." type="number" value={policyForm.housingPercent} onChange={(value) => setPolicyForm(p => ({ ...p, housingPercent: value }))} />
+                <Field label="Medical (%)" help="Percentage of Basic Salary for medical allowance." type="number" value={policyForm.medicalPercent} onChange={(value) => setPolicyForm(p => ({ ...p, medicalPercent: value }))} />
+                <Field label="Travel (%)" help="Percentage of Basic Salary for conveyance allowance." type="number" value={policyForm.conveyancePercent} onChange={(value) => setPolicyForm(p => ({ ...p, conveyancePercent: value }))} />
+                <Field label="Employer PF (%)" help="Percentage of Basic Salary for employer's PF contribution." type="number" value={policyForm.employerPfPercent} onChange={(value) => setPolicyForm(p => ({ ...p, employerPfPercent: value }))} />
+                <Field label="Employee PF (%)" help="Percentage of Basic Salary for employee's PF deduction." type="number" value={policyForm.staffPfPercent} onChange={(value) => setPolicyForm(p => ({ ...p, staffPfPercent: value }))} />
+                <Field label="Tax (%)" help="Percentage of Basic Salary for tax deduction." type="number" value={policyForm.taxPercent} onChange={(value) => setPolicyForm(p => ({ ...p, taxPercent: value }))} />
               </div>
             </CardContent>
           </Card>
-          <WorkflowGuide compact />
-        </div>
-      ) : null}
-
-      {activeTab === "review" ? (
-        <div className="space-y-6">
-          <WorkflowGuide compact />
-          <PayrollRunsTable
-            clientId={clientId}
-            payrollRuns={payrollRuns}
-            paymentModeId={paymentModeId}
-            paymentModes={paymentModes}
-            setPaymentModeId={setPaymentModeId}
-            postAccrual={postAccrual}
-            postPayment={postPayment}
-            rerunPayroll={rerunPayroll}
-            deleteRun={deleteRun}
-            isPending={isPending}
-          />
-        </div>
-      ) : null}
-
-      {activeTab === "settings" ? (
-        <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between gap-4">
-            <div>
-              <CardTitle>Payroll Settings</CardTitle>
-              <p className="mt-1 text-sm text-slate-500">Ledger accounts used when payroll is posted.</p>
-            </div>
-            <Button type="button" variant="outline" onClick={ensureDefaults} disabled={isPending}>
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Prepare Defaults
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Component</TableHead>
-                  <TableHead>Account Head</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {accountMappings.map((mapping) => (
-                  <TableRow key={mapping.component_code}>
-                    <TableCell className="font-medium text-slate-950">{mapping.component_code.replace(/_/g, " ")}</TableCell>
-                    <TableCell>{mapping.account_head_name}</TableCell>
+          <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div>
+                <CardTitle>Account Mappings</CardTitle>
+                <p className="mt-1 text-sm text-slate-500">Ledger accounts used when payroll is posted. These determine where payroll transactions are recorded.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={ensureDefaults} disabled={isPending}>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Prepare Defaults
+                </Button>
+                <Button type="button" onClick={saveAccountMappings} disabled={isPending || !schemaReady}>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Mappings
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="min-w-[200px]">Component</TableHead>
+                    <TableHead className="min-w-[300px]">Account Head</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {[
+                    { code: "salary_expense", label: "Salary Expense", help: "Debit account for employee salaries (Basic, Housing, Medical, Conveyance)" },
+                    { code: "employer_pf_expense", label: "Employer PF Expense", help: "Debit account for employer's provident fund contribution" },
+                    { code: "gratuity_expense", label: "Gratuity Expense", help: "Debit account for gratuity/gf contributions" },
+                    { code: "bonus_expense", label: "Bonus Expense", help: "Debit account for bonus/allowance payments" },
+                    { code: "salary_payable", label: "Salary Payable", help: "Credit account for net salary payable to employees" },
+                    { code: "pf_payable", label: "PF Payable", help: "Credit account for provident fund deductions (employee and employer portions)" },
+                    { code: "tax_payable", label: "Tax Payable", help: "Credit account for tax deductions from salaries" },
+                    { code: "staff_loan_advance", label: "Staff Loan/Advance", help: "Debit account for staff loan/advance deductions" },
+                    { code: "loan_interest_income", label: "Loan Interest Income", help: "Credit account for interest income from staff loans" },
+                  ].map(({ code, label, help }) => (
+                    <TableRow key={code}>
+                      <TableCell className="font-medium text-slate-950">
+                        <div className="flex items-center gap-2">
+                          <span>{label}</span>
+                          <HelpTooltip text={help} />
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <select
+                          className="w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+                          value={mappingForm[code] || ""}
+                          onChange={(e) => setMappingForm((prev) => ({ ...prev, [code]: e.target.value }))}
+                        >
+                          <option value="">Select Account Head</option>
+                          {accountHeads.map((head) => (
+                            <option key={head.id} value={head.id}>
+                              {head.name}
+                            </option>
+                          ))}
+                        </select>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
     </div>
     </TooltipProvider>
@@ -908,31 +1202,186 @@ function HelpTooltip({ text }: { text: string }) {
   )
 }
 
-function WorkflowGuide({ compact = false }: { compact?: boolean }) {
+function WorkflowGuide({ 
+  onDismiss, 
+  payrollRuns 
+}: { 
+  onDismiss?: () => void, 
+  payrollRuns?: PayrollRunRow[] 
+}) {
+  const latestRun = payrollRuns?.[0]
+  const currentStep = latestRun ? (
+    latestRun.status === "paid" ? 3 :
+    latestRun.status === "posted" ? 2 : 1
+  ) : 1
+
   const steps = [
-    { label: "Run Payroll", description: "Create payroll for the month.", icon: PlayCircle },
-    { label: "Review Payroll", description: "Check gross salary, deductions, and net pay.", icon: Calculator },
-    { label: "Post to Accounts", description: "Create the payroll accounting voucher.", icon: Send },
-    { label: "Make Payment", description: "Record salary payment from cash or bank.", icon: Banknote },
+    { 
+      label: "Run Payroll", 
+      description: "Generate monthly salary sheet",
+      tooltip: "Run Payroll = Generate monthly salary sheet",
+      icon: Calculator,
+      completed: !!latestRun,
+      current: currentStep === 1 && (!latestRun || latestRun.status === "draft" || latestRun.status === "reviewed")
+    },
+    { 
+      label: "Post to Accounts", 
+      description: "Create the payroll accounting voucher",
+      tooltip: "Post to Accounts = Create vouchers",
+      icon: BookOpen,
+      completed: !!latestRun?.accrual_voucher_id,
+      current: currentStep === 2 && !!latestRun && !latestRun.payment_voucher_id
+    },
+    { 
+      label: "Make Payment", 
+      description: "Record salary payment from cash or bank",
+      tooltip: "Make Payment = Record salary disbursement",
+      icon: Wallet,
+      completed: !!latestRun?.payment_voucher_id,
+      current: currentStep === 3 && !!latestRun && latestRun.status !== "paid"
+    },
   ]
 
   return (
-    <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${compact ? "p-4" : "p-5"}`}>
-      <div className="grid gap-3 md:grid-cols-4">
+    <div className="relative rounded-2xl border border-slate-200 bg-white shadow-sm p-5 overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-top-2">
+      {onDismiss && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onDismiss}
+              className="absolute top-3 right-3 p-2 hover:bg-slate-100 rounded-full transition-colors"
+              aria-label="Hide Workflow Guide"
+            >
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Hide Workflow Guide</TooltipContent>
+        </Tooltip>
+      )}
+      
+      <div className="mb-6">
+        <h3 className="text-lg font-semibold text-slate-950">Payroll Workflow</h3>
+        <p className="text-sm text-slate-500 mt-1">Follow these steps to complete payroll processing</p>
+      </div>
+
+      {/* Horizontal Stepper - Desktop */}
+      <div className="hidden md:flex items-center justify-between gap-4">
         {steps.map((step, index) => {
           const Icon = step.icon
+          const isLast = index === steps.length - 1
+          
           return (
-            <div key={step.label} className="flex gap-3 rounded-xl bg-slate-50 p-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-slate-700 shadow-sm">
-                <Icon className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-950">
-                  {index + 1}. {step.label}
-                </p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{step.description}</p>
-              </div>
+            <div key={step.label} className="flex-1 flex items-center">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex flex-col items-center cursor-pointer group">
+                    <div className={`flex h-14 w-14 items-center justify-center rounded-full shadow-sm transition-all duration-200 ${
+                      step.completed 
+                        ? 'bg-emerald-500 text-white ring-4 ring-emerald-100' 
+                        : step.current 
+                          ? 'bg-blue-500 text-white ring-4 ring-blue-100 scale-105' 
+                          : 'bg-white text-slate-400 border-2 border-slate-300 group-hover:border-slate-400'
+                    }`}>
+                      {step.completed ? (
+                        <CheckCircle2 className="h-7 w-7" />
+                      ) : (
+                        <Icon className="h-7 w-7" />
+                      )}
+                    </div>
+                    
+                    <div className="mt-3 text-center">
+                      <p className={`text-sm font-semibold ${
+                        step.completed ? 'text-emerald-700' : step.current ? 'text-blue-700' : 'text-slate-600'
+                      }`}>
+                        {step.label}
+                      </p>
+                      {step.current && (
+                        <Badge className="mt-1 bg-blue-100 text-blue-700 text-xs">Current</Badge>
+                      )}
+                      {step.completed && (
+                        <Badge className="mt-1 bg-emerald-100 text-emerald-700 text-xs">Done</Badge>
+                      )}
+                    </div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-64 text-xs">
+                  <p className="font-semibold">{step.label}</p>
+                  <p className="mt-1">{step.tooltip}</p>
+                </TooltipContent>
+              </Tooltip>
+              
+              {!isLast && (
+                <div className={`flex-1 h-1 mx-4 rounded-full transition-all duration-300 ${
+                  step.completed ? 'bg-emerald-500' : 'bg-slate-200'
+                }`}>
+                  <div className={`h-full rounded-full transition-all duration-500 ${
+                    step.completed ? 'bg-emerald-500' : ''
+                  }`}></div>
+                </div>
+              )}
             </div>
+          )
+        })}
+      </div>
+
+      {/* Stacked Stepper - Mobile */}
+      <div className="md:hidden space-y-4">
+        {steps.map((step, index) => {
+          const Icon = step.icon
+          
+          return (
+            <Tooltip key={step.label}>
+              <TooltipTrigger asChild>
+                <div 
+                  className={`flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 ${
+                    step.completed 
+                      ? 'bg-emerald-50 border border-emerald-200' 
+                      : step.current 
+                        ? 'bg-blue-50 border border-blue-200' 
+                        : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-sm z-10 transition-all ${
+                    step.completed 
+                      ? 'bg-emerald-500 text-white' 
+                      : step.current 
+                        ? 'bg-blue-500 text-white' 
+                        : 'bg-white text-slate-400 border-2 border-slate-300'
+                  }`}>
+                    {step.completed ? (
+                      <CheckCircle2 className="h-6 w-6" />
+                    ) : (
+                      <Icon className="h-6 w-6" />
+                    )}
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className={`text-sm font-semibold ${
+                        step.completed ? 'text-emerald-900' : step.current ? 'text-blue-900' : 'text-slate-700'
+                      }`}>
+                        {step.label}
+                      </p>
+                      {step.current && (
+                        <Badge className="bg-blue-100 text-blue-700 text-xs">Current</Badge>
+                      )}
+                      {step.completed && (
+                        <Badge className="bg-emerald-100 text-emerald-700 text-xs">Done</Badge>
+                      )}
+                    </div>
+                    
+                    <div className={`mt-1 text-sm ${
+                      step.completed ? 'text-emerald-600' : step.current ? 'text-blue-600' : 'text-slate-500'
+                    }`}>
+                      {step.description}
+                    </div>
+                  </div>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-64 text-xs">
+                {step.tooltip}
+              </TooltipContent>
+            </Tooltip>
           )
         })}
       </div>
@@ -940,56 +1389,7 @@ function WorkflowGuide({ compact = false }: { compact?: boolean }) {
   )
 }
 
-function SummaryTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-slate-50 p-4">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
-    </div>
-  )
-}
 
-const PayrollRowsPreview = memo(function PayrollRowsPreview({ rows }: { rows: PayrollDraftRow[] }) {
-  return (
-    <div className="mt-4">
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Employee</TableHead>
-          <TableHead>Job Title</TableHead>
-          <TableHead>Salary Details</TableHead>
-          <TableHead>Net Pay</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.length ? (
-          rows.slice(0, 20).map((row, index) => {
-            const totals = getPayrollRunTotals([row])
-            return (
-              <TableRow key={`${row.employeeName}-${index}`}>
-                <TableCell className="font-medium text-slate-950">{row.employeeName}</TableCell>
-                <TableCell>{row.designation || "-"}</TableCell>
-                <TableCell>
-                  {row.components
-                    .map((component) => `${PAYROLL_COMPONENTS[component.code].label}: ${currency(component.amount)}`)
-                    .join(", ")}
-                </TableCell>
-                <TableCell>{currency(totals.netPayable)}</TableCell>
-              </TableRow>
-            )
-          })
-        ) : (
-          <TableRow>
-            <TableCell colSpan={4} className="py-10 text-center text-slate-500">
-              Upload a salary sheet to preview payroll rows.
-            </TableCell>
-          </TableRow>
-        )}
-      </TableBody>
-    </Table>
-    </div>
-  )
-})
 
 const PayrollRunsTable = memo(function PayrollRunsTable({
   clientId,
@@ -1002,6 +1402,10 @@ const PayrollRunsTable = memo(function PayrollRunsTable({
   rerunPayroll,
   deleteRun,
   isPending,
+  searchQuery,
+  setSearchQuery,
+  statusFilter,
+  setStatusFilter,
 }: {
   clientId: string
   payrollRuns: PayrollRunRow[]
@@ -1013,27 +1417,59 @@ const PayrollRunsTable = memo(function PayrollRunsTable({
   rerunPayroll: (payrollRunId: string) => void
   deleteRun: (payrollRunId: string) => void
   isPending: boolean
+  searchQuery: string
+  setSearchQuery: (value: string) => void
+  statusFilter: string
+  setStatusFilter: (value: string) => void
 }) {
   return (
     <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <div>
-          <CardTitle>Review Payroll Runs</CardTitle>
-          <p className="mt-1 text-sm text-slate-500">Review totals, re-run drafts after edits, then post to accounts and make payment.</p>
+      <CardHeader className="space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <CardTitle>Payroll Runs</CardTitle>
+            <p className="mt-1 text-sm text-slate-500">Review totals, re-run drafts after edits, then post to accounts and make payment.</p>
+          </div>
+          <div className="space-y-1.5">
+            <LabelWithHelp label="Pay From" help="Choose the cash or bank account used when you click Pay Now." />
+            <select
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+              value={paymentModeId}
+              onChange={(event) => setPaymentModeId(event.target.value)}
+            >
+              {paymentModes.map((mode) => (
+                <option key={mode.id} value={mode.id}>
+                  {mode.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="space-y-1.5">
-          <LabelWithHelp label="Pay From" help="Choose the cash or bank account used when you click Pay Now." />
-          <select
-            className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-            value={paymentModeId}
-            onChange={(event) => setPaymentModeId(event.target.value)}
-          >
-            {paymentModes.map((mode) => (
-              <option key={mode.id} value={mode.id}>
-                {mode.name}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col md:flex-row gap-3">
+          <div className="flex-1">
+            <LabelWithHelp label="Search" help="Search by payroll period" />
+            <Input
+              type="text"
+              placeholder="Search payroll periods..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div className="min-w-[180px]">
+            <LabelWithHelp label="Status" help="Filter by payroll status" />
+            <select
+              className="w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="reviewed">Reviewed</option>
+              <option value="posted">Posted</option>
+              <option value="paid">Paid</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -1054,8 +1490,10 @@ const PayrollRunsTable = memo(function PayrollRunsTable({
               payrollRuns.map((run) => (
                 <TableRow key={run.id}>
                   <TableCell>
-                    <p className="font-medium text-slate-950">{run.period_label}</p>
-                    <p className="text-xs text-slate-500">{run.source}</p>
+                    <Link href={`/clients/${clientId}/payroll/runs/${run.id}`} className="block">
+                      <p className="font-medium text-slate-950 hover:text-blue-700">{run.period_label}</p>
+                      <p className="text-xs text-slate-500">{run.source}</p>
+                    </Link>
                   </TableCell>
                   <TableCell>
                     <Badge className={getStatusClass(run.status)}>{statusLabel(run.status)}</Badge>
@@ -1081,6 +1519,11 @@ const PayrollRunsTable = memo(function PayrollRunsTable({
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex flex-wrap justify-end gap-2">
+                      <Link href={`/clients/${clientId}/payroll/runs/${run.id}`}>
+                        <Button type="button" size="sm" variant="outline" disabled={isPending}>
+                          View / Edit
+                        </Button>
+                      </Link>
                       {!run.accrual_voucher_id ? (
                         <Button type="button" size="sm" onClick={() => postAccrual(run.id)} disabled={isPending}>
                           <Send className="mr-2 h-4 w-4" />

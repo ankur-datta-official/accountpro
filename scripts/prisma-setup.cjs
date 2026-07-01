@@ -177,6 +177,21 @@ async function main() {
     "prisma/migrations/20250619000000_add_payroll_module/migration.sql",
   ])
   run("npx", ["prisma", "migrate", "resolve", "--applied", "20250619000000_add_payroll_module"])
+  
+  // Apply payroll policies migration if not already applied
+  try {
+    run("npx", [
+      "prisma",
+      "db",
+      "execute",
+      "--file",
+      "prisma/migrations/20260630000000_add_payroll_policies/migration.sql",
+    ])
+    run("npx", ["prisma", "migrate", "resolve", "--applied", "20260630000000_add_payroll_policies"])
+  } catch (e) {
+    // If table already exists, this will fail, which is fine
+    console.log("Payroll policies table might already exist, skipping.")
+  }
 
   console.log("Database is ready for payroll.")
 }

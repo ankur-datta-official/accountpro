@@ -176,13 +176,18 @@ export function VoucherListManager({
     }
 
     startBulkTransition(async () => {
-      const result = await bulkDeleteVouchersAction({
-        clientId,
-        voucherIds: selectedVoucherIds,
-      })
+      try {
+        const result = await bulkDeleteVouchersAction({
+          clientId,
+          voucherIds: selectedVoucherIds,
+        })
 
-      if (!result.success) {
-        toast.error(result.error)
+        if (!result?.success) {
+          toast.error(result?.error || "Failed to delete vouchers")
+          return
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to delete vouchers")
         return
       }
 

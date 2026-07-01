@@ -534,7 +534,7 @@ export function DashboardShell({
         currentClient={currentClient}
         pathname={pathname}
       />
-      <SidebarInset className="min-h-screen bg-slate-50">
+      <SidebarInset className="min-h-screen bg-slate-50 w-full max-w-full overflow-hidden">
         <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur print:hidden">
           <div className="flex h-16 items-center justify-between gap-4 px-4 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
@@ -558,7 +558,7 @@ export function DashboardShell({
           </div>
         </header>
 
-        <main className="p-4 sm:p-6 print:p-0">{children}</main>
+        <main className="p-4 sm:p-6 print:p-0 w-full max-w-full overflow-x-hidden">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   )

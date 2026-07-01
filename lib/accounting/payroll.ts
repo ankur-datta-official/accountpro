@@ -42,6 +42,8 @@ export type PayrollSummary = {
   totalAdditions: number
   totalDeductions: number
   netPayable: number
+  subTotal: number  // Basic + Housing + Medical + Conveyance
+  totalSalary: number // SubTotal + Additions (PF Org Part, Bonus, Arrear)
 }
 
 export const PAYROLL_ACCOUNT_DEFAULTS: Array<{
@@ -141,10 +143,36 @@ function amount(value: unknown) {
   return Number.isFinite(numeric) ? Number(numeric.toFixed(2)) : 0
 }
 
-export function calculatePayrollRowSummary(components: PayrollDraftComponent[]): PayrollSummary {
+export function calculatePayrollRowSummary(components: PayrollDraftComponent[]): PayrollSummary & {
+  basic: number
+  housing: number
+  medical: number
+  conveyance: number
+  subTotal: number
+  employerPf: number
+  bonus: number
+  arrearSalary: number
+  totalSalary: number
+  pfTotal: number
+  loanInstallment: number
+  loanInterest: number
+  tax: number
+} {
+  let basic = 0
+  let housing = 0
+  let medical = 0
+  let conveyance = 0
+  let employerPf = 0
+  let bonus = 0
+  let arrearSalary = 0
+  let staffPf = 0
+  let pfTotal = 0
+  let loanInstallment = 0
+  let loanInterest = 0
+  let tax = 0
+  let totalDeductions = 0
   let grossSalary = 0
   let employerContributions = 0
-  let totalDeductions = 0
 
   for (const component of components) {
     const definition = PAYROLL_COMPONENTS[component.code]
@@ -165,8 +193,29 @@ export function calculatePayrollRowSummary(components: PayrollDraftComponent[]):
     if (definition.kind === "deduction") {
       totalDeductions += value
     }
+
+    if (component.code === "basic") basic = value
+    if (component.code === "housing") housing = value
+    if (component.code === "medical") medical = value
+    if (component.code === "conveyance") conveyance = value
+    if (component.code === "employer_pf") employerPf = value
+    if (component.code === "bonus") bonus = value
+    if (component.code === "arrear_salary") arrearSalary = value
+    if (component.code === "staff_pf") staffPf = value
+    if (component.code === "pf_total") pfTotal = value
+    if (component.code === "loan_installment") loanInstallment = value
+    if (component.code === "loan_interest") loanInterest = value
+    if (component.code === "tax") tax = value
   }
 
+  // Calculate PF total if not explicitly provided
+  if (pfTotal === 0) {
+    pfTotal = employerPf + staffPf
+  }
+
+  const subTotal = basic + housing + medical + conveyance
+  const additions = employerPf + bonus + arrearSalary
+  const totalSalary = subTotal + additions
   const totalAdditions = grossSalary
 
   return {
@@ -175,6 +224,19 @@ export function calculatePayrollRowSummary(components: PayrollDraftComponent[]):
     totalAdditions: amount(totalAdditions),
     totalDeductions: amount(totalDeductions),
     netPayable: amount(totalAdditions - totalDeductions),
+    subTotal: amount(subTotal),
+    totalSalary: amount(totalSalary),
+    basic,
+    housing,
+    medical,
+    conveyance,
+    employerPf,
+    bonus,
+    arrearSalary,
+    pfTotal,
+    loanInstallment,
+    loanInterest,
+    tax,
   }
 }
 

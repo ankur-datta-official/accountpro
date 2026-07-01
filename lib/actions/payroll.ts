@@ -88,6 +88,18 @@ const postPaymentSchema = postAccrualSchema.extend({
   paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
 })
 
+const savePayrollRunItemsSchema = z.object({
+  clientId: z.string().min(1),
+  payrollRunId: z.string().min(1),
+  items: z.array(z.object({
+    id: z.string().min(1),
+    components: z.array(z.object({
+      code: z.string().min(1),
+      amount: moneySchema,
+    })),
+  })),
+})
+
 async function getAuthorizedClient(clientId: string) {
   const supabase = createClient()
   const { membership } = await getCurrentOrganizationContext()
@@ -606,6 +618,94 @@ export async function deletePayrollRunAction(input: z.input<typeof deletePayroll
   return { success: true as const }
 }
 
+export async function savePayrollRunItemsAction(input: z.input<typeof savePayrollRunItemsSchema>) {
+  const parsed = savePayrollRunItemsSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false as const, error: parsed.error.issues[0]?.message ?? "Invalid payroll run items." }
+  }
+
+  const context = await getAuthorizedClient(parsed.data.clientId)
+  if (!context.success) return context
+
+  const { supabase, client } = context
+
+  // Fetch existing run to check status
+  const { data: existingRun, error: runError } = await supabase
+    .from('payroll_runs')
+    .select('*')
+    .eq('id', parsed.data.payrollRunId)
+    .eq('client_id', client.id)
+    .single()
+
+  if (runError || !existingRun) {
+    return { success: false as const, error: "Payroll run not found." }
+  }
+
+  if (existingRun.accrual_voucher_id || existingRun.payment_voucher_id) {
+    return { success: false as const, error: "Cannot edit posted payroll runs." }
+  }
+
+  // Update each item and its components
+  for (const item of parsed.data.items) {
+    // Recalculate summary
+    const summary = calculatePayrollRowSummary(item.components)
+
+    // Update item
+    const { error: itemError } = await supabase
+      .from('payroll_run_items')
+      .update({
+        gross_salary: summary.grossSalary,
+        total_additions: summary.totalAdditions,
+        total_deductions: summary.totalDeductions,
+        net_payable: summary.netPayable,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', item.id)
+      .eq('payroll_run_id', parsed.data.payrollRunId)
+
+    if (itemError) {
+      return { success: false as const, error: itemError.message ?? "Unable to update payroll item." }
+    }
+
+    // Delete existing components
+    const { error: deleteError } = await supabase
+      .from('payroll_run_components')
+      .delete()
+      .eq('run_item_id', item.id)
+
+    if (deleteError) {
+      return { success: false as const, error: deleteError.message ?? "Unable to delete old components." }
+    }
+
+    // Insert new components
+    const componentsToInsert = item.components
+      .filter(c => c.amount > 0)
+      .map(c => {
+        const definition = PAYROLL_COMPONENTS[c.code as PayrollComponentCode]
+        return {
+          run_item_id: item.id,
+          code: c.code,
+          label: definition?.label ?? c.code.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+          kind: definition?.kind ?? 'earning',
+          amount: c.amount,
+        }
+      })
+
+    if (componentsToInsert.length > 0) {
+      const { error: insertError } = await supabase
+        .from('payroll_run_components')
+        .insert(componentsToInsert)
+
+      if (insertError) {
+        return { success: false as const, error: insertError.message ?? "Unable to save components." }
+      }
+    }
+  }
+
+  revalidatePayrollPaths(client.id, parsed.data.payrollRunId)
+  return { success: true as const }
+}
+
 export async function rerunPayrollRunAction(input: z.input<typeof rerunPayrollRunSchema>) {
   const parsed = rerunPayrollRunSchema.safeParse(input)
   if (!parsed.success) {
@@ -838,6 +938,8 @@ export async function postPayrollAccrualAction(input: z.input<typeof postAccrual
     voucherDate: parsed.data.voucherDate,
     voucherType: "journal",
     description: `Payroll accrual for ${payrollRun.period_label}`,
+    showDescription: true,
+    showSupportingDocuments: false,
     lines,
   })
 
@@ -903,6 +1005,8 @@ export async function postPayrollPaymentAction(input: z.input<typeof postPayment
     paymentModeName: parsed.data.paymentModeName,
     paymentModeType: parsed.data.paymentModeType as PaymentModeType | undefined,
     description: `Payroll salary payment for ${payrollRun.period_label}`,
+    showDescription: true,
+    showSupportingDocuments: false,
     lines: [
       {
         accountsGroup: "liability",

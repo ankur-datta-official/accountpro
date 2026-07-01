@@ -38,10 +38,15 @@ export function DeleteVoucherButton({
         }
 
         startTransition(async () => {
-          const result = await deleteVoucherAction({ clientId, voucherId })
+          try {
+            const result = await deleteVoucherAction({ clientId, voucherId })
 
-          if (!result.success) {
-            toast.error(result.error)
+            if (!result?.success) {
+              toast.error(result?.error || "Failed to delete voucher")
+              return
+            }
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Failed to delete voucher")
             return
           }
 

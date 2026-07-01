@@ -85,3 +85,7 @@ export type PayrollRunComponentUpdate = Database["public"]["Tables"]["payroll_ru
 export type PayrollAccountMapping = Database["public"]["Tables"]["payroll_account_mappings"]["Row"]
 export type PayrollAccountMappingInsert = Database["public"]["Tables"]["payroll_account_mappings"]["Insert"]
 export type PayrollAccountMappingUpdate = Database["public"]["Tables"]["payroll_account_mappings"]["Update"]
+
+export type PayrollPolicy = Database["public"]["Tables"]["payroll_policies"]["Row"]
+export type PayrollPolicyInsert = Database["public"]["Tables"]["payroll_policies"]["Insert"]
+export type PayrollPolicyUpdate = Database["public"]["Tables"]["payroll_policies"]["Update"]
