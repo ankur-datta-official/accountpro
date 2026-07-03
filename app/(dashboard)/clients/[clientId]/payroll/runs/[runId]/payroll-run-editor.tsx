@@ -235,28 +235,28 @@ export function PayrollRunEditor({
       const componentsForSummary = item.components.map(c => ({ code: c.code as any, amount: numberValue(c.amount) }))
       const summary = calculatePayrollRowSummary(componentsForSummary)
       return {
-        sl: index + 1,
-        employeeCode: '',
-        staffName: item.employee_name,
-        designation: item.designation,
-        grade: item.grade,
-        basic: summary.basic,
-        housing: summary.housing,
-        medical: summary.medical,
-        conveyance: summary.conveyance,
-        subTotal: summary.subTotal,
-        pfOrgPart: summary.employerPf,
-        bonus: summary.bonus,
-        arrear: summary.arrear,
-        totalSalary: summary.totalSalary,
-        pfTotal: summary.pfTotal,
-        loanInstallment: summary.loanInstallment,
-        loanInterest: summary.loanInterest,
-        tax: summary.tax,
-        totalDeduction: summary.totalDeductions,
-        netPay: summary.netPayable,
-        month: payrollRun.period_label
-      }
+      sl: index + 1,
+      employeeCode: '',
+      staffName: item.employee_name,
+      designation: item.designation,
+      grade: item.grade,
+      basic: summary.basic,
+      housing: summary.housing,
+      medical: summary.medical,
+      conveyance: summary.conveyance,
+      subTotal: summary.subTotal,
+      pfOrgPart: summary.employerPf,
+      bonus: summary.bonus,
+      arrear: summary.arrearSalary,
+      totalSalary: summary.totalSalary,
+      pfTotal: summary.pfTotal,
+      loanInstallment: summary.loanInstallment,
+      loanInterest: summary.loanInterest,
+      tax: summary.tax,
+      totalDeduction: summary.totalDeductions,
+      netPay: summary.netPayable,
+      month: payrollRun.period_label
+    }
     })
     exportPayroll(exportData, 'Client', payrollRun.period_label)
   }

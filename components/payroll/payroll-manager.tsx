@@ -255,27 +255,9 @@ export function PayrollManager({
   payrollPolicy: PayrollPolicy | null
   accountHeads: { id: string; name: string }[]
 }) {
-  // Initialize with default true, then sync with localStorage on client
+  // First declare ALL state variables
   const [showGuide, setShowGuide] = useState(true)
   const [isHydrated, setIsHydrated] = useState(false)
-
-  // Hydration: sync with localStorage after component mounts
-  useEffect(() => {
-    setIsHydrated(true)
-    const workflowClosed = localStorage.getItem(`payroll-workflow-closed-${clientId}`)
-    setShowGuide(workflowClosed !== 'true')
-  }, [clientId])
-
-  const handleDismissGuide = useCallback(() => {
-    setShowGuide(false)
-    localStorage.setItem(`payroll-workflow-closed-${clientId}`, 'true')
-  }, [clientId])
-
-  const handleShowGuide = useCallback(() => {
-    setShowGuide(true)
-    localStorage.setItem(`payroll-workflow-closed-${clientId}`, 'false')
-  }, [clientId])
-
   const [policyForm, setPolicyForm] = useState({
     housingPercent: String(payrollPolicy?.housingPercent ?? 0),
     medicalPercent: String(payrollPolicy?.medicalPercent ?? 0),
@@ -292,6 +274,39 @@ export function PayrollManager({
     }
     return initial
   })
+
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("dashboard")
+  const [employeeForm, setEmployeeForm] = useState<EmployeeFormState>(emptyEmployeeForm)
+  const [isAddEmployeeFormOpen, setIsAddEmployeeFormOpen] = useState(false)
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null)
+  const [localEmployees, setLocalEmployees] = useState<PayrollEmployeeRow[]>(employees)
+  const [runMonth, setRunMonth] = useState(format(new Date(), "yyyy-MM"))
+  const [runNotes, setRunNotes] = useState("")
+  const [paymentModeId, setPaymentModeId] = useState(paymentModes[0]?.id ?? "")
+  const [isPending, startTransition] = useTransition()
+
+  // Hydration: sync with localStorage after component mounts
+  useEffect(() => {
+    setIsHydrated(true)
+    const workflowClosed = localStorage.getItem(`payroll-workflow-closed-${clientId}`)
+    setShowGuide(workflowClosed !== 'true')
+  }, [clientId])
+
+  // Sync localEmployees with employees prop
+  useEffect(() => {
+    setLocalEmployees(employees)
+  }, [employees])
+
+  const handleDismissGuide = useCallback(() => {
+    setShowGuide(false)
+    localStorage.setItem(`payroll-workflow-closed-${clientId}`, 'true')
+  }, [clientId])
+
+  const handleShowGuide = useCallback(() => {
+    setShowGuide(true)
+    localStorage.setItem(`payroll-workflow-closed-${clientId}`, 'false')
+  }, [clientId])
 
   const savePayrollPolicy = useCallback(() => {
     startTransition(async () => {
@@ -357,11 +372,6 @@ export function PayrollManager({
     }
   }, [payrollPolicy])
 
-  // Sync localEmployees with employees prop
-  useEffect(() => {
-    setLocalEmployees(employees)
-  }, [employees])
-
   // Handle employee salary component changes with auto-calc when basic changes
   const handleEmployeeSalaryChange = useCallback((employeeId: string, component: keyof PayrollEmployeeRow['salary'], newValue: string) => {
     setLocalEmployees(prev => prev.map(emp => {
@@ -387,15 +397,43 @@ export function PayrollManager({
     }))
   }, [autoCalculateFromBasic])
 
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["id"]>("dashboard")
-  const [employeeForm, setEmployeeForm] = useState<EmployeeFormState>(emptyEmployeeForm)
-  const [isAddEmployeeFormOpen, setIsAddEmployeeFormOpen] = useState(false)
-  const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
-  const [localEmployees, setLocalEmployees] = useState<PayrollEmployeeRow[]>(employees)
-  const [runMonth, setRunMonth] = useState(format(new Date(), "yyyy-MM"))
-  const [runNotes, setRunNotes] = useState("")
-  const [paymentModeId, setPaymentModeId] = useState(paymentModes[0]?.id ?? "")
-  const [isPending, startTransition] = useTransition()
+  const handleInlineEditChange = useCallback((employeeId: string, field: keyof EmployeeFormState, value: string | boolean) => {
+    setLocalEmployees(prev => prev.map(emp => {
+      if (emp.id !== employeeId) return emp
+      
+      // Handle salary fields specially
+      if (['basic', 'housing', 'medical', 'conveyance', 'employerPf', 'staffPf', 'tax'].includes(field)) {
+        const salaryField = field === 'employerPf' ? 'employer_pf' : 
+                           field === 'staffPf' ? 'staff_pf' : 
+                           field as keyof PayrollEmployeeRow['salary']
+        
+        let newSalary = { ...emp.salary, [salaryField]: numberValue(value as string) }
+        
+        // If basic changed, auto-calculate other components
+        if (field === 'basic') {
+          const calculated = autoCalculateFromBasic(numberValue(value as string))
+          newSalary = {
+            ...newSalary,
+            housing: numberValue(calculated.housing),
+            medical: numberValue(calculated.medical),
+            conveyance: numberValue(calculated.conveyance),
+            employer_pf: numberValue(calculated.employerPf),
+            staff_pf: numberValue(calculated.staffPf),
+            tax: numberValue(calculated.tax)
+          }
+        }
+        return { ...emp, salary: newSalary }
+      }
+
+      // Handle other fields
+      const mapField = field === 'employeeCode' ? 'employee_code' :
+                     field === 'joiningDate' ? 'joining_date' :
+                     field === 'leavingDate' ? 'leaving_date' :
+                     field === 'isActive' ? 'is_active' : field
+      
+      return { ...emp, [mapField]: value }
+    }))
+  }, [autoCalculateFromBasic])
 
   const manualRows = useMemo(() => normalizePayrollRows(buildManualRows(employees)), [employees])
   const manualTotals = useMemo(() => getPayrollRunTotals(manualRows), [manualRows])
@@ -623,6 +661,51 @@ export function PayrollManager({
     })
   }, [clientId])
 
+  const saveInlineEmployee = useCallback((employeeId: string) => {
+    startTransition(async () => {
+      const emp = localEmployees.find(e => e.id === employeeId);
+      if (!emp) {
+        toast.error("Employee not found.");
+        return;
+      }
+      
+      try {
+        const result = await savePayrollEmployeeAction({
+          clientId,
+          employeeId: emp.id,
+          employeeCode: emp.employee_code || "",
+          name: emp.name,
+          designation: emp.designation || "",
+          grade: emp.grade || "",
+          phone: emp.phone || "",
+          email: emp.email || "",
+          tin: emp.tin || "",
+          joiningDate: emp.joining_date || "",
+          leavingDate: emp.leaving_date || "",
+          isActive: emp.is_active !== false,
+          salary: emp.salary ? {
+            basic: numberValue(emp.salary.basic),
+            housing: numberValue(emp.salary.housing),
+            medical: numberValue(emp.salary.medical),
+            conveyance: numberValue(emp.salary.conveyance),
+            employerPf: numberValue(emp.salary.employer_pf),
+            staffPf: numberValue(emp.salary.staff_pf),
+            tax: numberValue(emp.salary.tax),
+          } : undefined,
+        });
+
+        if (result.success) {
+          toast.success("Employee saved successfully!");
+          setEditingEmployeeId(null);
+        } else {
+          toast.error(result.error || "Failed to save employee.");
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to save employee.");
+      }
+    });
+  }, [clientId, localEmployees, startTransition]);
+
   const handleExportEmployees = useCallback(() => {
     const exportData = employees.map((employee, index) => {
       const summary = calculatePayrollRowSummary([
@@ -785,6 +868,7 @@ export function PayrollManager({
                     { code: "arrear_salary", amount: 0 },
                   ])
                   const isExpanded = expandedRowId === employee.id
+                  const isEditing = editingEmployeeId === employee.id
                   return (
                     <div
                       key={employee.id}
@@ -805,7 +889,7 @@ export function PayrollManager({
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-4">
                           <div className="text-right hidden sm:block">
                             <div className="text-xs text-slate-500">Net Pay</div>
                             <div className="font-semibold text-emerald-700">{currency(summary.netPayable)}</div>
@@ -813,12 +897,16 @@ export function PayrollManager({
                           <Badge className={employee.is_active === false ? "bg-slate-100 text-slate-700" : "bg-emerald-100 text-emerald-700"}>
                             {employee.is_active === false ? "Inactive" : "Active"}
                           </Badge>
-                          <Button type="button" variant="outline" size="sm" onClick={(e) => {
+                          <Button type="button" variant={isEditing ? "default" : "outline"} size="sm" onClick={(e) => {
                             e.stopPropagation();
-                            setEmployeeForm(employeeToForm(employee));
-                            setIsAddEmployeeFormOpen(false);
+                            if (isEditing) {
+                              setEditingEmployeeId(null);
+                            } else {
+                              setEditingEmployeeId(employee.id);
+                              setExpandedRowId(employee.id);
+                            }
                           }}>
-                            Edit
+                            {isEditing ? "Cancel" : "Edit"}
                           </Button>
                           <div className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}>
                             <ChevronDown className="h-5 w-5 text-slate-400" />
@@ -827,132 +915,127 @@ export function PayrollManager({
                       </div>
                       {isExpanded && (
                         <div className="border-t border-slate-200 p-4 bg-slate-50">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div>
-                              <h4 className="text-sm font-semibold text-slate-950 mb-3">Salary Components</h4>
-                              <div className="space-y-2">
-                                <div className="flex justify-between items-center text-sm gap-2">
-                                  <span className="text-slate-600">Basic</span>
-                                  <Input
-                                    type="number"
-                                    value={numberValue(employee.salary?.basic)}
-                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'basic', e.target.value)}
-                                    className="h-8 w-32 text-right"
-                                  />
+                          {isEditing ? (
+                            <div className="space-y-4">
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <Field label="Employee Code" help="Optional staff ID used in salary sheets and reports." value={employee.employee_code ?? ""} onChange={(value) => handleInlineEditChange(employee.id, 'employeeCode', value)} />
+                                <Field label="Employee Name" help="Full name shown on payroll reports." value={employee.name} onChange={(value) => handleInlineEditChange(employee.id, 'name', value)} />
+                                <Field label="Job Title" help="The employee's role or designation." value={employee.designation ?? ""} onChange={(value) => handleInlineEditChange(employee.id, 'designation', value)} />
+                                <Field label="Grade" help="Optional salary grade or level." value={employee.grade ?? ""} onChange={(value) => handleInlineEditChange(employee.id, 'grade', value)} />
+                                <Field label="Phone" help="Optional contact number." value={employee.phone ?? ""} onChange={(value) => handleInlineEditChange(employee.id, 'phone', value)} />
+                                <Field label="Email" help="Optional work or personal email." value={employee.email ?? ""} onChange={(value) => handleInlineEditChange(employee.id, 'email', value)} />
+                                <Field label="TIN" help="Tax identification number, if applicable." value={employee.tin ?? ""} onChange={(value) => handleInlineEditChange(employee.id, 'tin', value)} />
+                                <Field label="Joining Date" help="Start date for employee records." type="date" value={employee.joining_date ?? ""} onChange={(value) => handleInlineEditChange(employee.id, 'joiningDate', value)} />
+                              </div>
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <Field label="Basic Salary" help="Main fixed salary amount. Enter this to auto-calculate other components based on payroll policy." type="number" value={String(employee.salary?.basic ?? 0)} onChange={(value) => handleInlineEditChange(employee.id, 'basic', value)} />
+                                <Field label="House Rent" help={`Monthly housing allowance${payrollPolicy?.housingPercent ? ` (${payrollPolicy.housingPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={String(employee.salary?.housing ?? 0)} onChange={(value) => handleInlineEditChange(employee.id, 'housing', value)} />
+                                <Field label="Medical Allowance" help={`Monthly medical allowance${payrollPolicy?.medicalPercent ? ` (${payrollPolicy.medicalPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={String(employee.salary?.medical ?? 0)} onChange={(value) => handleInlineEditChange(employee.id, 'medical', value)} />
+                                <Field label="Travel Allowance" help={`Monthly conveyance or travel allowance${payrollPolicy?.conveyancePercent ? ` (${payrollPolicy.conveyancePercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={String(employee.salary?.conveyance ?? 0)} onChange={(value) => handleInlineEditChange(employee.id, 'conveyance', value)} />
+                                <Field label="Employer PF" help={`Company provident fund contribution${payrollPolicy?.employerPfPercent ? ` (${payrollPolicy.employerPfPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={String(employee.salary?.employer_pf ?? 0)} onChange={(value) => handleInlineEditChange(employee.id, 'employerPf', value)} />
+                                <Field label="Employee PF" help={`Provident fund deducted from employee salary${payrollPolicy?.staffPfPercent ? ` (${payrollPolicy.staffPfPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={String(employee.salary?.staff_pf ?? 0)} onChange={(value) => handleInlineEditChange(employee.id, 'staffPf', value)} />
+                                <Field label="Tax Deduction" help={`Monthly tax deducted from salary${payrollPolicy?.taxPercent ? ` (${payrollPolicy.taxPercent}% of Basic)` : ''}. Auto-calculated but editable.`} type="number" value={String(employee.salary?.tax ?? 0)} onChange={(value) => handleInlineEditChange(employee.id, 'tax', value)} />
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={employee.is_active !== false}
+                                  onChange={(event) => handleInlineEditChange(employee.id, 'isActive', event.target.checked)}
+                                />
+                                Active employee
+                              </div>
+                              <div className="flex gap-2">
+                                <Button type="button" onClick={(e) => {
+                                  e.stopPropagation();
+                                  saveInlineEmployee(employee.id);
+                                }} disabled={isPending || !schemaReady}>
+                                  {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                                  Save Employee
+                                </Button>
+                                <Button type="button" variant="outline" onClick={() => setEditingEmployeeId(null)}>
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                              <div>
+                                <h4 className="text-sm font-semibold text-slate-950 mb-3">Salary Components</h4>
+                                <div className="space-y-2">
+                                  <div className="flex justify-between items-center text-sm gap-2">
+                                    <span className="text-slate-600">Basic</span>
+                                    <span className="font-medium text-slate-900">{currency(numberValue(employee.salary?.basic))}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-sm gap-2">
+                                    <span className="text-slate-600">Housing</span>
+                                    <span className="font-medium text-slate-900">{currency(numberValue(employee.salary?.housing))}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-sm gap-2">
+                                    <span className="text-slate-600">Medical</span>
+                                    <span className="font-medium text-slate-900">{currency(numberValue(employee.salary?.medical))}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-sm gap-2">
+                                    <span className="text-slate-600">Conveyance</span>
+                                    <span className="font-medium text-slate-900">{currency(numberValue(employee.salary?.conveyance))}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
+                                    <span className="text-slate-700">SubTotal</span>
+                                    <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.subTotal)}</span>
+                                  </div>
                                 </div>
-                                <div className="flex justify-between items-center text-sm gap-2">
-                                  <span className="text-slate-600">Housing</span>
-                                  <Input
-                                    type="number"
-                                    value={numberValue(employee.salary?.housing)}
-                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'housing', e.target.value)}
-                                    className="h-8 w-32 text-right"
-                                  />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-semibold text-slate-950 mb-3">Additions</h4>
+                                <div className="space-y-2">
+                                  <div className="flex justify-between items-center text-sm gap-2">
+                                    <span className="text-slate-600">PF (Org Part)</span>
+                                    <span className="font-medium text-slate-900">{currency(numberValue(employee.salary?.employer_pf))}</span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-slate-600">Bonus</span>
+                                    <span className="font-medium">-</span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-slate-600">Arrear</span>
+                                    <span className="font-medium">-</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
+                                    <span className="text-slate-700">Total Salary</span>
+                                    <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.totalSalary)}</span>
+                                  </div>
                                 </div>
-                                <div className="flex justify-between items-center text-sm gap-2">
-                                  <span className="text-slate-600">Medical</span>
-                                  <Input
-                                    type="number"
-                                    value={numberValue(employee.salary?.medical)}
-                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'medical', e.target.value)}
-                                    className="h-8 w-32 text-right"
-                                  />
-                                </div>
-                                <div className="flex justify-between items-center text-sm gap-2">
-                                  <span className="text-slate-600">Conveyance</span>
-                                  <Input
-                                    type="number"
-                                    value={numberValue(employee.salary?.conveyance)}
-                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'conveyance', e.target.value)}
-                                    className="h-8 w-32 text-right"
-                                  />
-                                </div>
-                                <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
-                                  <span className="text-slate-700">SubTotal</span>
-                                  <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.subTotal)}</span>
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-semibold text-slate-950 mb-3">Deductions</h4>
+                                <div className="space-y-2">
+                                  <div className="flex justify-between items-center text-sm gap-2">
+                                    <span className="text-slate-600">PF Total</span>
+                                    <span className="font-medium text-slate-900">{currency(summary.pfTotal)}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-sm gap-2">
+                                    <span className="text-slate-600">Tax</span>
+                                    <span className="font-medium text-slate-900">{currency(numberValue(employee.salary?.tax))}</span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-slate-600">Loan Installment</span>
+                                    <span className="font-medium">-</span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-slate-600">Loan Interest</span>
+                                    <span className="font-medium">-</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
+                                    <span className="text-slate-700">Total Deductions</span>
+                                    <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.totalDeductions)}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
+                                    <span className="text-emerald-700">Net Pay</span>
+                                    <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">{currency(summary.netPayable)}</span>
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                            <div>
-                              <h4 className="text-sm font-semibold text-slate-950 mb-3">Additions</h4>
-                              <div className="space-y-2">
-                                <div className="flex justify-between items-center text-sm gap-2">
-                                  <span className="text-slate-600">PF (Org Part)</span>
-                                  <Input
-                                    type="number"
-                                    value={numberValue(employee.salary?.employer_pf)}
-                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'employer_pf', e.target.value)}
-                                    className="h-8 w-32 text-right"
-                                  />
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-600">Bonus</span>
-                                  <span className="font-medium">-</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-600">Arrear</span>
-                                  <span className="font-medium">-</span>
-                                </div>
-                                <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
-                                  <span className="text-slate-700">Total Salary</span>
-                                  <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.totalSalary)}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div>
-                              <h4 className="text-sm font-semibold text-slate-950 mb-3">Deductions</h4>
-                              <div className="space-y-2">
-                                <div className="flex justify-between items-center text-sm gap-2">
-                                  <span className="text-slate-600">PF Total</span>
-                                  <Input
-                                    type="number"
-                                    value={summary.pfTotal}
-                                    onChange={(e) => {
-                                      const newPfTotal = numberValue(e.target.value)
-                                      const staffPf = newPfTotal - numberValue(employee.salary?.employer_pf)
-                                      handleEmployeeSalaryChange(employee.id, 'staff_pf', String(staffPf))
-                                    }}
-                                    className="h-8 w-32 text-right"
-                                  />
-                                </div>
-                                <div className="flex justify-between items-center text-sm gap-2">
-                                  <span className="text-slate-600">Tax</span>
-                                  <Input
-                                    type="number"
-                                    value={numberValue(employee.salary?.tax)}
-                                    onChange={(e) => handleEmployeeSalaryChange(employee.id, 'tax', e.target.value)}
-                                    className="h-8 w-32 text-right"
-                                  />
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-600">Loan Installment</span>
-                                  <span className="font-medium">-</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                  <span className="text-slate-600">Loan Interest</span>
-                                  <span className="font-medium">-</span>
-                                </div>
-                                <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
-                                  <span className="text-slate-700">Total Deductions</span>
-                                  <span className="bg-slate-100 px-2 py-1 rounded">{currency(summary.totalDeductions)}</span>
-                                </div>
-                                <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
-                                  <span className="text-emerald-700">Net Pay</span>
-                                  <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">{currency(summary.netPayable)}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="mt-4 flex justify-end">
-                            <Button type="button" onClick={(e) => {
-                              e.stopPropagation();
-                              setEmployeeForm(employeeToForm(employee));
-                              saveEmployee();
-                            }} disabled={isPending}>
-                              {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                              Save Employee
-                            </Button>
-                          </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -962,11 +1045,11 @@ export function PayrollManager({
             </CardContent>
           </Card>
 
-          {/* Add/Edit Employee Form */}
-          {isAddEmployeeFormOpen || employeeForm.employeeId ? (
+          {/* Add New Employee Form */}
+          {isAddEmployeeFormOpen ? (
             <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
               <CardHeader>
-                <CardTitle>{employeeForm.employeeId ? "Edit Employee" : "Add Employee"}</CardTitle>
+                <CardTitle>Add Employee</CardTitle>
                 <p className="text-sm text-slate-500">Keep employee details and regular salary amounts in one simple form.</p>
               </CardHeader>
               <CardContent className="space-y-4">

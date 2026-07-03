@@ -472,19 +472,41 @@ function AppSidebar({
         <ClientSwitcher clients={clients} currentClient={currentClient} />
       </SidebarHeader>
 
-      <SidebarContent className="gap-1 px-2 py-3">
+      <SidebarContent className="gap-0 px-2 py-1">
         <NavSection label="Workspace" items={workspaceItems} pathname={pathname} />
 
         {currentClient && (
           <>
             <SidebarSeparator />
             <ClientModuleSection clientId={currentClient.id} pathname={pathname} />
-            <NavSection label="Organization Settings" items={clientSettingsItems(currentClient.id)} pathname={pathname} />
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <CollapsibleNavGroup
+                    label="Organization Settings"
+                    icon={Settings2}
+                    items={clientSettingsItems(currentClient.id)}
+                    pathname={pathname}
+                  />
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
           </>
         )}
 
         <SidebarSeparator />
-        <NavSection label="Administration" items={adminItems} pathname={pathname} />
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <CollapsibleNavGroup
+                label="Administration"
+                icon={Users}
+                items={adminItems}
+                pathname={pathname}
+              />
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter className="border-t border-slate-200 p-3">

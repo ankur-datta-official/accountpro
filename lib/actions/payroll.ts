@@ -1040,3 +1040,112 @@ export async function postPayrollPaymentAction(input: z.input<typeof postPayment
   revalidatePayrollPaths(client.id, payrollRun.id)
   return { success: true as const, voucherId: result.voucherId, voucherNo: result.voucherNo }
 }
+
+export async function savePayrollPolicyAction(input: {
+  clientId: string
+  housingPercent: number
+  medicalPercent: number
+  conveyancePercent: number
+  employerPfPercent: number
+  staffPfPercent: number
+  taxPercent: number
+}) {
+  const supabase = createClient()
+  const context = await getAuthorizedClient(input.clientId)
+  if (!context.success) return context
+
+  const { supabase: sb, client } = context
+
+  const { data: existing } = await sb
+    .from('payroll_policies')
+    .select('id')
+    .eq('client_id', client.id)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await sb
+      .from('payroll_policies')
+      .update({
+        housing_percent: input.housingPercent,
+        medical_percent: input.medicalPercent,
+        conveyance_percent: input.conveyancePercent,
+        employer_pf_percent: input.employerPfPercent,
+        staff_pf_percent: input.staffPfPercent,
+        tax_percent: input.taxPercent,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+
+    if (error) {
+      return { success: false as const, error: error.message }
+    }
+  } else {
+    const { error } = await sb
+      .from('payroll_policies')
+      .insert({
+        client_id: client.id,
+        housing_percent: input.housingPercent,
+        medical_percent: input.medicalPercent,
+        conveyance_percent: input.conveyancePercent,
+        employer_pf_percent: input.employerPfPercent,
+        staff_pf_percent: input.staffPfPercent,
+        tax_percent: input.taxPercent,
+      })
+
+    if (error) {
+      return { success: false as const, error: error.message }
+    }
+  }
+
+  revalidatePayrollPaths(client.id)
+  return { success: true as const }
+}
+
+export async function savePayrollAccountMappingsAction(input: {
+  clientId: string
+  mappings: Array<{ componentCode: string; accountHeadId: string }>
+}) {
+  const supabase = createClient()
+  const context = await getAuthorizedClient(input.clientId)
+  if (!context.success) return context
+
+  const { supabase: sb, client } = context
+
+  for (const mapping of input.mappings) {
+    const { data: existing } = await sb
+      .from('payroll_account_mappings')
+      .select('id')
+      .eq('client_id', client.id)
+      .eq('component_code', mapping.componentCode)
+      .maybeSingle()
+
+    if (existing) {
+      const { error } = await sb
+        .from('payroll_account_mappings')
+        .update({
+          account_head_id: mapping.accountHeadId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+
+      if (error) {
+        return { success: false as const, error: error.message }
+      }
+    } else {
+      const { error } = await sb
+        .from('payroll_account_mappings')
+        .insert({
+          client_id: client.id,
+          component_code: mapping.componentCode,
+          account_head_id: mapping.accountHeadId,
+        })
+
+      if (error) {
+        return { success: false as const, error: error.message }
+      }
+    }
+  }
+
+  revalidatePayrollPaths(client.id)
+  return { success: true as const }
+}
