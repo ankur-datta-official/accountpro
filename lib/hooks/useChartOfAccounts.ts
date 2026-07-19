@@ -2,6 +2,7 @@
 
 import { useMemo } from "react"
 
+import { buildSafeAccountHeadForest } from "@/lib/accounting/account-head-integrity"
 import { fetchWithAccessToken, useAppQuery } from "@/lib/query"
 import type {
   AccountGroup,
@@ -58,27 +59,6 @@ export type ChartFlatAccount = {
 
 function buildAccountLabel(path: string[]) {
   return path.join(" > ")
-}
-
-function buildHeadTree(heads: AccountHead[], parentId: string | null, path: string[] = [], level = 0): ChartTreeHead[] {
-  return heads
-    .filter((head) => (head.parent_id ?? null) === parentId)
-    .sort((left, right) => {
-      const orderDiff = Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0)
-      return orderDiff !== 0 ? orderDiff : left.name.localeCompare(right.name)
-    })
-    .map((head) => {
-      const nextPath = [...path, head.name]
-      const children = buildHeadTree(heads, head.id, nextPath, level + 1)
-
-      return {
-        ...head,
-        children,
-        path: nextPath,
-        level,
-        isLeaf: children.length === 0,
-      }
-    })
 }
 
 function flattenPostingAccounts(
@@ -149,10 +129,9 @@ export function useChartOfAccounts(clientId: string) {
             .filter((subGroup) => subGroup.semi_sub_id === semiSubGroup.id)
             .map((subGroup) => ({
               ...subGroup,
-              heads: buildHeadTree(
+              heads: buildSafeAccountHeadForest(
                 accountHeads.filter((head) => head.sub_group_id === subGroup.id),
-                null
-              ),
+              ) as ChartTreeHead[],
             })),
         })),
     }))

@@ -214,11 +214,6 @@ export function AddAccountHeadDialog({
     [head, selectedTreeSubGroup]
   )
 
-  const selectedParentOption = useMemo(
-    () => parentOptions.find((option) => option.id === selectedParentAccountHeadId) ?? null,
-    [parentOptions, selectedParentAccountHeadId]
-  )
-
   const onSubmit = async (values: AccountHeadFormValues) => {
     setIsSubmitting(true)
     const supabase = createClient()

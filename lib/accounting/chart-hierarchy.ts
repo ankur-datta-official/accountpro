@@ -5,6 +5,7 @@ import type {
   AccountSemiSubGroup,
   AccountSubGroup,
 } from "@/lib/types"
+import { getAccountHeadPath } from "@/lib/accounting/account-head-integrity"
 
 export type ChartHierarchyNode = AccountHead & {
   children: ChartHierarchyNode[]
@@ -41,9 +42,11 @@ export function getHierarchyPath(nodes: ChartHierarchyNode[], nodeId: string | n
   const nodeMap = buildNodeMap(nodes)
   const path: ChartHierarchyNode[] = []
   let current = nodeMap.get(nodeId) ?? null
+  const visited = new Set<string>()
 
-  while (current) {
+  while (current && !visited.has(current.id)) {
     path.unshift(current)
+    visited.add(current.id)
     current = current.parent_id ? nodeMap.get(current.parent_id) ?? null : null
   }
 
@@ -94,20 +97,7 @@ export type ResolvedAccountHierarchy = {
 }
 
 function getParentPath(head: AccountHead, allHeads: AccountHead[]) {
-  const path: string[] = [head.name]
-  let current = head
-
-  while (current.parent_id) {
-    const parent = allHeads.find((candidate) => candidate.id === current.parent_id)
-    if (!parent) {
-      break
-    }
-
-    path.unshift(parent.name)
-    current = parent
-  }
-
-  return path
+  return getAccountHeadPath({ head, heads: allHeads }).map((node) => node.name)
 }
 
 function getParentRootType(head: AccountHead, allHeads: AccountHead[]): AccountGroupType {

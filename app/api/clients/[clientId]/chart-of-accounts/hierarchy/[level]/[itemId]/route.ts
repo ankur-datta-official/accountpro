@@ -10,6 +10,10 @@ function createServiceRoleClient() {
   return supabaseAdmin
 }
 
+function conflict(message: string) {
+  return NextResponse.json({ error: message }, { status: 409 })
+}
+
 function isHierarchyLevel(value: string): value is HierarchyLevel {
   return value === "group" || value === "category" || value === "sub-category"
 }
@@ -71,10 +75,7 @@ export async function DELETE(
     }
 
     if ((categoryCount ?? 0) > 0) {
-      return NextResponse.json(
-        { error: "This account group still has categories inside it. Remove those first." },
-        { status: 400 }
-      )
+      return conflict("This account group still has categories inside it. Remove those first.")
     }
 
     const { error: deleteError } = await supabase
@@ -113,10 +114,7 @@ export async function DELETE(
     }
 
     if ((subCategoryCount ?? 0) > 0) {
-      return NextResponse.json(
-        { error: "This category still has sub-categories inside it. Remove those first." },
-        { status: 400 }
-      )
+      return conflict("This category still has sub-categories inside it. Remove those first.")
     }
 
     const { error: deleteError } = await supabase
@@ -160,10 +158,7 @@ export async function DELETE(
     .map((head) => head.id)
 
   if (activeHeadIds.length > 0) {
-    return NextResponse.json(
-      { error: "This sub-category still has account heads inside it. Remove those first." },
-      { status: 400 }
-    )
+    return conflict("This sub-category still has account heads inside it. Remove those first.")
   }
 
   const archivedHeadIds = subgroupHeads
@@ -190,12 +185,8 @@ export async function DELETE(
     }
 
     if ((voucherUsageCount ?? 0) > 0 || (mappingUsageCount ?? 0) > 0) {
-      return NextResponse.json(
-        {
-          error:
-            "This sub-category only has archived account heads left, but they are still linked to vouchers or payroll mappings.",
-        },
-        { status: 400 }
+      return conflict(
+        "This sub-category only has archived account heads left, but they are still linked to vouchers or payroll mappings."
       )
     }
 

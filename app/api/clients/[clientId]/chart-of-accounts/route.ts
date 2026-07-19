@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { validateParentAssignment } from "@/lib/accounting/account-head-integrity"
 import { canWriteClientData, getAuthorizedClient } from "@/lib/api-auth"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import type { AccountGroupType, AccountHead } from "@/lib/types"
@@ -22,6 +23,10 @@ const createAccountHeadSchema = z.object({
 
 function createServiceRoleClient() {
   return supabaseAdmin
+}
+
+function conflict(message: string) {
+  return NextResponse.json({ error: message }, { status: 409 })
 }
 
 async function getGroupType(
@@ -242,6 +247,27 @@ export async function POST(
     return NextResponse.json({ error: "Sub-group is required." }, { status: 400 })
   }
 
+  const { data: siblingHeads, error: siblingHeadError } = await supabase
+    .from("account_heads")
+    .select("*")
+    .eq("client_id", client.id)
+    .eq("sub_group_id", subGroupId)
+
+  if (siblingHeadError) {
+    return NextResponse.json({ error: siblingHeadError.message }, { status: 400 })
+  }
+
+  const parentValidation = validateParentAssignment({
+    parentId: values.parentAccountHeadId ?? null,
+    clientId: client.id,
+    subGroupId,
+    heads: (siblingHeads ?? []) as AccountHead[],
+  })
+
+  if (!parentValidation.ok) {
+    return conflict(parentValidation.message)
+  }
+
   const { data: existingHead } = await supabase
     .from("account_heads")
     .select("id")
@@ -252,18 +278,15 @@ export async function POST(
     .maybeSingle()
 
   if (existingHead) {
-    return NextResponse.json(
-      { error: "An account head with this name already exists under the selected sub-group." },
-      { status: 400 }
+    return conflict(
+      "An account head with this name already exists under the selected sub-group."
     )
   }
 
-  const { count } = await supabase
-    .from("account_heads")
-    .select("id", { count: "exact", head: true })
-    .eq("client_id", client.id)
-    .eq("sub_group_id", subGroupId)
-    .eq("parent_id", values.parentAccountHeadId ?? null)
+  const typedSiblingHeads = (siblingHeads ?? []) as AccountHead[]
+  const parentCount = values.parentAccountHeadId
+    ? typedSiblingHeads.filter((head) => head.parent_id === values.parentAccountHeadId).length
+    : typedSiblingHeads.filter((head) => (head.parent_id ?? null) === null).length
 
   const { data: newHead, error } = await supabase
     .from("account_heads")
@@ -276,7 +299,7 @@ export async function POST(
       opening_balance: values.nodeType === "posting" ? values.openingBalance : 0,
       balance_type: values.nodeType === "posting" ? (values.balanceType ?? "debit") : null,
       is_active: true,
-      sort_order: count ?? 0,
+      sort_order: parentCount,
     })
     .select("*")
     .single()
