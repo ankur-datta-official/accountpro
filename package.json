@@ -15,7 +15,8 @@
     "test:reversal": "node --test tests/reversal-integrity.test.mjs",
     "test:vouchers": "node --test tests/voucher-integrity.test.mjs",
     "test:reports": "node --test tests/report-integrity.test.mjs",
-    "test:payroll": "node --test tests/payroll-integrity.test.mjs"
+    "test:payroll": "node --test tests/payroll-integrity.test.mjs",
+    "test:salary-certificate": "node --test tests/salary-certificate.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

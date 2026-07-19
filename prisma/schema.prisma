@@ -77,6 +77,7 @@ model Client {
   payrollRuns          PayrollRun[]
   payrollAccountMappings PayrollAccountMapping[]
   payrollPolicy         PayrollPolicy?
+  salaryCertificates    SalaryCertificate[]
 
   @@map("clients")
 }
@@ -93,6 +94,7 @@ model FiscalYear {
   client      Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
   vouchers    Voucher[]
   payrollRuns PayrollRun[]
+  salaryCertificates SalaryCertificate[]
 
   @@map("fiscal_years")
 }
@@ -276,6 +278,7 @@ model PayrollEmployee {
   client           Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   salaryStructures PayrollSalaryStructure[]
   runItems         PayrollRunItem[]
+  salaryCertificates SalaryCertificate[]
 
   @@unique([clientId, employeeCode])
   @@index([clientId, isActive], map: "idx_payroll_employees_client_active")
@@ -398,4 +401,26 @@ model PayrollPolicy {
   @@unique([clientId])
   @@index([clientId], map: "idx_payroll_policies_client")
   @@map("payroll_policies")
+}
+
+model SalaryCertificate {
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId      String           @map("client_id") @db.Uuid
+  employeeId    String?          @map("employee_id") @db.Uuid
+  fiscalYearId  String           @map("fiscal_year_id") @db.Uuid
+  certificateNo String           @map("certificate_no")
+  issueDate     DateTime         @map("issue_date") @db.Date
+  generatedBy   String?          @map("generated_by") @db.Uuid
+  generatedAt   DateTime?        @default(now()) @map("generated_at") @db.Timestamptz(6)
+  status        String           @default("draft")
+  snapshotJson  Json             @map("snapshot_json")
+  client        Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  employee      PayrollEmployee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  fiscalYear    FiscalYear       @relation(fields: [fiscalYearId], references: [id])
+
+  @@unique([clientId, certificateNo])
+  @@index([clientId, fiscalYearId], map: "idx_salary_certificates_client_fy")
+  @@index([clientId, employeeId], map: "idx_salary_certificates_client_employee")
+  @@index([status], map: "idx_salary_certificates_status")
+  @@map("salary_certificates")
 }

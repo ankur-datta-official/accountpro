@@ -25,6 +25,7 @@ export type VoucherType =
 export type PayrollRunStatus = "draft" | "reviewed" | "posted" | "paid" | "cancelled"
 export type PayrollRunSource = "manual" | "import"
 export type PayrollComponentKind = "earning" | "employer_contribution" | "deduction"
+export type SalaryCertificateStatus = "draft" | "issued" | "cancelled"
 
 export interface Database {
   public: {
@@ -764,6 +765,45 @@ export interface Database {
           tax_percent?: number | null
           created_at?: string | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      salary_certificates: {
+        Row: {
+          id: string
+          client_id: string
+          employee_id: string | null
+          fiscal_year_id: string
+          certificate_no: string
+          issue_date: string
+          generated_by: string | null
+          generated_at: string | null
+          status: SalaryCertificateStatus
+          snapshot_json: Record<string, unknown>
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          employee_id?: string | null
+          fiscal_year_id: string
+          certificate_no: string
+          issue_date: string
+          generated_by?: string | null
+          generated_at?: string | null
+          status?: SalaryCertificateStatus
+          snapshot_json: Record<string, unknown>
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          employee_id?: string | null
+          fiscal_year_id?: string
+          certificate_no?: string
+          issue_date?: string
+          generated_by?: string | null
+          generated_at?: string | null
+          status?: SalaryCertificateStatus
+          snapshot_json?: Record<string, unknown>
         }
         Relationships: []
       }

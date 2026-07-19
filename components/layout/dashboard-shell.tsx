@@ -17,6 +17,7 @@ import {
   Plus,
   ReceiptText,
   BadgeDollarSign,
+  FileBadge2,
   ScrollText,
   Search,
   Settings,
@@ -123,6 +124,7 @@ const booksOfAccountsItems = (clientId: string): NavItem[] => [
 const financialStatementItems = (clientId: string): NavItem[] => [
   { href: `/clients/${clientId}/balance-sheet`, label: "Balance Sheet", icon: Landmark },
   { href: `/clients/${clientId}/profit-loss`, label: "Profit & Loss", icon: LineChart },
+  { href: `/clients/${clientId}/salary-certificates`, label: "Salary Certificates", icon: FileBadge2 },
 ]
 
 const clientSettingsItems = (clientId: string): NavItem[] => [
@@ -178,6 +180,7 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
       [`${clientPath}/payroll`, "Payroll"],
       [`${clientPath}/balance-sheet`, "Balance Sheet"],
       [`${clientPath}/profit-loss`, "Profit & Loss"],
+      [`${clientPath}/salary-certificates`, "Salary Certificates"],
       [`${clientPath}/bank-statements`, "Bank Statements"],
       [`${clientPath}/settings/fiscal-years`, "Fiscal Years"],
       [`${clientPath}/settings/payment-modes`, "Payment Modes"],
@@ -192,6 +195,7 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
       [`${legacyClientPath}/payroll`, "Payroll"],
       [`${legacyClientPath}/balance-sheet`, "Balance Sheet"],
       [`${legacyClientPath}/profit-loss`, "Profit & Loss"],
+      [`${legacyClientPath}/salary-certificates`, "Salary Certificates"],
       [`${legacyClientPath}/bank-statements`, "Bank Statements"],
       [`${legacyClientPath}/settings/fiscal-years`, "Fiscal Years"],
       [`${legacyClientPath}/settings/payment-modes`, "Payment Modes"],
