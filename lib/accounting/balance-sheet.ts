@@ -31,6 +31,7 @@ export type BalanceSheetPeriod = {
     totalLiabilitiesEquity: number
   }
   netProfitLoss: number
+  openingRetainedEarnings: number
   retainedEarnings: number
 }
 
@@ -62,7 +63,7 @@ function toLineItem(row: TrialBalanceRow): LineItem {
   return { label: row.accountHeadName, amount }
 }
 
-function buildStatementFromRows(
+export function buildStatementFromRows(
   rows: TrialBalanceRow[],
   fiscalYear: { id: string; label: string; end_date: string },
   retainedEarningsFromPrevious: number
@@ -120,14 +121,15 @@ function buildStatementFromRows(
   const totalIncome = incomeRows.reduce((acc, row) => acc + Math.max(0, signedByGroup(row)), 0)
   const totalExpense = expenseRows.reduce((acc, row) => acc + Math.max(0, signedByGroup(row)), 0)
   const netProfitLoss = totalIncome - totalExpense
-  const retainedEarnings = retainedEarningsFromPrevious + netProfitLoss
+  const openingRetainedEarnings = retainedEarningsFromPrevious
+  const retainedEarnings = openingRetainedEarnings + netProfitLoss
 
   const equityLines: LineItem[] = [
     ...shareCapital,
-    { label: "Retained Earnings", amount: retainedEarnings },
+    { label: "Retained Earnings", amount: openingRetainedEarnings },
     {
       label: `Current Year Net ${netProfitLoss >= 0 ? "Profit" : "Loss"}`,
-      amount: Math.abs(netProfitLoss),
+      amount: netProfitLoss,
     },
   ]
 
@@ -185,6 +187,7 @@ function buildStatementFromRows(
       totalLiabilitiesEquity,
     },
     netProfitLoss,
+    openingRetainedEarnings,
     retainedEarnings,
   }
 }

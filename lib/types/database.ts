@@ -316,6 +316,7 @@ export interface Database {
           type: PaymentModeType | null
           account_no: string | null
           is_active: boolean | null
+          account_head_id: string | null
         }
         Insert: {
           id?: string
@@ -324,6 +325,7 @@ export interface Database {
           type?: PaymentModeType | null
           account_no?: string | null
           is_active?: boolean | null
+          account_head_id?: string | null
         }
         Update: {
           id?: string
@@ -332,6 +334,7 @@ export interface Database {
           type?: PaymentModeType | null
           account_no?: string | null
           is_active?: boolean | null
+          account_head_id?: string | null
         }
         Relationships: []
       }
@@ -349,6 +352,12 @@ export interface Database {
           show_supporting_documents: boolean | null
           month_label: string | null
           is_posted: boolean | null
+          is_reversal: boolean
+          reversal_reason: string | null
+          reversed_at: string | null
+          reversed_by: string | null
+          reversed_voucher_id: string | null
+          reversal_voucher_id: string | null
           created_by: string | null
           created_at: string | null
           updated_at: string | null
@@ -366,6 +375,12 @@ export interface Database {
           show_supporting_documents?: boolean | null
           month_label?: string | null
           is_posted?: boolean | null
+          is_reversal?: boolean
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          reversed_by?: string | null
+          reversed_voucher_id?: string | null
+          reversal_voucher_id?: string | null
           created_by?: string | null
           created_at?: string | null
           updated_at?: string | null
@@ -383,6 +398,12 @@ export interface Database {
           show_supporting_documents?: boolean | null
           month_label?: string | null
           is_posted?: boolean | null
+          is_reversal?: boolean
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          reversed_by?: string | null
+          reversed_voucher_id?: string | null
+          reversal_voucher_id?: string | null
           created_by?: string | null
           created_at?: string | null
           updated_at?: string | null

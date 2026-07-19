@@ -5,53 +5,31 @@ import { cache } from "react"
 import type { User } from "@supabase/supabase-js"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-import { getSupabaseEnv } from "@/lib/supabase/env"
+import { requireSupabasePublicEnv } from "@/lib/supabase/env"
 import type { Organization, OrganizationMember } from "@/lib/types"
 import type { Database } from "@/lib/types/database"
 
 export async function createClient(): Promise<SupabaseClient<Database>> {
   const cookieStore = await cookies()
-  const supabaseEnv = getSupabaseEnv()
+  const supabaseEnv = requireSupabasePublicEnv()
 
-  if (!supabaseEnv) {
-    // Mock client for when Supabase isn't configured
-    return {
-      auth: {
-        getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+  return createServerClient<Database>(supabaseEnv.supabaseUrl, supabaseEnv.supabaseAnonKey, {
+    cookies: {
+      get(name) {
+        return cookieStore.get(name)?.value
       },
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            maybeSingle: () => Promise.resolve({ data: null, error: null }),
-            limit: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
-            order: () => ({ limit: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }),
-          }),
-        }),
-      }),
-    } as unknown as SupabaseClient<Database>
-  }
-
-  return createServerClient<Database>(
-    supabaseEnv.supabaseUrl,
-    supabaseEnv.supabaseAnonKey,
-    {
-      cookies: {
-        get(name) {
-          return cookieStore.get(name)?.value
-        },
-        set(name, value, options) {
-          try {
-            cookieStore.set({ name, value, ...options })
-          } catch {}
-        },
-        remove(name, options) {
-          try {
-            cookieStore.set({ name, value: "", ...options })
-          } catch {}
-        },
+      set(name, value, options) {
+        try {
+          cookieStore.set({ name, value, ...options })
+        } catch {}
       },
-    }
-  )
+      remove(name, options) {
+        try {
+          cookieStore.set({ name, value: "", ...options })
+        } catch {}
+      },
+    },
+  })
 }
 
 type OrganizationContext = {
@@ -61,24 +39,14 @@ type OrganizationContext = {
 }
 
 export const getCurrentOrganizationContext = cache(async function getCurrentOrganizationContext(): Promise<OrganizationContext> {
-  const supabaseEnv = getSupabaseEnv()
-
-  if (!supabaseEnv) {
-    return {
-      membership: null,
-      organization: null,
-      user: null,
-    }
-  }
-
   const supabase = await createClient()
-  
+
   let user: User | null = null
   try {
     const { data } = await supabase.auth.getUser()
     user = data.user
   } catch {
-    // ignore
+    user = null
   }
 
   if (!user) {
@@ -100,7 +68,7 @@ export const getCurrentOrganizationContext = cache(async function getCurrentOrga
       .maybeSingle()
     membership = data
   } catch {
-    // ignore
+    membership = null
   }
 
   if (!membership?.org_id) {
@@ -120,7 +88,7 @@ export const getCurrentOrganizationContext = cache(async function getCurrentOrga
       .maybeSingle()
     organization = data
   } catch {
-    // ignore
+    organization = null
   }
 
   return {

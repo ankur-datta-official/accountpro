@@ -3,8 +3,37 @@ import type { Client, OrganizationMember, OrganizationMemberRole } from "./types
 import { extractClientIdFromRouteSegment, isUuid, matchesClientRouteSegment } from "./routing/clients"
 import { supabaseAdmin } from "./supabase/admin"
 
+export type ClientAuthorizationState =
+  | { ok: true }
+  | { ok: false; status: 401; error: "Unauthorized." }
+  | { ok: false; status: 404; error: "Client not found." }
+
 function createServiceRoleClient() {
   return supabaseAdmin
+}
+
+export function getClientAuthorizationState(input: {
+  user: unknown
+  membershipOrgId: string | null | undefined
+  client: unknown
+}): ClientAuthorizationState {
+  if (!input.user) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Unauthorized.",
+    }
+  }
+
+  if (!input.membershipOrgId || !input.client) {
+    return {
+      ok: false,
+      status: 404,
+      error: "Client not found.",
+    }
+  }
+
+  return { ok: true }
 }
 
 export async function getAuthorizedClient(
@@ -18,7 +47,16 @@ export async function getAuthorizedClient(
   } = await supabase.auth.getUser(accessToken)
 
   if (!user) {
-    return { user: null, membership: null, client: null }
+    return {
+      user: null,
+      membership: null,
+      client: null,
+      authorization: getClientAuthorizationState({
+        user: null,
+        membershipOrgId: null,
+        client: null,
+      }),
+    }
   }
 
   const { data: membership } = await supabase
@@ -34,6 +72,11 @@ export async function getAuthorizedClient(
       user,
       membership: null,
       client: null,
+      authorization: getClientAuthorizationState({
+        user,
+        membershipOrgId: null,
+        client: null,
+      }),
     }
   }
 
@@ -50,7 +93,16 @@ export async function getAuthorizedClient(
         await supabase.from("clients").select("*").eq("org_id", membership.org_id)
       ).data?.find((candidate: Client) => matchesClientRouteSegment(candidate, clientId)) ?? null
 
-  return { user, membership, client: (client ?? null) as Client | null }
+  return {
+    user,
+    membership,
+    client: (client ?? null) as Client | null,
+    authorization: getClientAuthorizationState({
+      user,
+      membershipOrgId: membership.org_id,
+      client,
+    }),
+  }
 }
 
 export function hasClientRole(

@@ -91,7 +91,6 @@ export function VoucherListManager({
 }) {
   const router = useRouter()
   const [selectedVoucherIds, setSelectedVoucherIds] = useState<string[]>([])
-  const [accountHeadSearch, setAccountHeadSearch] = useState("")
 
   const [isBulkPending, startBulkTransition] = useTransition()
   const { flatAccounts } = useChartOfAccounts(clientId)
@@ -124,7 +123,6 @@ export function VoucherListManager({
       page: 1,
     }))
     setSelectedVoucherIds([])
-    setAccountHeadSearch("")
   }, [defaultFrom, defaultTo, fiscalYearId])
 
   useEffect(() => {
@@ -168,8 +166,6 @@ export function VoucherListManager({
     Boolean(filters.search),
     filters.sortBy !== "date" || filters.sortOrder !== "desc",
   ].filter(Boolean).length
-  const selectedAccountLabel =
-    accountOptions.find((account) => account.id === filters.accountHeadId)?.label ?? accountHeadSearch
   const selectedTotals = useMemo(() => {
     const selectedItems = items.filter((item) => selectedVoucherIds.includes(item.id))
 
@@ -204,7 +200,6 @@ export function VoucherListManager({
       sortBy: "date",
       sortOrder: "desc",
     })
-    setAccountHeadSearch("")
     setSelectedVoucherIds([])
   }
 
@@ -389,11 +384,10 @@ export function VoucherListManager({
                 label: account.label,
               }))}
               value={filters.accountHeadId}
-              onChange={(newValue, option) => {
+              onChange={(newValue) => {
                 updateFilter("accountHeadId", newValue || undefined)
-                setAccountHeadSearch(option?.label ?? "")
               }}
-              onInputChange={(value) => setAccountHeadSearch(value)}
+              onInputChange={() => undefined}
               placeholder="Search account head"
             />
           </div>

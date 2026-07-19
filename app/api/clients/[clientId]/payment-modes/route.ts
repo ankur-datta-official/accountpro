@@ -2,7 +2,11 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { canWriteClientData, getAuthorizedClient } from "@/lib/api-auth"
-import { normalizePaymentModeName } from "@/lib/accounting/payment-modes"
+import {
+  normalizePaymentModeName,
+  syncPaymentModeAccountLink,
+  validateExplicitPaymentModeAccountHead,
+} from "@/lib/accounting/payment-modes"
 import { createPaymentModeAccountHeadForClient } from "@/lib/accounting/defaults"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import type { PaymentMode } from "@/lib/types"
@@ -12,6 +16,7 @@ const paymentModeSchema = z.object({
   type: z.enum(["bank", "cash", "mobile_banking", "other"]),
   account_no: z.string().optional().nullable(),
   is_active: z.boolean().default(true),
+  account_head_id: z.string().uuid().optional().nullable(),
 })
 
 function createServiceRoleClient() {
@@ -59,6 +64,16 @@ export async function POST(
   }
 
   const normalizedName = normalizePaymentModeName(parsed.data.name)
+  const explicitAccountHead = parsed.data.account_head_id
+    ? await validateExplicitPaymentModeAccountHead(supabase, {
+        clientId: client.id,
+        accountHeadId: parsed.data.account_head_id,
+      })
+    : null
+
+  if (explicitAccountHead && !explicitAccountHead.success) {
+    return NextResponse.json({ error: explicitAccountHead.error }, { status: 400 })
+  }
 
   const { data: existingModes } = await supabase
     .from("payment_modes")
@@ -82,6 +97,7 @@ export async function POST(
       type: parsed.data.type,
       account_no: parsed.data.account_no || null,
       is_active: parsed.data.is_active,
+      account_head_id: explicitAccountHead?.success ? explicitAccountHead.accountHead.id : null,
     })
     .select("*")
     .single()
@@ -93,7 +109,22 @@ export async function POST(
     )
   }
 
-  await createPaymentModeAccountHeadForClient(client.id, insertedMode.name, supabase)
+  if (!explicitAccountHead?.success) {
+    await createPaymentModeAccountHeadForClient(client.id, insertedMode.name, supabase)
+
+    const linkedMode = await syncPaymentModeAccountLink({
+      supabase,
+      clientId: client.id,
+      paymentMode: insertedMode,
+    })
+
+    if (!linkedMode.success) {
+      await supabase.from("payment_modes").delete().eq("id", insertedMode.id)
+      return NextResponse.json({ error: linkedMode.error }, { status: 400 })
+    }
+
+    return NextResponse.json({ success: true, paymentMode: linkedMode.paymentMode })
+  }
 
   return NextResponse.json({ success: true, paymentMode: insertedMode })
 }

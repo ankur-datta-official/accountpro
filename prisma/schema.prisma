@@ -157,6 +157,7 @@ model AccountHead {
   parent                 AccountHead?            @relation("AccountHeadHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children               AccountHead[]           @relation("AccountHeadHierarchy")
   voucherEntries         VoucherEntry[]
+  paymentModes           PaymentMode[]
   payrollAccountMappings PayrollAccountMapping[]
 
   @@index([clientId], map: "idx_account_heads_client")
@@ -172,9 +173,12 @@ model PaymentMode {
   type      String?   @default("bank")
   accountNo String?   @map("account_no")
   isActive  Boolean?  @default(true) @map("is_active")
+  accountHeadId String? @map("account_head_id") @db.Uuid
   client    Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  accountHead AccountHead? @relation(fields: [accountHeadId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   vouchers  Voucher[]
 
+  @@index([accountHeadId], map: "idx_payment_modes_account_head")
   @@map("payment_modes")
 }
 
@@ -189,12 +193,22 @@ model Voucher {
   description        String?
   monthLabel         String?             @map("month_label")
   isPosted           Boolean?            @default(true) @map("is_posted")
+  isReversal         Boolean             @default(false) @map("is_reversal")
+  reversalReason     String?             @map("reversal_reason")
+  reversedAt         DateTime?           @map("reversed_at") @db.Timestamptz(6)
+  reversedBy         String?             @map("reversed_by")
+  reversedVoucherId  String?             @map("reversed_voucher_id") @db.Uuid
+  reversalVoucherId  String?             @map("reversal_voucher_id") @db.Uuid
   createdBy          String?             @map("created_by") @db.Uuid
   createdAt          DateTime?           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime?           @default(now()) @map("updated_at") @db.Timestamptz(6)
   client             Client?             @relation(fields: [clientId], references: [id], onDelete: Cascade)
   fiscalYear         FiscalYear?         @relation(fields: [fiscalYearId], references: [id])
   paymentMode        PaymentMode?        @relation(fields: [paymentModeId], references: [id])
+  reversedVoucher    Voucher?            @relation("VoucherReversedFrom", fields: [reversedVoucherId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reversalVoucher    Voucher?            @relation("VoucherReversalLink", fields: [reversalVoucherId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reversalChildren   Voucher[]           @relation("VoucherReversedFrom")
+  reversalOrigins    Voucher[]           @relation("VoucherReversalLink")
   entries            VoucherEntry[]
   attachments        VoucherAttachment[]
   payrollAccrualRuns PayrollRun[]        @relation("PayrollAccrualVoucher")
@@ -203,6 +217,9 @@ model Voucher {
   @@unique([clientId, fiscalYearId, voucherNo])
   @@index([clientId, voucherDate], map: "idx_vouchers_client_date")
   @@index([clientId, fiscalYearId], map: "idx_vouchers_client_fy")
+  @@index([clientId, isReversal], map: "idx_vouchers_client_is_reversal")
+  @@index([reversedVoucherId], map: "idx_vouchers_reversed_voucher_id")
+  @@index([reversalVoucherId], map: "idx_vouchers_reversal_voucher_id")
   @@map("vouchers")
 }
 
