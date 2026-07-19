@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { canManageClient, getAuthorizedClient } from "@/lib/api-auth"
 import { replicateClientWorkspace } from "@/lib/accounting/client-replication"
+import { supabaseAdmin } from "@/lib/supabase/admin"
 
 const replicateClientSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
@@ -9,8 +11,9 @@ const replicateClientSchema = z.object({
 
 export async function POST(
   request: Request,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
+  const { clientId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -26,11 +29,29 @@ export async function POST(
     )
   }
 
+  const accessToken = authHeader.replace("Bearer ", "")
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, supabaseAdmin)
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  }
+
+  if (!client) {
+    return NextResponse.json({ error: "Client not found." }, { status: 404 })
+  }
+
+  if (!canManageClient(membership)) {
+    return NextResponse.json(
+      { error: "Only owners and admins can replicate clients." },
+      { status: 403 }
+    )
+  }
+
   try {
     const result = await replicateClientWorkspace({
-      sourceClientId: params.clientId,
+      sourceClientId: clientId,
       targetClientName: parsed.data.name,
-      accessToken: authHeader.replace("Bearer ", ""),
+      accessToken,
     })
 
     return NextResponse.json(result)

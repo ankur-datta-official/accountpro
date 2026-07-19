@@ -7,6 +7,7 @@ import {
   openingBalanceToSignedAmount,
   type LedgerEntryInput,
 } from "@/lib/accounting/ledger"
+import { resolveAccountHierarchy } from "@/lib/accounting/chart-hierarchy"
 import { keepPreviousData, useAppQuery } from "@/lib/query"
 import { createClient } from "@/lib/supabase/client"
 import type {
@@ -36,6 +37,7 @@ export type LedgerResult = {
     groupType: AccountGroupType
     semiSubGroupName: string
     subGroupName: string
+    path: string[]
   } | null
   openingBalanceAmount: number
   entries: ReturnType<typeof calculateLedgerBalance>["entries"]
@@ -49,9 +51,16 @@ export type LedgerResult = {
 async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
   const supabase = createClient()
 
-  const [{ data: accountHead }, { data: groups }, { data: semiSubGroups }, { data: subGroups }] =
+  const [
+    { data: accountHead },
+    { data: allAccountHeads },
+    { data: groups },
+    { data: semiSubGroups },
+    { data: subGroups },
+  ] =
     await Promise.all([
       supabase.from("account_heads").select("*").eq("id", filters.accountHeadId).maybeSingle(),
+      supabase.from("account_heads").select("*").eq("client_id", filters.clientId),
       supabase.from("account_groups").select("*").eq("client_id", filters.clientId),
       supabase.from("account_semi_sub_groups").select("*").eq("client_id", filters.clientId),
       supabase.from("account_sub_groups").select("*").eq("client_id", filters.clientId),
@@ -70,11 +79,16 @@ async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
     }
   }
 
-  const subGroup = (subGroups ?? []).find((item) => item.id === accountHead.sub_group_id) ?? null
-  const semiSubGroup = (semiSubGroups ?? []).find((item) => item.id === subGroup?.semi_sub_id) ?? null
-  const group = (groups ?? []).find((item) => item.id === semiSubGroup?.group_id) ?? null
-
-  const groupType = (group?.type ?? "asset") as AccountGroupType
+  const heads = allAccountHeads ?? []
+  const hierarchy = resolveAccountHierarchy(accountHead, {
+    accountHeads: heads,
+    groups: groups ?? [],
+    semiSubGroups: semiSubGroups ?? [],
+    subGroups: subGroups ?? [],
+  })
+  const groupType = hierarchy.groupType
+  const groupName = hierarchy.groupName
+  const path = hierarchy.path
   const balanceType = (accountHead.balance_type ?? "debit") as AccountHeadBalanceType
   const openingBalance = Number(accountHead.opening_balance ?? 0)
 
@@ -83,7 +97,7 @@ async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
     .select("*")
     .eq("client_id", filters.clientId)
     .eq("fiscal_year_id", filters.fiscalYearId)
-    .eq("is_posted", true)
+    .or("is_posted.eq.true,is_posted.is.null")
     .order("voucher_date", { ascending: true })
     .order("voucher_no", { ascending: true })
 
@@ -95,13 +109,13 @@ async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
     voucherQuery = voucherQuery.lte("voucher_date", filters.to)
   }
 
-  const { data: vouchers } = await voucherQuery
-  const voucherIds = (vouchers ?? []).map((voucher) => voucher.id)
+  const { data: vouchers } = await voucherQuery as { data: Database["public"]["Tables"]["vouchers"]["Row"][] | null }
+  const voucherIds = (vouchers ?? []).map((voucher: Database["public"]["Tables"]["vouchers"]["Row"]) => voucher.id)
   const paymentModeIds = Array.from(
-    new Set((vouchers ?? []).map((voucher) => voucher.payment_mode_id).filter(Boolean) as string[])
+    new Set((vouchers ?? []).map((voucher: Database["public"]["Tables"]["vouchers"]["Row"]) => voucher.payment_mode_id).filter(Boolean) as string[])
   )
 
-  const [{ data: voucherEntries }, { data: paymentModes }] = await Promise.all([
+  const [voucherEntriesResult, paymentModesResult] = await Promise.all([
     voucherIds.length
       ? supabase
           .from("voucher_entries")
@@ -118,41 +132,44 @@ async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
         }),
   ])
 
-  const voucherMap = new Map((vouchers ?? []).map((voucher) => [voucher.id, voucher]))
-  const paymentModeMap = new Map((paymentModes ?? []).map((mode) => [mode.id, mode.name]))
+  const voucherEntries = voucherEntriesResult.data as Database["public"]["Tables"]["voucher_entries"]["Row"][] | null
+  const paymentModes = paymentModesResult.data as Database["public"]["Tables"]["payment_modes"]["Row"][] | null
 
-  const rows = (voucherEntries ?? [])
-    .map<LedgerEntryRow | null>((entry) => {
-      const voucher = voucherMap.get(entry.voucher_id ?? "")
+  const voucherMap = new Map((vouchers ?? []).map((voucher: Database["public"]["Tables"]["vouchers"]["Row"]) => [voucher.id, voucher]))
+  const paymentModeMap = new Map((paymentModes ?? []).map((mode: Database["public"]["Tables"]["payment_modes"]["Row"]) => [mode.id, mode.name]))
 
-      if (!voucher) {
-        return null
-      }
+  const rows = (voucherEntries ?? []) as Database["public"]["Tables"]["voucher_entries"]["Row"][]
+  const mappedRows = rows.map<LedgerEntryRow | null>((entry) => {
+    const voucher = voucherMap.get(entry.voucher_id ?? "")
 
-      return {
-        id: entry.id,
-        date: voucher.voucher_date,
-        voucherNo: voucher.voucher_no,
-        voucherType: voucher.voucher_type as VoucherType,
-        paymentMode: paymentModeMap.get(voucher.payment_mode_id ?? "") ?? null,
-        description: entry.description || voucher.description,
-        debit: Number(entry.debit ?? 0),
-        credit: Number(entry.credit ?? 0),
-      }
-    })
-    .filter((row): row is LedgerEntryRow => Boolean(row))
-    .sort((left, right) => {
-      if (left.date === right.date) {
-        return left.voucherNo - right.voucherNo
-      }
+    if (!voucher) {
+      return null
+    }
 
-      return left.date.localeCompare(right.date)
-    })
+    return {
+      id: entry.id,
+      date: voucher.voucher_date,
+      voucherNo: voucher.voucher_no,
+      voucherType: voucher.voucher_type as VoucherType,
+      paymentMode: paymentModeMap.get(voucher.payment_mode_id ?? "") ?? null,
+      description: entry.description || voucher.description,
+      debit: Number(entry.debit ?? 0),
+      credit: Number(entry.credit ?? 0),
+    }
+  })
+  const filteredRows = mappedRows.filter((row): row is LedgerEntryRow => Boolean(row))
+  const sortedRows = filteredRows.sort((left: LedgerEntryRow, right: LedgerEntryRow) => {
+    if (left.date === right.date) {
+      return left.voucherNo - right.voucherNo
+    }
 
-  const bfRows = rows.filter((row) => row.voucherType === "bf")
-  const transactionRows = rows.filter((row) => row.voucherType !== "bf")
+    return left.date.localeCompare(right.date)
+  })
 
-  const bfOpeningSigned = bfRows.reduce((sum, row) => {
+  const bfRows = sortedRows.filter((row: LedgerEntryRow) => row.voucherType === "bf")
+  const transactionRows = sortedRows.filter((row: LedgerEntryRow) => row.voucherType !== "bf")
+
+  const bfOpeningSigned = bfRows.reduce((sum: number, row: LedgerEntryRow) => {
     const debitFirst = groupType === "asset" || groupType === "expense"
     return sum + (debitFirst ? row.debit - row.credit : row.credit - row.debit)
   }, 0)
@@ -181,23 +198,24 @@ async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
       name: accountHead.name,
       openingBalance: openingBalance,
       balanceType,
-      groupName: group?.name ?? "General",
+      groupName,
       groupType,
-      semiSubGroupName: semiSubGroup?.name ?? "",
-      subGroupName: subGroup?.name ?? "",
+      semiSubGroupName: hierarchy.semiSubGroupName,
+      subGroupName: hierarchy.subGroupName,
+      path,
     },
     openingBalanceAmount: effectiveOpeningSigned,
     entries,
     totals: {
-      debit: transactionRows.reduce((sum, row) => sum + row.debit, 0),
-      credit: transactionRows.reduce((sum, row) => sum + row.credit, 0),
+      debit: transactionRows.reduce((sum: number, row: LedgerEntryRow) => sum + row.debit, 0),
+      credit: transactionRows.reduce((sum: number, row: LedgerEntryRow) => sum + row.credit, 0),
       closingBalance,
     },
   }
 }
 
 export function useLedger(filters: LedgerFilters | null) {
-  const query = useAppQuery({
+  const query = useAppQuery<LedgerResult>({
     queryKey:
       filters?.clientId && filters?.accountHeadId && filters?.fiscalYearId
         ? [

@@ -1,5 +1,7 @@
-import { createServerClient } from "@supabase/ssr"
+import { createServerClient } from "@supabase/ssr/dist/module/createServerClient"
 import { NextResponse, type NextRequest } from "next/server"
+
+import { getSupabaseEnv } from "@/lib/supabase/env"
 
 const PUBLIC_AUTH_ROUTES = new Set(["/login", "/register"])
 const PROTECTED_ROUTE_PREFIXES = ["/clients", "/team", "/settings"]
@@ -14,16 +16,22 @@ function isProtectedRoute(pathname: string) {
   )
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({
     request: {
       headers: request.headers,
     },
   })
 
+  const supabaseEnv = getSupabaseEnv()
+
+  if (!supabaseEnv) {
+    return response
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseEnv.supabaseUrl,
+    supabaseEnv.supabaseAnonKey,
     {
       cookies: {
         get(name) {
@@ -51,9 +59,13 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch {
+    user = null
+  }
 
   const { pathname } = request.nextUrl
 

@@ -34,7 +34,7 @@ export function Autocomplete({
   const inputRef = React.useRef<HTMLInputElement>(null)
   const listRef = React.useRef<HTMLDivElement>(null)
 
-  const selectedOption = options.find((opt) => opt.id === value)
+
 
   const filteredOptions = options.filter((option) =>
     option.label.toLowerCase().includes(inputValue.toLowerCase())

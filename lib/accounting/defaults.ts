@@ -288,9 +288,7 @@ const chartOfAccounts: GroupDefinition[] = [
       },
       {
         name: "Advance Income Tax",
-        subGroups: [
-          { name: "Advance Income Tax", heads: ["Advance Income Tax"] },
-        ],
+        subGroups: [{ name: "Advance Income Tax", heads: ["Advance Income Tax"] }],
       },
       {
         name: "Security Money",
@@ -316,15 +314,11 @@ const chartOfAccounts: GroupDefinition[] = [
       },
       {
         name: "Short term Bank Loan",
-        subGroups: [
-          { name: "Short term Bank Loan", heads: ["Short term Bank Loan"] },
-        ],
+        subGroups: [{ name: "Short term Bank Loan", heads: ["Short term Bank Loan"] }],
       },
       {
         name: "Provision for Income Tax",
-        subGroups: [
-          { name: "Provision for Income Tax", heads: ["Provision for Income Tax"] },
-        ],
+        subGroups: [{ name: "Provision for Income Tax", heads: ["Provision for Income Tax"] }],
       },
       {
         name: "Bill Payable",
@@ -347,9 +341,7 @@ const chartOfAccounts: GroupDefinition[] = [
       },
       {
         name: "Retained Earnings",
-        subGroups: [
-          { name: "Retained Earnings", heads: ["Retained Earnings"] },
-        ],
+        subGroups: [{ name: "Retained Earnings", heads: ["Retained Earnings"] }],
       },
     ],
   },
@@ -426,11 +418,13 @@ async function createPaymentModeAccountHead(
   await supabase.from("account_heads").insert({
     client_id: clientId,
     sub_group_id: cashSubGroup.id,
+    parent_id: null,
     name: paymentModeName,
     opening_balance: 0,
     balance_type: "debit",
     is_active: true,
     sort_order: count ?? 0,
+    type: "asset",
   })
 }
 
@@ -503,11 +497,13 @@ export async function createDefaultChartOfAccounts(
           const { error: headError } = await supabase.from("account_heads").insert({
             client_id: clientId,
             sub_group_id: insertedSubGroup.id,
+            parent_id: null,
             name: head,
             opening_balance: 0,
-            balance_type: "debit",
+            balance_type: group.type === "income" ? "credit" : "debit",
             is_active: true,
             sort_order: headSort,
+            type: group.type,
           })
 
           if (headError) {

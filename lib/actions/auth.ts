@@ -127,11 +127,9 @@ export async function ensureActiveMembershipForUser({
 
   if (anyMembership?.org_id) {
     if (!anyMembership.is_active) {
-      await supabaseAdmin
-        .from("organization_members")
-        .update({ is_active: true })
-        .eq("user_id", userId)
-        .eq("org_id", anyMembership.org_id)
+      throw new Error(
+        "Your organization access is inactive. Please contact an owner or admin to restore access."
+      )
     }
 
     return anyMembership.org_id

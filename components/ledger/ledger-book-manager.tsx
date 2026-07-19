@@ -1,8 +1,16 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
-import { BookOpenText, Download, Layers3, Printer, Search } from "lucide-react"
+import {
+  ArrowRight,
+  BookOpenText,
+  CalendarRange,
+  Download,
+  Filter,
+  Printer,
+  Search,
+} from "lucide-react"
 import { useReactToPrint } from "react-to-print"
 
 import { LedgerPrint, type PrintableLedgerSection } from "@/components/ledger/LedgerPrint"
@@ -10,8 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/EmptyState"
 import { Input } from "@/components/ui/input"
-import { LoadingTable } from "@/components/ui/LoadingTable"
-import { FilterPanel, PageHeader } from "@/components/ui/page-shell"
+import { PageHeader } from "@/components/ui/page-shell"
 import {
   Select,
   SelectContent,
@@ -19,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -28,8 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { signedBalanceToLabel } from "@/lib/accounting/ledger"
-import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
-import { useLedger } from "@/lib/hooks/useLedger"
+import { useLedgerDataset } from "@/lib/hooks/useLedgerDataset"
 import { exportLedgerBook } from "@/lib/utils/export"
 
 function amount(value: number) {
@@ -46,284 +53,181 @@ function statTone(value: number) {
 }
 
 function LedgerSection({
-  clientId,
-  accountHeadId,
-  fiscalYearId,
-  fromDate,
-  toDate,
+  section,
   periodLabel,
-  onLoaded,
-  hideEmpty = false,
 }: {
-  clientId: string
-  accountHeadId: string
-  fiscalYearId: string
-  fromDate: string
-  toDate: string
+  section: PrintableLedgerSection
   periodLabel: string
-  onLoaded?: (section: PrintableLedgerSection) => void
-  hideEmpty?: boolean
 }) {
-  const { ledger, isLoading } = useLedger({
-    clientId,
-    accountHeadId,
-    fiscalYearId,
-    from: fromDate,
-    to: toDate,
-  })
-  const [cursorStack, setCursorStack] = useState<string[]>([])
-
-  useEffect(() => {
-    if (!onLoaded || !ledger?.accountHead) {
-      return
-    }
-
-    onLoaded({
-      accountHeadId: ledger.accountHead.id,
-      accountName: ledger.accountHead.name,
-      groupName: ledger.accountHead.groupName,
-      groupType: ledger.accountHead.groupType,
-      periodLabel,
-      openingBalanceLabel: signedBalanceToLabel(ledger.openingBalanceAmount, ledger.accountHead.groupType),
-      totalDebit: ledger.totals.debit,
-      totalCredit: ledger.totals.credit,
-      closingBalance: ledger.totals.closingBalance,
-      rows: ledger.entries.map((entry) => ({
-        id: entry.id,
-        date: entry.date,
-        voucherNo: entry.voucherNo,
-        voucherType: entry.voucherType,
-        paymentMode: entry.paymentMode,
-        description: entry.description,
-        debit: entry.debit,
-        credit: entry.credit,
-        runningBalance: entry.runningBalance,
-      })),
-    })
-  }, [ledger, onLoaded, periodLabel])
-
-  useEffect(() => {
-    setCursorStack([])
-  }, [accountHeadId, fiscalYearId, fromDate, toDate])
-
-  if (isLoading) {
-    return (
-      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-        <CardContent className="p-0">
-          <LoadingTable
-            columns={[
-              "Date",
-              "Voucher No",
-              "Voucher Type",
-              "Payment Mode",
-              "Description",
-              "Debit",
-              "Credit",
-              "Balance",
-            ]}
-            rows={10}
-          />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (!ledger?.accountHead) {
-    if (hideEmpty) return null
-    return (
-      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-        <CardContent className="py-12">
-          <EmptyState
-            icon={BookOpenText}
-            title="No ledger data available"
-            description="There are no ledger rows for this account in the selected period."
-          />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (ledger.entries.length === 0 && hideEmpty) {
-    return null
-  }
-
-  if (ledger.entries.length === 0 && !hideEmpty) {
-    return (
-      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-        <CardContent className="py-12">
-          <EmptyState
-            icon={BookOpenText}
-            title="No ledger data available"
-            description="There are no ledger rows for this account in the selected period."
-          />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  const accountHead = ledger.accountHead
-  const pageSize = 50
-  const currentCursor = cursorStack[cursorStack.length - 1] ?? null
-  const startIndex = currentCursor
-    ? Math.max(
-        ledger.entries.findIndex((entry) => entry.id === currentCursor) + 1,
-        0
-      )
-    : 0
-  const visibleEntries = ledger.entries.slice(startIndex, startIndex + pageSize)
-  const hasPreviousPage = cursorStack.length > 0
-  const hasNextPage = startIndex + pageSize < ledger.entries.length
-
   return (
-    <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-      <CardHeader className="space-y-5">
+    <Card className="overflow-hidden rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+      <CardHeader className="space-y-5 border-b border-slate-100">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
               Ledger statement
             </p>
-            <CardTitle className="mt-2 text-2xl text-slate-950">{accountHead.name}</CardTitle>
+            <CardTitle className="mt-2 text-2xl text-slate-950">{section.accountName}</CardTitle>
             <p className="mt-2 text-sm text-slate-500">
-              {accountHead.groupName}
-              {accountHead.subGroupName ? ` / ${accountHead.subGroupName}` : ""} · {periodLabel}
+              {section.groupName} | {periodLabel}
             </p>
           </div>
-          <div className="rounded-2xl bg-slate-950 px-4 py-3 text-sm text-white">
-            <p className="text-slate-300">Rows in period</p>
-            <p className="mt-1 text-2xl font-semibold">{ledger.entries.length}</p>
+          <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p className="text-slate-500">Rows in period</p>
+            <p className="mt-1 text-2xl font-semibold text-slate-950">{section.rows.length}</p>
           </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
           <div className="rounded-2xl bg-slate-50 p-4">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Opening</p>
-            <p className="mt-2 font-semibold text-slate-950">
-              {signedBalanceToLabel(ledger.openingBalanceAmount, accountHead.groupType)}
-            </p>
+            <p className="mt-2 font-semibold text-slate-950">{section.openingBalanceLabel}</p>
           </div>
-          <div className="rounded-2xl bg-blue-50 p-4 text-blue-700">
-            <p className="text-xs font-medium uppercase tracking-wide">Debit</p>
-            <p className="mt-2 font-semibold">{amount(ledger.totals.debit)}</p>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Debit</p>
+            <p className="mt-2 font-semibold text-slate-950">{amount(section.totalDebit)}</p>
           </div>
-          <div className="rounded-2xl bg-indigo-50 p-4 text-indigo-700">
-            <p className="text-xs font-medium uppercase tracking-wide">Credit</p>
-            <p className="mt-2 font-semibold">{amount(ledger.totals.credit)}</p>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Credit</p>
+            <p className="mt-2 font-semibold text-slate-950">{amount(section.totalCredit)}</p>
           </div>
-          <div className={`rounded-2xl p-4 ${statTone(ledger.totals.closingBalance)}`}>
+          <div className={`rounded-2xl p-4 ${statTone(section.closingBalance)}`}>
             <p className="text-xs font-medium uppercase tracking-wide">Closing</p>
             <p className="mt-2 font-semibold">
-              {signedBalanceToLabel(ledger.totals.closingBalance, accountHead.groupType)}
+              {signedBalanceToLabel(section.closingBalance, section.groupType)}
             </p>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="overflow-x-auto rounded-2xl border border-slate-200">
-        <Table>
-          <TableHeader className="bg-slate-50">
-            <TableRow className="hover:bg-slate-50">
-              <TableHead className="w-32 text-xs font-semibold uppercase tracking-wide text-slate-500">Date</TableHead>
-              <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">Voucher</TableHead>
-              <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">Type</TableHead>
-              <TableHead className="w-36 text-xs font-semibold uppercase tracking-wide text-slate-500">Mode</TableHead>
-              <TableHead className="min-w-64 text-xs font-semibold uppercase tracking-wide text-slate-500">Particulars</TableHead>
-              <TableHead className="w-32 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Debit</TableHead>
-              <TableHead className="w-32 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Credit</TableHead>
-              <TableHead className="w-40 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Balance</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow className="bg-slate-50/80">
-              <TableCell colSpan={5} className="font-medium text-slate-800">
-                Opening Balance
-              </TableCell>
-              <TableCell className="text-right">-</TableCell>
-              <TableCell className="text-right">-</TableCell>
-              <TableCell className="text-right font-medium">
-                {signedBalanceToLabel(ledger.openingBalanceAmount, accountHead.groupType)}
-              </TableCell>
-            </TableRow>
 
-            {visibleEntries.map((entry) => (
-              <TableRow key={entry.id} className="border-slate-100 hover:bg-slate-50/80">
-                <TableCell className="py-3">
-                  <p className="font-medium text-slate-900">{format(new Date(entry.date), "dd MMM yyyy")}</p>
+      <CardContent className="pt-6">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <Table>
+            <TableHeader className="bg-slate-50">
+              <TableRow className="hover:bg-slate-50">
+                <TableHead className="w-32 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Date
+                </TableHead>
+                <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Voucher
+                </TableHead>
+                <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Type
+                </TableHead>
+                <TableHead className="w-32 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Mode
+                </TableHead>
+                <TableHead className="min-w-64 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Particulars
+                </TableHead>
+                <TableHead className="w-28 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Debit
+                </TableHead>
+                <TableHead className="w-28 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Credit
+                </TableHead>
+                <TableHead className="w-36 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Balance
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+
+            <TableBody>
+              <TableRow className="bg-slate-50/70">
+                <TableCell colSpan={5} className="font-medium text-slate-800">
+                  Opening Balance
                 </TableCell>
-                <TableCell className="py-3 font-semibold text-slate-950">#{entry.voucherNo}</TableCell>
-                <TableCell className="py-3 uppercase text-slate-600">{entry.voucherType}</TableCell>
-                <TableCell className="py-3">
-                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                    {entry.paymentMode ?? "-"}
-                  </span>
+                <TableCell className="text-right">-</TableCell>
+                <TableCell className="text-right">-</TableCell>
+                <TableCell className="text-right font-medium">{section.openingBalanceLabel}</TableCell>
+              </TableRow>
+
+              {section.rows.map((entry) => (
+                <TableRow key={entry.id} className="border-slate-100 hover:bg-slate-50/60">
+                  <TableCell className="py-3 text-slate-900">
+                    {format(new Date(entry.date), "dd MMM yyyy")}
+                  </TableCell>
+                  <TableCell className="py-3 font-medium text-slate-950">#{entry.voucherNo}</TableCell>
+                  <TableCell className="py-3 uppercase text-slate-600">{entry.voucherType}</TableCell>
+                  <TableCell className="py-3 text-slate-600">{entry.paymentMode ?? "-"}</TableCell>
+                  <TableCell className="max-w-[340px] py-3 text-sm text-slate-700">
+                    <p className="truncate">{entry.description ?? "-"}</p>
+                  </TableCell>
+                  <TableCell className="py-3 text-right font-medium">{amount(entry.debit)}</TableCell>
+                  <TableCell className="py-3 text-right font-medium">{amount(entry.credit)}</TableCell>
+                  <TableCell
+                    className={`py-3 text-right font-semibold ${
+                      entry.runningBalance < 0 ? "text-red-600" : "text-slate-900"
+                    }`}
+                  >
+                    {signedBalanceToLabel(entry.runningBalance, section.groupType)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+
+            <tfoot>
+              <TableRow className="bg-slate-100 font-semibold">
+                <TableCell colSpan={5} className="text-right">
+                  Total
                 </TableCell>
-                <TableCell className="max-w-[340px] py-3">
-                  <p className="truncate text-sm text-slate-700">{entry.description ?? "-"}</p>
-                </TableCell>
-                <TableCell className="py-3 text-right font-medium">{amount(entry.debit)}</TableCell>
-                <TableCell className="py-3 text-right font-medium text-blue-700">{amount(entry.credit)}</TableCell>
+                <TableCell className="text-right">{amount(section.totalDebit)}</TableCell>
+                <TableCell className="text-right">{amount(section.totalCredit)}</TableCell>
                 <TableCell
-                  className={`py-3 text-right font-semibold ${
-                    entry.runningBalance < 0 ? "text-red-600" : "text-slate-900"
+                  className={`text-right ${
+                    section.closingBalance < 0 ? "text-red-600" : "text-slate-900"
                   }`}
                 >
-                  {signedBalanceToLabel(entry.runningBalance, accountHead.groupType)}
+                  {signedBalanceToLabel(section.closingBalance, section.groupType)}
                 </TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-          <tfoot>
-            <TableRow className="bg-slate-100 font-semibold">
-              <TableCell colSpan={5} className="text-right">
-                Total
-              </TableCell>
-              <TableCell className="text-right">{amount(ledger.totals.debit)}</TableCell>
-              <TableCell className="text-right text-blue-700">{amount(ledger.totals.credit)}</TableCell>
-              <TableCell
-                className={`text-right ${
-                  ledger.totals.closingBalance < 0 ? "text-red-600" : "text-slate-900"
-                }`}
-              >
-                {signedBalanceToLabel(ledger.totals.closingBalance, accountHead.groupType)}
-              </TableCell>
-            </TableRow>
-          </tfoot>
-        </Table>
+            </tfoot>
+          </Table>
         </div>
-
-        {ledger.entries.length > pageSize ? (
-          <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-slate-500">
-              Showing {Math.min(startIndex + 1, ledger.entries.length)}-
-              {Math.min(startIndex + visibleEntries.length, ledger.entries.length)} of {ledger.entries.length} entries
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-xl border-slate-200"
-                disabled={!hasPreviousPage}
-                onClick={() => setCursorStack((current) => current.slice(0, -1))}
-              >
-                Previous
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-xl border-slate-200"
-                disabled={!hasNextPage}
-                onClick={() =>
-                  setCursorStack((current) =>
-                    visibleEntries.length ? [...current, visibleEntries[visibleEntries.length - 1].id] : current
-                  )
-                }
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        ) : null}
       </CardContent>
     </Card>
+  )
+}
+
+function LedgerWorkspaceSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+        <CardContent className="grid gap-4 p-5 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="space-y-2 rounded-2xl border border-slate-100 p-4">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-24" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {Array.from({ length: 3 }).map((_, index) => (
+        <Card key={index} className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+          <CardContent className="space-y-5 p-6">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-24 w-full rounded-2xl" />
+            <Skeleton className="h-72 w-full rounded-2xl" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+function SummaryChip({
+  label,
+  value,
+}: {
+  label: string
+  value: string | number
+}) {
+  return (
+    <div className="rounded-xl bg-slate-50 px-3 py-2">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
+    </div>
   )
 }
 
@@ -343,92 +247,150 @@ export function LedgerBookManager({
   defaultTo: string
 }) {
   const printRef = useRef<HTMLDivElement>(null)
+  const searchWrapRef = useRef<HTMLDivElement>(null)
   const [fiscalYearId, setFiscalYearId] = useState(selectedFiscalYearId)
   const [fromDate, setFromDate] = useState(defaultFrom)
   const [toDate, setToDate] = useState(defaultTo)
   const [accountSearch, setAccountSearch] = useState("")
-  const [allLedgerCache, setAllLedgerCache] = useState<Record<string, PrintableLedgerSection>>({})
-  const [isLoading, setIsLoading] = useState(true)
-  const { flatAccounts } = useChartOfAccounts(clientId)
+  const [sortBy, setSortBy] = useState<"activity" | "name" | "closing">("activity")
+  const [isSuggestionOpen, setIsSuggestionOpen] = useState(false)
+  const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(0)
+  const deferredSearch = useDeferredValue(accountSearch)
+  const hasValidDateRange = !fromDate || !toDate || fromDate <= toDate
 
-  const handlePrint = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: `${clientName}-ledger-book`,
-  })
+  const { dataset, isLoading, isFetching, error } = useLedgerDataset(
+    hasValidDateRange
+      ? {
+          clientId,
+          fiscalYearId,
+          from: fromDate,
+          to: toDate,
+        }
+      : null
+  )
 
   const selectedFiscalYear =
     fiscalYears.find((year) => year.id === fiscalYearId) ??
     fiscalYears.find((year) => year.id === selectedFiscalYearId) ??
     fiscalYears[0]
 
-  const accountOptions = useMemo(
-    () =>
-      flatAccounts
-        .filter((account) => account.isActive)
-        .map((account) => ({
-          ...account,
-          hierarchyLabel: `${account.groupName} > ${account.subGroupName} > ${account.name}`,
-        }))
-        .sort((left, right) => left.hierarchyLabel.localeCompare(right.hierarchyLabel)),
-    [flatAccounts]
-  )
-
-  // Filter account heads based on search only (cache gets populated as they render)
-  const filteredAccountHeads = useMemo(() => {
-    const search = accountSearch.trim().toLowerCase()
-    
-    if (!search) {
-      return accountOptions
-    }
-    
-    return accountOptions.filter((account) =>
-      account.name.toLowerCase().includes(search) ||
-      account.hierarchyLabel.toLowerCase().includes(search)
-    )
-  }, [accountOptions, accountSearch])
-
-  // Count of account heads that actually have data
-  const accountHeadsWithDataCount = useMemo(() => {
-    return filteredAccountHeads.filter((account) => {
-      const section = allLedgerCache[account.id]
-      return section && section.rows.length > 0
-    }).length
-  }, [filteredAccountHeads, allLedgerCache])
-
-  // Check if we've loaded all account heads
-  const allAccountHeadsLoaded = useMemo(() => {
-    return filteredAccountHeads.every(account => account.id in allLedgerCache)
-  }, [filteredAccountHeads, allLedgerCache])
-
-  // Update isLoading when all account heads are loaded or when filters change
-  useEffect(() => {
-    if (filteredAccountHeads.length > 0 && allAccountHeadsLoaded) {
-      setIsLoading(false)
-    }
-  }, [filteredAccountHeads, allAccountHeadsLoaded])
-
   const periodLabel = `${format(new Date(fromDate), "dd MMM yyyy")} - ${format(new Date(toDate), "dd MMM yyyy")}`
 
-  const printSections = useMemo<PrintableLedgerSection[]>(() => {
-    return filteredAccountHeads
-      .map((account) => allLedgerCache[account.id])
-      .filter((section): section is PrintableLedgerSection => Boolean(section) && section.rows.length > 0)
-  }, [filteredAccountHeads, allLedgerCache])
+  const searchSuggestions = useMemo(() => {
+    const search = accountSearch.trim().toLowerCase()
+    const sections = dataset?.sections ?? []
+
+    if (!search) {
+      return sections
+        .filter((section) => section.rows.length > 0 || section.openingBalanceLabel !== "0.00 Dr")
+        .sort((left, right) => right.rows.length - left.rows.length || left.accountName.localeCompare(right.accountName))
+        .slice(0, 6)
+    }
+
+    const scored = sections
+      .map((section) => {
+        const accountName = section.accountName.toLowerCase()
+        const groupName = section.groupName.toLowerCase()
+        const exactStarts = accountName.startsWith(search) ? 3 : 0
+        const accountMatch = accountName.includes(search) ? 2 : 0
+        const groupMatch = groupName.includes(search) ? 1 : 0
+        const score = exactStarts + accountMatch + groupMatch
+
+        return {
+          section,
+          score,
+        }
+      })
+      .filter((item) => item.score > 0)
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score
+        }
+
+        if (right.section.rows.length !== left.section.rows.length) {
+          return right.section.rows.length - left.section.rows.length
+        }
+
+        return left.section.accountName.localeCompare(right.section.accountName)
+      })
+      .slice(0, 6)
+      .map((item) => item.section)
+
+    return scored
+  }, [accountSearch, dataset?.sections])
+
+  const filteredSections = useMemo<PrintableLedgerSection[]>(() => {
+    const sections = dataset?.sections ?? []
+    const search = deferredSearch.trim().toLowerCase()
+
+    const scoped = sections.filter((section) => {
+      if (!search) {
+        return true
+      }
+
+      return (
+        section.accountName.toLowerCase().includes(search) ||
+        section.groupName.toLowerCase().includes(search)
+      )
+    })
+
+    return [...scoped].sort((left, right) => {
+      if (sortBy === "name") {
+        return left.accountName.localeCompare(right.accountName)
+      }
+
+      if (sortBy === "closing") {
+        return Math.abs(right.closingBalance) - Math.abs(left.closingBalance)
+      }
+
+      return right.rows.length - left.rows.length || left.accountName.localeCompare(right.accountName)
+    })
+  }, [dataset?.sections, deferredSearch, sortBy])
+
+  const activeSections = useMemo(
+    () => filteredSections.filter((section) => section.rows.length > 0 || section.openingBalanceLabel !== "0.00 Dr"),
+    [filteredSections]
+  )
+
+  const totals = useMemo(() => {
+    return {
+      accounts: activeSections.length,
+      rows: activeSections.reduce((sum, section) => sum + section.rows.length, 0),
+      debit: activeSections.reduce((sum, section) => sum + section.totalDebit, 0),
+      credit: activeSections.reduce((sum, section) => sum + section.totalCredit, 0),
+    }
+  }, [activeSections])
 
   useEffect(() => {
-    setAllLedgerCache({})
-    setIsLoading(true)
-  }, [fiscalYearId, fromDate, toDate])
+    setHighlightedSuggestionIndex(0)
+  }, [accountSearch])
 
-  const handleSectionLoaded = useCallback((section: PrintableLedgerSection) => {
-    setAllLedgerCache((current) => ({ ...current, [section.accountHeadId]: section }))
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!searchWrapRef.current?.contains(event.target as Node)) {
+        setIsSuggestionOpen(false)
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    return () => document.removeEventListener("mousedown", handlePointerDown)
   }, [])
 
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `${clientName}-ledger-book`,
+  })
+
+  const applySuggestion = (value: string) => {
+    setAccountSearch(value)
+    setIsSuggestionOpen(false)
+  }
+
   const handleExport = () => {
-    if (!printSections.length) return
+    if (!activeSections.length) return
 
     exportLedgerBook(
-      printSections.map((section) => ({
+      activeSections.map((section) => ({
         accountName: section.accountName,
         groupName: section.groupName,
         period: section.periodLabel,
@@ -456,16 +418,18 @@ export function LedgerBookManager({
       <PageHeader
         eyebrow="Account movement"
         title="Ledger Book"
-        description={`Review account-wise movement, opening balances, period transactions, and closing balances for ${clientName}.`}
+        description={`Review all filtered accounts for ${clientName} in one clean scrollable view.`}
         icon={BookOpenText}
+        badge={isFetching ? "Refreshing" : "Ready"}
+        className="py-3"
         actions={
           <>
             <Button
               type="button"
               variant="outline"
-              className="rounded-lg border-slate-200"
+              className="h-10 rounded-lg border-slate-200"
               onClick={() => void handlePrint()}
-              disabled={!printSections.length}
+              disabled={!activeSections.length}
             >
               <Printer className="mr-2 h-4 w-4" />
               Print
@@ -473,30 +437,145 @@ export function LedgerBookManager({
             <Button
               type="button"
               variant="outline"
-              className="rounded-lg border-slate-200"
+              className="h-10 rounded-lg border-slate-200"
               onClick={handleExport}
-              disabled={!printSections.length}
+              disabled={!activeSections.length}
             >
               <Download className="mr-2 h-4 w-4" />
-              Export to Excel
+              Export
             </Button>
           </>
         }
       />
 
-      <FilterPanel title="Ledger controls" description="Search and filter account heads, or adjust fiscal year and date range.">
-        <div className="grid gap-4 xl:grid-cols-4">
+      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+        <CardContent className="space-y-4 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-base font-semibold text-slate-950">Ledger filters</p>
+              <p className="mt-1 text-sm text-slate-500">
+                Search, date range, and quick totals in one compact control area.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                <CalendarRange className="mr-1.5 h-3.5 w-3.5" />
+                {selectedFiscalYear?.label ?? ""}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-xl border-slate-200"
+                onClick={() => {
+                  setAccountSearch("")
+                  setSortBy("activity")
+                  setFiscalYearId(selectedFiscalYearId)
+                  setFromDate(defaultFrom)
+                  setToDate(defaultTo)
+                }}
+              >
+                <Filter className="mr-2 h-4 w-4" />
+                Reset
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-5">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700">Account head</label>
-            <div className="relative">
+            <label className="text-sm font-medium text-slate-700">Search</label>
+            <div ref={searchWrapRef} className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 type="text"
                 value={accountSearch}
-                onChange={(event) => setAccountSearch(event.target.value)}
-                placeholder="Search account heads..."
+                onChange={(event) => {
+                  setAccountSearch(event.target.value)
+                  setIsSuggestionOpen(true)
+                }}
+                onFocus={() => setIsSuggestionOpen(true)}
+                onKeyDown={(event) => {
+                  if (!searchSuggestions.length) {
+                    return
+                  }
+
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault()
+                    setIsSuggestionOpen(true)
+                    setHighlightedSuggestionIndex((current) =>
+                      current >= searchSuggestions.length - 1 ? 0 : current + 1
+                    )
+                  }
+
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault()
+                    setIsSuggestionOpen(true)
+                    setHighlightedSuggestionIndex((current) =>
+                      current <= 0 ? searchSuggestions.length - 1 : current - 1
+                    )
+                  }
+
+                  if (event.key === "Enter" && isSuggestionOpen) {
+                    event.preventDefault()
+                    const selectedSuggestion = searchSuggestions[highlightedSuggestionIndex]
+                    if (selectedSuggestion) {
+                      applySuggestion(selectedSuggestion.accountName)
+                    }
+                  }
+
+                  if (event.key === "Escape") {
+                    setIsSuggestionOpen(false)
+                  }
+                }}
+                placeholder="Search account head or group..."
                 className="h-11 rounded-xl border-slate-200 pl-10"
+                autoComplete="off"
               />
+
+              {isSuggestionOpen && searchSuggestions.length > 0 ? (
+                <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                  <div className="border-b border-slate-100 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                    Matching account heads
+                  </div>
+                  <div className="max-h-80 overflow-y-auto p-2">
+                    {searchSuggestions.map((suggestion, index) => (
+                      <button
+                        key={suggestion.accountHeadId}
+                        type="button"
+                        className={`flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2 text-left transition ${
+                          index === highlightedSuggestionIndex
+                            ? "bg-slate-950 text-white"
+                            : "hover:bg-slate-50"
+                        }`}
+                        onMouseEnter={() => setHighlightedSuggestionIndex(index)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => applySuggestion(suggestion.accountName)}
+                      >
+                        <div className="min-w-0">
+                          <p
+                            className={`truncate text-sm font-medium ${
+                              index === highlightedSuggestionIndex ? "text-white" : "text-slate-950"
+                            }`}
+                          >
+                            {suggestion.accountName}
+                          </p>
+                          <p
+                            className={`truncate text-xs ${
+                              index === highlightedSuggestionIndex ? "text-slate-300" : "text-slate-500"
+                            }`}
+                          >
+                            {suggestion.groupName} | {suggestion.rows.length} rows
+                          </p>
+                        </div>
+                        <ArrowRight
+                          className={`mt-0.5 h-4 w-4 shrink-0 ${
+                            index === highlightedSuggestionIndex ? "text-slate-300" : "text-slate-400"
+                          }`}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -535,7 +614,7 @@ export function LedgerBookManager({
               className="h-11 rounded-xl border-slate-200"
             />
           </div>
-          
+
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700">To date</label>
             <Input
@@ -545,69 +624,92 @@ export function LedgerBookManager({
               className="h-11 rounded-xl border-slate-200"
             />
           </div>
-        </div>
-      </FilterPanel>
 
-      <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
-        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-slate-950">Ledgers</p>
-            <p className="mt-1 text-sm text-slate-500">
-              {accountHeadsWithDataCount === 1 
-                ? `Showing ${accountHeadsWithDataCount} account for ${periodLabel}`
-                : `Showing ${accountHeadsWithDataCount} accounts for ${periodLabel}`}
-            </p>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700">Sort by</label>
+            <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+              <SelectTrigger className="h-11 rounded-xl border-slate-200">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="activity">Rows count</SelectItem>
+                <SelectItem value="name">Account name</SelectItem>
+                <SelectItem value="closing">Closing balance</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-            <Layers3 className="mr-1.5 h-3.5 w-3.5" />
-            Batch review
-          </span>
+        </div>
+
+          {!hasValidDateRange ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              `From date` cannot be after `To date`.
+            </div>
+          ) : null}
+
+          {!isLoading && hasValidDateRange && dataset ? (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <SummaryChip label="Accounts" value={totals.accounts} />
+              <SummaryChip label="Rows" value={totals.rows} />
+              <SummaryChip label="Total debit" value={amount(totals.debit)} />
+              <SummaryChip label="Total credit" value={amount(totals.credit)} />
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
       {isLoading ? (
-        <div className="space-y-5">
-          {filteredAccountHeads.map((account) => (
-            <LedgerSection
-              key={account.id}
-              clientId={clientId}
-              accountHeadId={account.id}
-              fiscalYearId={fiscalYearId}
-              fromDate={fromDate}
-              toDate={toDate}
-              periodLabel={periodLabel}
-              onLoaded={handleSectionLoaded}
-              hideEmpty={true}
-            />
-          ))}
-        </div>
-      ) : accountHeadsWithDataCount > 0 ? (
-        <div className="space-y-5">
-          {filteredAccountHeads.map((account) => (
-            <LedgerSection
-              key={account.id}
-              clientId={clientId}
-              accountHeadId={account.id}
-              fiscalYearId={fiscalYearId}
-              fromDate={fromDate}
-              toDate={toDate}
-              periodLabel={periodLabel}
-              onLoaded={handleSectionLoaded}
-              hideEmpty={true}
-            />
-          ))}
-        </div>
+        <LedgerWorkspaceSkeleton />
+      ) : !hasValidDateRange ? null : dataset ? (
+        <>
+          <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
+            <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-semibold text-slate-950">Scrollable ledger list</p>
+                <p className="text-sm text-slate-500">
+                  {activeSections.length === 1
+                    ? `Showing 1 account for ${periodLabel}`
+                    : `Showing ${activeSections.length} accounts for ${periodLabel}`}
+                </p>
+              </div>
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Scroll down for account tables
+              </div>
+            </CardContent>
+          </Card>
+
+          {activeSections.length > 0 ? (
+            <div className="space-y-6">
+              {activeSections.map((section) => (
+                <LedgerSection
+                  key={section.accountHeadId}
+                  section={section}
+                  periodLabel={periodLabel}
+                />
+              ))}
+            </div>
+          ) : (
+            <Card className="rounded-[1.5rem] border-dashed border-slate-300 bg-white shadow-sm">
+              <CardContent className="py-14">
+                <EmptyState
+                  icon={BookOpenText}
+                  title={accountSearch ? "No matching account heads" : "No ledger data available"}
+                  description={
+                    accountSearch
+                      ? "Try clearing your search or adjusting the date filters."
+                      : "There are no ledger balances or posted rows for the selected fiscal year and date range."
+                  }
+                />
+              </CardContent>
+            </Card>
+          )}
+        </>
       ) : (
         <Card className="rounded-[1.5rem] border-dashed border-slate-300 bg-white shadow-sm">
           <CardContent className="py-14">
             <EmptyState
               icon={BookOpenText}
-              title={accountSearch ? "No matching account heads" : "No ledger data available"}
-              description={
-                accountSearch 
-                  ? "Try clearing your search or adjusting your filters."
-                  : "There are no ledger entries for the selected fiscal year and date range."
-              }
+              title="Unable to load ledger workspace"
+              description={error?.message ?? "There was a problem loading the ledger dataset for this period."}
             />
           </CardContent>
         </Card>
@@ -618,7 +720,7 @@ export function LedgerBookManager({
           ref={printRef}
           companyName={clientName}
           fiscalYearLabel={selectedFiscalYear?.label ?? ""}
-          sections={printSections}
+          sections={activeSections}
         />
       </div>
     </div>

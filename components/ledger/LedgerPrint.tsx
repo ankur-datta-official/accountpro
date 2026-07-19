@@ -3,31 +3,10 @@
 import { forwardRef } from "react"
 import { format } from "date-fns"
 
+import type { LedgerDatasetSection } from "@/lib/accounting/ledger-dataset"
 import { signedBalanceToLabel } from "@/lib/accounting/ledger"
-import type { AccountGroupType } from "@/lib/types"
 
-export type PrintableLedgerSection = {
-  accountHeadId: string
-  accountName: string
-  groupName: string
-  groupType: AccountGroupType
-  periodLabel: string
-  openingBalanceLabel: string
-  totalDebit: number
-  totalCredit: number
-  closingBalance: number
-  rows: Array<{
-    id: string
-    date: string
-    voucherNo: number
-    voucherType: string
-    paymentMode: string | null
-    description: string | null
-    debit: number
-    credit: number
-    runningBalance: number
-  }>
-}
+export type PrintableLedgerSection = LedgerDatasetSection
 
 function amount(value: number) {
   return new Intl.NumberFormat("en-BD", {
@@ -105,8 +84,8 @@ export const LedgerPrint = forwardRef<
                   <td className="px-2 py-1.5">{format(new Date(row.date), "dd MMM yyyy")}</td>
                   <td className="px-2 py-1.5">{row.voucherNo}</td>
                   <td className="px-2 py-1.5 uppercase">{row.voucherType}</td>
-                  <td className="px-2 py-1.5">{row.paymentMode ?? "—"}</td>
-                  <td className="px-2 py-1.5">{row.description ?? "—"}</td>
+                  <td className="px-2 py-1.5">{row.paymentMode ?? "-"}</td>
+                  <td className="px-2 py-1.5">{row.description ?? "-"}</td>
                   <td className="px-2 py-1.5 text-right">{amount(row.debit)}</td>
                   <td className="px-2 py-1.5 text-right">{amount(row.credit)}</td>
                   <td className="px-2 py-1.5 text-right">

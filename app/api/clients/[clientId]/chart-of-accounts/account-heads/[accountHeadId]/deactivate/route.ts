@@ -1,58 +1,25 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
-import type { Database } from "@/lib/types"
+import { canWriteClientData, getAuthorizedClient } from "@/lib/api-auth"
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import type { AccountHead } from "@/lib/types"
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
+  return supabaseAdmin
 }
 
-async function getAuthorizedClient(
-  accessToken: string,
-  clientId: string,
-  supabase: ReturnType<typeof createServiceRoleClient>
-) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(accessToken)
-
-  if (!user) {
-    return { user: null, client: null }
+function sanitizeAccountHead(head: AccountHead): AccountHead {
+  return {
+    ...head,
+    is_active: head.is_active ?? true,
   }
-
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
-
-  return { user, client }
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: { clientId: string; accountHeadId: string } }
+  { params }: { params: Promise<{ clientId: string; accountHeadId: string }> }
 ) {
+  const { clientId, accountHeadId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -61,7 +28,7 @@ export async function POST(
 
   const accessToken = authHeader.replace("Bearer ", "")
   const supabase = createServiceRoleClient()
-  const { user, client } = await getAuthorizedClient(accessToken, params.clientId, supabase)
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, supabase)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
@@ -71,15 +38,24 @@ export async function POST(
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
   }
 
-  const { error } = await supabase
+  if (!canWriteClientData(membership)) {
+    return NextResponse.json(
+      { error: "You do not have permission to modify account heads." },
+      { status: 403 }
+    )
+  }
+
+  const { data: updatedHead, error } = await supabase
     .from("account_heads")
     .update({ is_active: false })
-    .eq("id", params.accountHeadId)
+    .eq("id", accountHeadId)
     .eq("client_id", client.id)
+    .select("*")
+    .single()
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, data: sanitizeAccountHead(updatedHead) })
 }

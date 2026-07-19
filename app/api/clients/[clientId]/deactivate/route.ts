@@ -1,25 +1,17 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
-import type { Database } from "@/lib/types"
+import { canManageClient, getAuthorizedClient } from "@/lib/api-auth"
+import { supabaseAdmin } from "@/lib/supabase/admin"
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
+  return supabaseAdmin
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
+  const { clientId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -28,44 +20,27 @@ export async function POST(
 
   const accessToken = authHeader.replace("Bearer ", "")
   const serviceClient = createServiceRoleClient()
+  const { user, membership, client: clientRecord } = await getAuthorizedClient(accessToken, clientId, serviceClient)
 
-  const {
-    data: { user },
-    error: userError,
-  } = await serviceClient.auth.getUser(accessToken)
-
-  if (userError || !user) {
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
-
-  const { data: membership } = await serviceClient
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  if (!membership?.org_id) {
-    return NextResponse.json({ error: "Forbidden." }, { status: 403 })
-  }
-
-  const { data: clientRecord } = await serviceClient
-    .from("clients")
-    .select("*")
-    .eq("id", params.clientId)
-    .eq("org_id", membership.org_id)
-    .maybeSingle()
 
   if (!clientRecord) {
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
   }
 
+  if (!canManageClient(membership)) {
+    return NextResponse.json(
+      { error: "Only owners and admins can deactivate clients." },
+      { status: 403 }
+    )
+  }
+
   const { error } = await serviceClient
     .from("clients")
     .update({ is_active: false })
-    .eq("id", params.clientId)
-    .eq("org_id", membership.org_id)
+    .eq("id", clientId)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })

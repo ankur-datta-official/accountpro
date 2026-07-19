@@ -10,6 +10,7 @@ import {
   normalizeVoucherLineAmounts,
 } from "@/lib/accounting/voucher-entry-rules"
 import { AUTO_BALANCE_ENTRY_PREFIX } from "@/lib/accounting/vouchers"
+import { extractClientIdFromRouteSegment, isUuid, matchesClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 import type { Database, PaymentModeType } from "@/lib/types"
 
@@ -68,7 +69,8 @@ const registerVoucherAttachmentsSchema = z.object({
 export type UpdateVoucherInput = z.input<typeof updateVoucherSchema>
 export type RegisterVoucherAttachmentsInput = z.input<typeof registerVoucherAttachmentsSchema>
 
-type ServerSupabase = ReturnType<typeof createClient>
+type ServerSupabase = Awaited<ReturnType<typeof createClient>>
+type ClientRow = Database["public"]["Tables"]["clients"]["Row"]
 
 type ValidatedContext = {
   supabase: ServerSupabase
@@ -78,8 +80,9 @@ type ValidatedContext = {
 }
 
 async function getValidatedVoucherContext(clientId: string, fiscalYearId: string) {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
+  const normalizedClientId = extractClientIdFromRouteSegment(clientId)
 
   if (!membership?.org_id) {
     return {
@@ -88,12 +91,18 @@ async function getValidatedVoucherContext(clientId: string, fiscalYearId: string
     }
   }
 
-  const { data: client } = await supabase
-    .from("clients")
-    .select("*")
-    .eq("id", clientId)
-    .eq("org_id", membership.org_id)
-    .maybeSingle()
+  const client = isUuid(normalizedClientId)
+    ? (
+        await supabase
+          .from("clients")
+          .select("*")
+          .eq("id", normalizedClientId)
+          .eq("org_id", membership.org_id)
+          .maybeSingle()
+      ).data ?? null
+    : (
+        await supabase.from("clients").select("*").eq("org_id", membership.org_id)
+      ).data?.find((candidate: ClientRow) => matchesClientRouteSegment(candidate, clientId)) ?? null
 
   if (!client) {
     return {
@@ -678,7 +687,7 @@ export async function deleteVoucherAction(input: z.input<typeof deleteVoucherSch
     }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
 
   if (!membership?.org_id) {
@@ -691,7 +700,7 @@ export async function deleteVoucherAction(input: z.input<typeof deleteVoucherSch
   const { data: client } = await supabase
     .from("clients")
     .select("*")
-    .eq("id", parsed.data.clientId)
+    .eq("id", extractClientIdFromRouteSegment(parsed.data.clientId))
     .eq("org_id", membership.org_id)
     .maybeSingle()
 
@@ -766,7 +775,7 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
     }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
 
   if (!membership?.org_id) {
@@ -779,7 +788,7 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
   const { data: client } = await supabase
     .from("clients")
     .select("*")
-    .eq("id", parsed.data.clientId)
+    .eq("id", extractClientIdFromRouteSegment(parsed.data.clientId))
     .eq("org_id", membership.org_id)
     .maybeSingle()
 
@@ -851,7 +860,7 @@ export async function registerVoucherAttachmentsAction(input: RegisterVoucherAtt
     }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
 
   if (!membership?.org_id) {
@@ -864,7 +873,7 @@ export async function registerVoucherAttachmentsAction(input: RegisterVoucherAtt
   const { data: client } = await supabase
     .from("clients")
     .select("*")
-    .eq("id", parsed.data.clientId)
+    .eq("id", extractClientIdFromRouteSegment(parsed.data.clientId))
     .eq("org_id", membership.org_id)
     .maybeSingle()
 

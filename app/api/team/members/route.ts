@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getPlanMemberLimit } from "@/lib/team"
+import type { OrganizationMember } from "@/lib/types"
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization")
@@ -48,13 +49,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: membersError.message }, { status: 400 })
   }
 
-  const userIds = (members ?? []).map((item) => item.user_id).filter((value): value is string => Boolean(value))
+  const memberRows = (members ?? []) as OrganizationMember[]
+  const userIds = memberRows
+    .map((item: OrganizationMember) => item.user_id)
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
   const uniqueUserIds = Array.from(new Set(userIds))
 
   const userMap = new Map<string, { email: string | null; fullName: string | null }>()
 
   await Promise.all(
-    uniqueUserIds.map(async (userId) => {
+    uniqueUserIds.map(async (userId: string) => {
       const { data } = await supabaseAdmin.auth.admin.getUserById(userId)
       userMap.set(userId, {
         email: data.user?.email ?? null,
@@ -63,7 +67,7 @@ export async function GET(request: Request) {
     })
   )
 
-  const rows = (members ?? []).map((member) => {
+  const rows = memberRows.map((member: OrganizationMember) => {
     const profile = member.user_id ? userMap.get(member.user_id) : null
     const email = member.invited_email ?? profile?.email ?? null
     const fullName = profile?.fullName

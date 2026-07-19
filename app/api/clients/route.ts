@@ -7,7 +7,7 @@ import {
   createDefaultChartOfAccounts,
   createDefaultPaymentModes,
 } from "@/lib/accounting/defaults"
-import { ensureActiveMembershipForUser } from "@/lib/actions/auth"
+import { canManageClient, getActiveMembership } from "@/lib/api-auth"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import type { ClientInsert } from "@/lib/types"
 
@@ -41,50 +41,26 @@ export async function POST(request: Request) {
     )
   }
 
-  const {
-    data: { user },
-    error: userError,
-  } = await supabaseAdmin.auth.getUser(accessToken)
+  const { user, membership } = await getActiveMembership(accessToken, supabaseAdmin)
 
-  if (userError || !user) {
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
-  const { data: membership } = await supabaseAdmin
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  let orgId = membership?.org_id ?? null
-
-  if (!orgId) {
-    try {
-      orgId = await ensureActiveMembershipForUser({
-        userId: user.id,
-        email: user.email,
-        fullName: (user.user_metadata?.full_name as string | undefined) ?? null,
-      })
-    } catch (error) {
-      return NextResponse.json(
-        {
-          error:
-            error instanceof Error ? error.message : "No active organization found.",
-        },
-        { status: 403 }
-      )
-    }
+  if (!membership?.org_id) {
+    return NextResponse.json({ error: "No active organization found." }, { status: 403 })
   }
 
-  if (!orgId) {
-    return NextResponse.json({ error: "No active organization found." }, { status: 403 })
+  if (!canManageClient(membership)) {
+    return NextResponse.json(
+      { error: "Only owners and admins can create clients." },
+      { status: 403 }
+    )
   }
 
   const payload = parsed.data
   const clientValues: ClientInsert = {
-    org_id: orgId,
+    org_id: membership.org_id,
     name: payload.name,
     type: payload.type,
     trade_name: payload.trade_name || null,

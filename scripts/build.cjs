@@ -5,7 +5,7 @@ process.argv[2] = "production"
 require("./clean-next-artifacts.cjs")
 
 const nextBin = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next")
-const child = spawn(process.execPath, [nextBin, "build"], {
+const child = spawn(process.execPath, [nextBin, "build", "--webpack"], {
   stdio: "inherit",
   env: process.env,
 })

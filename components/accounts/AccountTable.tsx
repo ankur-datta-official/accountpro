@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-table"
 
 import type { ChartFlatAccount } from "@/lib/hooks/useChartOfAccounts"
+import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
 import type { AccountGroup, AccountSemiSubGroup, AccountSubGroup } from "@/lib/types"
 import { AddAccountHeadDialog } from "@/components/accounts/AddAccountHeadDialog"
 import { DeactivateAccountHeadButton } from "@/components/accounts/account-head-actions"
@@ -36,6 +37,8 @@ export function AccountTable({
   semiSubGroups: AccountSemiSubGroup[]
   subGroups: AccountSubGroup[]
 }) {
+  const { accountHeads } = useChartOfAccounts(clientId)
+
   const columns = useMemo<ColumnDef<ChartFlatAccount>[]>(
     () => [
       {
@@ -50,17 +53,21 @@ export function AccountTable({
                 groups={groups}
                 semiSubGroups={semiSubGroups}
                 subGroups={subGroups}
-                head={{
-                  id: row.original.id,
-                  client_id: clientId,
-                  sub_group_id: row.original.subGroupId,
-                  name: row.original.name,
-                  opening_balance: row.original.openingBalance,
-                  balance_type: row.original.balanceType,
-                  is_active: row.original.isActive,
-                  sort_order: 0,
-                  created_at: null,
-                }}
+                head={
+                  accountHeads.find((item) => item.id === row.original.id) ?? {
+                    id: row.original.id,
+                    client_id: clientId,
+                    sub_group_id: row.original.subGroupId,
+                    parent_id: null,
+                    name: row.original.name,
+                    type: row.original.groupType,
+                    opening_balance: row.original.openingBalance,
+                    balance_type: row.original.balanceType,
+                    is_active: row.original.isActive,
+                    sort_order: 0,
+                    created_at: null,
+                  }
+                }
               />
               <DeactivateAccountHeadButton
                 clientId={clientId}
@@ -104,7 +111,7 @@ export function AccountTable({
           ),
       },
     ],
-    [clientId, groups, semiSubGroups, subGroups]
+    [accountHeads, clientId, groups, semiSubGroups, subGroups]
   )
 
   const table = useReactTable({
@@ -129,15 +136,23 @@ export function AccountTable({
           ))}
         </TableHeader>
         <TableBody>
-          {table.getRowModel().rows.map((row) => (
-            <TableRow key={row.id}>
-              {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id}>
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </TableCell>
-              ))}
+          {table.getRowModel().rows.length ? (
+            table.getRowModel().rows.map((row) => (
+              <TableRow key={row.id}>
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell key={cell.id}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))
+          ) : (
+            <TableRow>
+              <TableCell colSpan={columns.length} className="py-12 text-center text-sm text-slate-500">
+                No account heads matched the current filters.
+              </TableCell>
             </TableRow>
-          ))}
+          )}
         </TableBody>
       </Table>
     </div>

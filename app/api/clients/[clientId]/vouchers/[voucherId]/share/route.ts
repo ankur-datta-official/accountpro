@@ -1,54 +1,13 @@
-import { createClient } from "@supabase/supabase-js"
 import { format } from "date-fns"
 import { NextResponse } from "next/server"
 
 import { getVoucherTypeLabel, isAutoBalanceEntry } from "@/lib/accounting/vouchers"
-import type { Database } from "@/lib/types"
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import { getAuthorizedClient } from "@/lib/api-auth"
+import type { VoucherEntry, PaymentMode, VoucherAttachment, AccountHead } from "@/lib/types"
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
-}
-
-async function getAuthorizedClient(
-  accessToken: string,
-  clientId: string,
-  supabase: ReturnType<typeof createServiceRoleClient>
-) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(accessToken)
-
-  if (!user) {
-    return { user: null, client: null }
-  }
-
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
-
-  return { user, client }
+  return supabaseAdmin
 }
 
 function normalizeWhatsappPhone(phone: string | null) {
@@ -71,8 +30,9 @@ function normalizeWhatsappPhone(phone: string | null) {
 
 export async function GET(
   request: Request,
-  { params }: { params: { clientId: string; voucherId: string } }
+  { params }: { params: Promise<{ clientId: string; voucherId: string }> }
 ) {
+  const { clientId, voucherId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -81,7 +41,7 @@ export async function GET(
 
   const accessToken = authHeader.replace("Bearer ", "")
   const supabase = createServiceRoleClient()
-  const { user, client } = await getAuthorizedClient(accessToken, params.clientId, supabase)
+  const { user, client } = await getAuthorizedClient(accessToken, clientId, supabase)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
@@ -94,7 +54,7 @@ export async function GET(
   const { data: voucher } = await supabase
     .from("vouchers")
     .select("*")
-    .eq("id", params.voucherId)
+    .eq("id", voucherId)
     .eq("client_id", client.id)
     .maybeSingle()
 
@@ -102,23 +62,35 @@ export async function GET(
     return NextResponse.json({ error: "Voucher not found." }, { status: 404 })
   }
 
-  const [{ data: entries }, { data: paymentMode }, { data: attachments }] = await Promise.all([
-    supabase.from("voucher_entries").select("*").eq("voucher_id", voucher.id),
-    voucher.payment_mode_id
-      ? supabase.from("payment_modes").select("*").eq("id", voucher.payment_mode_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-    supabase.from("voucher_attachments").select("*").eq("voucher_id", voucher.id).order("created_at"),
-  ])
+  const entriesPromise = supabase.from("voucher_entries").select("*").eq("voucher_id", voucher.id) as Promise<{ data: VoucherEntry[] | null }>;
+  const paymentModePromise = voucher.payment_mode_id
+    ? supabase.from("payment_modes").select("*").eq("id", voucher.payment_mode_id).maybeSingle() as Promise<{ data: PaymentMode | null }>
+    : Promise.resolve({ data: null });
+  const attachmentsPromise = supabase.from("voucher_attachments").select("*").eq("voucher_id", voucher.id).order("created_at") as Promise<{ data: VoucherAttachment[] | null }>;
+  const [entriesResult, paymentModeResult, attachmentsResult] = await Promise.all([
+    entriesPromise,
+    paymentModePromise,
+    attachmentsPromise,
+  ]);
+  const entries = entriesResult.data;
+  const paymentMode = paymentModeResult.data;
+  const attachments = attachmentsResult.data;
 
   const visibleEntries = (entries ?? []).filter((entry) => !isAutoBalanceEntry(entry.description))
-  const printableEntries = visibleEntries.length ? visibleEntries : entries ?? []
+  const printableEntries = visibleEntries.length ? visibleEntries : (entries ?? [])
   const accountHeadIds = Array.from(
     new Set(printableEntries.map((entry) => entry.account_head_id).filter(Boolean) as string[])
   )
-  const { data: accountHeads } = accountHeadIds.length
-    ? await supabase.from("account_heads").select("id,name").in("id", accountHeadIds)
+  const accountHeadsResult: { data: AccountHeadNameRow[] | null } = accountHeadIds.length
+    ? await (supabase
+        .from("account_heads")
+        .select("id,name")
+        .in("id", accountHeadIds) as Promise<{ data: AccountHeadNameRow[] | null }>)
     : { data: [] }
-  const accountHeadMap = new Map((accountHeads ?? []).map((head) => [head.id, head.name]))
+  const accountHeads = accountHeadsResult.data;
+  const accountHeadMap = new Map(
+    ((accountHeads ?? []) as AccountHeadNameRow[]).map((head: AccountHeadNameRow) => [head.id, head.name])
+  )
   const accountHeadNames = Array.from(
     new Set(
       printableEntries
@@ -126,8 +98,8 @@ export async function GET(
         .filter(Boolean) as string[]
     )
   )
-  const totalDebit = (entries ?? []).reduce((sum, entry) => sum + Number(entry.debit ?? 0), 0)
-  const totalCredit = (entries ?? []).reduce((sum, entry) => sum + Number(entry.credit ?? 0), 0)
+  const totalDebit = (entries ?? []).reduce((sum: number, entry) => sum + Number(entry.debit ?? 0), 0)
+  const totalCredit = (entries ?? []).reduce((sum: number, entry) => sum + Number(entry.credit ?? 0), 0)
   const amount = Math.max(totalDebit, totalCredit)
 
   const documents = await Promise.all(
@@ -177,3 +149,4 @@ export async function GET(
     documentCount: documents.length,
   })
 }
+type AccountHeadNameRow = Pick<AccountHead, "id" | "name">

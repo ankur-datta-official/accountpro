@@ -271,7 +271,9 @@ export interface Database {
           id: string
           client_id: string | null
           sub_group_id: string | null
+          parent_id: string | null
           name: string
+          type: AccountGroupType | null
           opening_balance: number | null
           balance_type: AccountHeadBalanceType | null
           is_active: boolean | null
@@ -282,7 +284,9 @@ export interface Database {
           id?: string
           client_id?: string | null
           sub_group_id?: string | null
+          parent_id?: string | null
           name: string
+          type?: AccountGroupType | null
           opening_balance?: number | null
           balance_type?: AccountHeadBalanceType | null
           is_active?: boolean | null
@@ -293,7 +297,9 @@ export interface Database {
           id?: string
           client_id?: string | null
           sub_group_id?: string | null
+          parent_id?: string | null
           name?: string
+          type?: AccountGroupType | null
           opening_balance?: number | null
           balance_type?: AccountHeadBalanceType | null
           is_active?: boolean | null

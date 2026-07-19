@@ -8,13 +8,15 @@ export default async function ClientBankStatementsPage({
   params,
   searchParams,
 }: {
-  params: { clientId: string }
-  searchParams?: { fiscalYear?: string }
+  params: Promise<{ clientId: string }>
+  searchParams: Promise<{ fiscalYear?: string }>
 }) {
-  const supabase = createClient()
+  const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
+  const supabase = await createClient()
   const { client, selectedFiscalYear } = await getClientRouteContext({
-    clientId: params.clientId,
-    fiscalYearId: searchParams?.fiscalYear,
+    clientId: resolvedParams.clientId,
+    fiscalYearId: resolvedSearchParams?.fiscalYear,
   })
 
   if (!client) notFound()

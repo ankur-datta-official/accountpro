@@ -76,7 +76,9 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
         const matchesSearch =
           !normalizedSearch ||
           account.name.toLowerCase().includes(normalizedSearch) ||
-          account.subGroupName.toLowerCase().includes(normalizedSearch)
+          account.subGroupName.toLowerCase().includes(normalizedSearch) ||
+          account.semiSubGroupName.toLowerCase().includes(normalizedSearch) ||
+          account.groupName.toLowerCase().includes(normalizedSearch)
         return matchesGroup && matchesSearch
       }),
     [flatAccounts, groupFilter, normalizedSearch]
@@ -106,7 +108,7 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
           <div>
             <h2 className="text-3xl font-semibold tracking-tight text-slate-950">Chart of Accounts</h2>
             <p className="mt-2 text-sm leading-7 text-slate-500">
-              Manage posting-level account heads and their hierarchy for this client.
+              Build your account structure step by step. Start from the main group, go deeper only when needed, and keep usable account heads at the final level.
             </p>
           </div>
           <AddAccountHeadDialog
@@ -123,9 +125,8 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              onFocus={() => setSearch("")}
               className="h-11 rounded-xl border-slate-200 pl-10"
-              placeholder="Search account head or sub-group"
+              placeholder="Search by account name, category, or sub-category"
             />
           </div>
 
@@ -157,7 +158,7 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
               className="h-9 flex-1 rounded-lg"
               onClick={() => setView("table")}
             >
-              Table View
+              List View
             </Button>
           </div>
         </div>

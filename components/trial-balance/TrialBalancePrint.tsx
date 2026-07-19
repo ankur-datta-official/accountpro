@@ -1,6 +1,6 @@
 "use client"
 
-import { forwardRef } from "react"
+import { Fragment, forwardRef } from "react"
 
 import type { TrialBalanceRow } from "@/lib/accounting/trial-balance"
 
@@ -9,6 +9,10 @@ function amount(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value)
+}
+
+function getTrialBalanceRowKey(groupName: string, row: TrialBalanceRow, index: number) {
+  return `${groupName}-${row.accountHeadId}-${row.accountHeadName}-${index}`
 }
 
 export const TrialBalancePrint = forwardRef<
@@ -37,11 +41,12 @@ export const TrialBalancePrint = forwardRef<
   ref
 ) {
   const grouped = rows.reduce<Record<string, TrialBalanceRow[]>>((acc, row) => {
-    if (!acc[row.semiSubGroupName]) {
-      acc[row.semiSubGroupName] = []
+    const key = row.semiSubGroupName ?? "Other"
+    if (!acc[key]) {
+      acc[key] = []
     }
 
-    acc[row.semiSubGroupName].push(row)
+    acc[key].push(row)
     return acc
   }, {})
 
@@ -80,16 +85,16 @@ export const TrialBalancePrint = forwardRef<
               const groupCredit = groupRows.reduce((sum, row) => sum + row.credit, 0)
 
               return (
-                <>
-                  <tr key={`${groupName}-header`} className="bg-slate-100 font-semibold">
+                <Fragment key={groupName}>
+                  <tr className="bg-slate-100 font-semibold">
                     <td className="px-2 py-2">{groupName}</td>
                     <td className="px-2 py-2" />
                     <td className="px-2 py-2 text-right" />
                     <td className="px-2 py-2 text-right" />
                     <td className="px-2 py-2 text-right" />
                   </tr>
-                  {groupRows.map((row) => (
-                    <tr key={row.accountHeadId} className="border-b border-slate-200">
+                  {groupRows.map((row, index) => (
+                    <tr key={getTrialBalanceRowKey(groupName, row, index)} className="border-b border-slate-200">
                       <td className="px-2 py-1.5" />
                       <td className="px-2 py-1.5">{row.accountHeadName}</td>
                       <td className="px-2 py-1.5 text-right">{amount(row.debit)}</td>
@@ -97,14 +102,14 @@ export const TrialBalancePrint = forwardRef<
                       <td className="px-2 py-1.5 text-right">{row.balanceLabel}</td>
                     </tr>
                   ))}
-                  <tr key={`${groupName}-subtotal`} className="border-b border-slate-300 bg-slate-50 font-semibold">
+                  <tr className="border-b border-slate-300 bg-slate-50 font-semibold">
                     <td className="px-2 py-1.5" />
                     <td className="px-2 py-1.5">Subtotal</td>
                     <td className="px-2 py-1.5 text-right">{amount(groupDebit)}</td>
                     <td className="px-2 py-1.5 text-right">{amount(groupCredit)}</td>
                     <td className="px-2 py-1.5 text-right" />
                   </tr>
-                </>
+                </Fragment>
               )
             })}
           </tbody>

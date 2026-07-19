@@ -13,10 +13,12 @@ import {
   type PayrollDraftRow,
 } from "@/lib/accounting/payroll"
 import { createVoucherAction } from "@/lib/actions/vouchers"
+import { extractClientIdFromRouteSegment, isUuid, matchesClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
-import type { AccountGroupType, Database, PaymentModeType } from "@/lib/types"
+import type { AccountGroupType, Database, PaymentModeType, PayrollRunItemUpdate } from "@/lib/types"
 
-type ServerSupabase = ReturnType<typeof createClient>
+type ServerSupabase = Awaited<ReturnType<typeof createClient>>
+type ClientRow = Database["public"]["Tables"]["clients"]["Row"]
 
 const moneySchema = z.coerce.number().min(0).default(0)
 
@@ -93,27 +95,31 @@ const savePayrollRunItemsSchema = z.object({
   payrollRunId: z.string().min(1),
   items: z.array(z.object({
     id: z.string().min(1),
-    components: z.array(z.object({
-      code: z.string().min(1),
-      amount: moneySchema,
-    })),
+    components: z.array(componentSchema),
   })),
 })
 
 async function getAuthorizedClient(clientId: string) {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
+  const normalizedClientId = extractClientIdFromRouteSegment(clientId)
 
   if (!membership?.org_id) {
     return { success: false as const, error: "No active organization found." }
   }
 
-  const { data: client } = await supabase
-    .from("clients")
-    .select("*")
-    .eq("id", clientId)
-    .eq("org_id", membership.org_id)
-    .maybeSingle()
+  const client = isUuid(normalizedClientId)
+    ? (
+        await supabase
+          .from("clients")
+          .select("*")
+          .eq("id", normalizedClientId)
+          .eq("org_id", membership.org_id)
+          .maybeSingle()
+      ).data ?? null
+    : (
+        await supabase.from("clients").select("*").eq("org_id", membership.org_id)
+      ).data?.find((candidate: ClientRow) => matchesClientRouteSegment(candidate, clientId)) ?? null
 
   if (!client) {
     return { success: false as const, error: "Client not found." }
@@ -122,84 +128,49 @@ async function getAuthorizedClient(clientId: string) {
   return { success: true as const, supabase, client }
 }
 
-async function ensureAccountGroup(
+async function ensureAccountHeadNode(
   supabase: ServerSupabase,
   clientId: string,
   name: string,
-  type: AccountGroupType
+  parentId: string | null,
+  type?: AccountGroupType
 ) {
-  const { data: existing } = await supabase
-    .from("account_groups")
+  let query = supabase
+    .from("account_heads")
     .select("id")
     .eq("client_id", clientId)
-    .eq("name", name)
-    .maybeSingle()
+    .eq("name", name);
+
+  if (parentId === null) {
+    query = query.is("parent_id", null);
+  } else {
+    query = query.eq("parent_id", parentId);
+  }
+
+  const { data: existing } = await query.maybeSingle()
 
   if (existing?.id) return existing.id
 
   const { data, error } = await supabase
-    .from("account_groups")
-    .insert({ client_id: clientId, name, type, sort_order: 999 })
+    .from("account_heads")
+    .insert({
+      client_id: clientId,
+      parent_id: parentId,
+      name,
+      type: parentId ? null : type, // Only root nodes have type
+      opening_balance: 0,
+      balance_type: "debit",
+      is_active: true,
+      sort_order: 999,
+    })
     .select("id")
     .single()
 
-  if (error || !data) throw new Error(error?.message ?? `Unable to create account group ${name}.`)
+  if (error || !data) throw new Error(error?.message ?? `Unable to create account head ${name}.`)
   return data.id
 }
 
-async function ensureSemiSubGroup(
-  supabase: ServerSupabase,
-  clientId: string,
-  groupId: string,
-  name: string
-) {
-  const { data: existing } = await supabase
-    .from("account_semi_sub_groups")
-    .select("id")
-    .eq("client_id", clientId)
-    .eq("group_id", groupId)
-    .eq("name", name)
-    .maybeSingle()
-
-  if (existing?.id) return existing.id
-
-  const { data, error } = await supabase
-    .from("account_semi_sub_groups")
-    .insert({ client_id: clientId, group_id: groupId, name, sort_order: 999 })
-    .select("id")
-    .single()
-
-  if (error || !data) throw new Error(error?.message ?? `Unable to create account group ${name}.`)
-  return data.id
-}
-
-async function ensureSubGroup(
-  supabase: ServerSupabase,
-  clientId: string,
-  semiSubId: string,
-  name: string
-) {
-  const { data: existing } = await supabase
-    .from("account_sub_groups")
-    .select("id")
-    .eq("client_id", clientId)
-    .eq("semi_sub_id", semiSubId)
-    .eq("name", name)
-    .maybeSingle()
-
-  if (existing?.id) return existing.id
-
-  const { data, error } = await supabase
-    .from("account_sub_groups")
-    .insert({ client_id: clientId, semi_sub_id: semiSubId, name, sort_order: 999 })
-    .select("id")
-    .single()
-
-  if (error || !data) throw new Error(error?.message ?? `Unable to create account group ${name}.`)
-  return data.id
-}
-
-async function ensureAccountHead(
+async function _ensureAccountHead(
   supabase: ServerSupabase,
   clientId: string,
   definition: (typeof PAYROLL_ACCOUNT_DEFAULTS)[number]
@@ -213,16 +184,133 @@ async function ensureAccountHead(
 
   if (existing?.id) return existing.id
 
-  const groupId = await ensureAccountGroup(supabase, clientId, definition.groupName, definition.groupType)
-  const semiSubId = await ensureSemiSubGroup(supabase, clientId, groupId, definition.semiName)
-  const subGroupId = await ensureSubGroup(supabase, clientId, semiSubId, definition.subName)
+  // Create hierarchy: groupName (root) → semiName → subName → headName
+  const groupId = await ensureAccountHeadNode(supabase, clientId, definition.groupName, null, definition.groupType)
+  const semiSubId = await ensureAccountHeadNode(supabase, clientId, definition.semiName, groupId)
+  const subGroupId = await ensureAccountHeadNode(supabase, clientId, definition.subName, semiSubId)
+  const headId = await ensureAccountHeadNode(supabase, clientId, definition.headName, subGroupId)
+
+  // Update the final head with correct balance type
+  await supabase
+    .from("account_heads")
+    .update({ balance_type: definition.balanceType })
+    .eq("id", headId)
+
+  return headId
+}
+
+async function ensureStructuredPayrollAccountHead(
+  supabase: ServerSupabase,
+  clientId: string,
+  definition: (typeof PAYROLL_ACCOUNT_DEFAULTS)[number]
+) {
+  const { data: existingGroup } = await supabase
+    .from("account_groups")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("name", definition.groupName)
+    .maybeSingle()
+
+  let groupId = existingGroup?.id ?? null
+  if (!groupId) {
+    const { data, error } = await supabase
+      .from("account_groups")
+      .insert({
+        client_id: clientId,
+        name: definition.groupName,
+        type: definition.groupType,
+        sort_order: 999,
+      })
+      .select("id")
+      .single()
+
+    if (error || !data) {
+      throw new Error(error?.message ?? `Unable to create account group ${definition.groupName}.`)
+    }
+
+    groupId = data.id
+  }
+
+  const { data: existingSemi } = await supabase
+    .from("account_semi_sub_groups")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("group_id", groupId)
+    .eq("name", definition.semiName)
+    .maybeSingle()
+
+  let semiSubId = existingSemi?.id ?? null
+  if (!semiSubId) {
+    const { data, error } = await supabase
+      .from("account_semi_sub_groups")
+      .insert({
+        client_id: clientId,
+        group_id: groupId,
+        name: definition.semiName,
+        sort_order: 999,
+      })
+      .select("id")
+      .single()
+
+    if (error || !data) {
+      throw new Error(error?.message ?? `Unable to create semi-sub group ${definition.semiName}.`)
+    }
+
+    semiSubId = data.id
+  }
+
+  const { data: existingSub } = await supabase
+    .from("account_sub_groups")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("semi_sub_id", semiSubId)
+    .eq("name", definition.subName)
+    .maybeSingle()
+
+  let subGroupId = existingSub?.id ?? null
+  if (!subGroupId) {
+    const { data, error } = await supabase
+      .from("account_sub_groups")
+      .insert({
+        client_id: clientId,
+        semi_sub_id: semiSubId,
+        name: definition.subName,
+        sort_order: 999,
+      })
+      .select("id")
+      .single()
+
+    if (error || !data) {
+      throw new Error(error?.message ?? `Unable to create sub-group ${definition.subName}.`)
+    }
+
+    subGroupId = data.id
+  }
+
+  const { data: existingHead } = await supabase
+    .from("account_heads")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("sub_group_id", subGroupId)
+    .eq("name", definition.headName)
+    .maybeSingle()
+
+  if (existingHead?.id) {
+    await supabase
+      .from("account_heads")
+      .update({ balance_type: definition.balanceType, type: definition.groupType })
+      .eq("id", existingHead.id)
+    return existingHead.id
+  }
 
   const { data, error } = await supabase
     .from("account_heads")
     .insert({
       client_id: clientId,
       sub_group_id: subGroupId,
+      parent_id: null,
       name: definition.headName,
+      type: definition.groupType,
       opening_balance: 0,
       balance_type: definition.balanceType,
       is_active: true,
@@ -231,7 +319,10 @@ async function ensureAccountHead(
     .select("id")
     .single()
 
-  if (error || !data) throw new Error(error?.message ?? `Unable to create account head ${definition.headName}.`)
+  if (error || !data) {
+    throw new Error(error?.message ?? `Unable to create account head ${definition.headName}.`)
+  }
+
   return data.id
 }
 
@@ -239,7 +330,7 @@ async function ensurePayrollAccountMappings(supabase: ServerSupabase, clientId: 
   const mappings = new Map<string, string>()
 
   for (const definition of PAYROLL_ACCOUNT_DEFAULTS) {
-    const headId = await ensureAccountHead(supabase, clientId, definition)
+    const headId = await ensureStructuredPayrollAccountHead(supabase, clientId, definition)
     const { data: existing } = await supabase
       .from("payroll_account_mappings")
       .select("id,account_head_id")
@@ -658,8 +749,7 @@ export async function savePayrollRunItemsAction(input: z.input<typeof savePayrol
         total_additions: summary.totalAdditions,
         total_deductions: summary.totalDeductions,
         net_payable: summary.netPayable,
-        updated_at: new Date().toISOString(),
-      })
+      } as PayrollRunItemUpdate)
       .eq('id', item.id)
       .eq('payroll_run_id', parsed.data.payrollRunId)
 
@@ -1050,7 +1140,6 @@ export async function savePayrollPolicyAction(input: {
   staffPfPercent: number
   taxPercent: number
 }) {
-  const supabase = createClient()
   const context = await getAuthorizedClient(input.clientId)
   if (!context.success) return context
 
@@ -1105,7 +1194,6 @@ export async function savePayrollAccountMappingsAction(input: {
   clientId: string
   mappings: Array<{ componentCode: string; accountHeadId: string }>
 }) {
-  const supabase = createClient()
   const context = await getAuthorizedClient(input.clientId)
   if (!context.success) return context
 

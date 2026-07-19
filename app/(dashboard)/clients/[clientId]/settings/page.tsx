@@ -2,17 +2,26 @@ import { notFound } from "next/navigation"
 import { addYears, format, parseISO } from "date-fns"
 
 import { ClientSettingsManager } from "@/components/clients/client-settings-manager"
+import { resolveAccountHierarchy } from "@/lib/accounting/chart-hierarchy"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { createClient } from "@/lib/supabase/server"
+import type { Database } from "@/lib/types"
+
+type VoucherRecord = Database["public"]["Tables"]["vouchers"]["Row"]
+type VoucherEntryRecord = Database["public"]["Tables"]["voucher_entries"]["Row"]
+type PaymentModeRecord = Database["public"]["Tables"]["payment_modes"]["Row"]
+type AccountHeadRecord = Database["public"]["Tables"]["account_heads"]["Row"]
+type FiscalYearRecord = Database["public"]["Tables"]["fiscal_years"]["Row"]
 
 export default async function ClientSettingsPage({
   params,
 }: {
-  params: { clientId: string }
+  params: Promise<{ clientId: string }>
 }) {
-  const supabase = createClient()
+  const resolvedParams = await params
+  const supabase = await createClient()
   const { client, fiscalYears: routeFiscalYears } = await getClientRouteContext({
-    clientId: params.clientId,
+    clientId: resolvedParams.clientId,
   })
 
   if (!client) {
@@ -24,24 +33,26 @@ export default async function ClientSettingsPage({
     vouchersRes,
     voucherEntriesRes,
     paymentModesRes,
-    accountGroupsRes,
+    accountHeadsRes,
+    groupsRes,
     semiSubGroupsRes,
     subGroupsRes,
-    accountHeadsRes,
   ] =
     await Promise.all([
       Promise.resolve({ data: routeFiscalYears }),
       supabase.from("vouchers").select("id,fiscal_year_id").eq("client_id", client.id),
       supabase.from("voucher_entries").select("voucher_id,debit,credit"),
       supabase.from("payment_modes").select("*").eq("client_id", client.id).order("name"),
-      supabase.from("account_groups").select("id,name").eq("client_id", client.id),
-      supabase.from("account_semi_sub_groups").select("id,group_id").eq("client_id", client.id),
-      supabase.from("account_sub_groups").select("id,semi_sub_id").eq("client_id", client.id),
-      supabase.from("account_heads").select("id,sub_group_id").eq("client_id", client.id),
+      supabase.from("account_heads").select("*").eq("client_id", client.id),
+      supabase.from("account_groups").select("*").eq("client_id", client.id),
+      supabase.from("account_semi_sub_groups").select("*").eq("client_id", client.id),
+      supabase.from("account_sub_groups").select("*").eq("client_id", client.id),
     ])
 
-  const vouchers = vouchersRes.data ?? []
-  const voucherMap = new Map(vouchers.map((voucher) => [voucher.id, voucher.fiscal_year_id]))
+  const vouchers = (vouchersRes.data ?? []) as VoucherRecord[]
+  const voucherMap = new Map<string, string | null>(
+    vouchers.map((voucher: VoucherRecord) => [voucher.id, voucher.fiscal_year_id])
+  )
   const fiscalYearVoucherCount = new Map<string, number>()
   const fiscalYearBalance = new Map<string, { debit: number; credit: number }>()
 
@@ -53,7 +64,7 @@ export default async function ClientSettingsPage({
     )
   }
 
-  for (const entry of voucherEntriesRes.data ?? []) {
+  for (const entry of (voucherEntriesRes.data ?? []) as VoucherEntryRecord[]) {
     const fiscalYearId = voucherMap.get(entry.voucher_id ?? "")
     if (!fiscalYearId) continue
 
@@ -64,7 +75,7 @@ export default async function ClientSettingsPage({
     })
   }
 
-  const fiscalYears = (fiscalYearsRes.data ?? []).map((year) => {
+  const fiscalYears = (fiscalYearsRes.data ?? []).map((year: FiscalYearRecord) => {
     const totals = fiscalYearBalance.get(year.id) ?? { debit: 0, credit: 0 }
     return {
       id: year.id,
@@ -78,16 +89,17 @@ export default async function ClientSettingsPage({
     }
   })
 
-  const accountGroupMap = new Map((accountGroupsRes.data ?? []).map((group) => [group.id, group.name]))
-  const semiToGroupMap = new Map((semiSubGroupsRes.data ?? []).map((semi) => [semi.id, semi.group_id]))
-  const subToSemiMap = new Map((subGroupsRes.data ?? []).map((sub) => [sub.id, sub.semi_sub_id]))
   const chartHeadCountMap = new Map<string, number>()
+  const allAccountHeads = (accountHeadsRes.data ?? []) as AccountHeadRecord[]
 
-  for (const head of accountHeadsRes.data ?? []) {
-    if (!head.sub_group_id) continue
-    const semiId = subToSemiMap.get(head.sub_group_id)
-    const groupId = semiId ? semiToGroupMap.get(semiId) : null
-    const groupName = groupId ? accountGroupMap.get(groupId) ?? "Uncategorized" : "Uncategorized"
+  for (const head of allAccountHeads) {
+    const hierarchy = resolveAccountHierarchy(head, {
+      accountHeads: allAccountHeads,
+      groups: (groupsRes.data ?? []) as Database["public"]["Tables"]["account_groups"]["Row"][],
+      semiSubGroups: (semiSubGroupsRes.data ?? []) as Database["public"]["Tables"]["account_semi_sub_groups"]["Row"][],
+      subGroups: (subGroupsRes.data ?? []) as Database["public"]["Tables"]["account_sub_groups"]["Row"][],
+    })
+    const groupName = hierarchy.groupName || "Uncategorized"
     chartHeadCountMap.set(groupName, (chartHeadCountMap.get(groupName) ?? 0) + 1)
   }
 
@@ -115,7 +127,7 @@ export default async function ClientSettingsPage({
       }}
       fiscalYears={fiscalYears}
       nextDefaultStartDate={nextDefaultStartDate}
-      paymentModes={(paymentModesRes.data ?? []).map((mode) => ({
+      paymentModes={((paymentModesRes.data ?? []) as PaymentModeRecord[]).map((mode: PaymentModeRecord) => ({
         id: mode.id,
         name: mode.name,
         type: mode.type,

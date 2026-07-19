@@ -23,10 +23,11 @@ function formatType(value: string | null) {
 export default async function PaymentModesPage({
   params,
 }: {
-  params: { clientId: string }
+  params: Promise<{ clientId: string }>
 }) {
-  const supabase = createClient()
-  const { client } = await getClientRouteContext({ clientId: params.clientId })
+  const resolvedParams = await params
+  const supabase = await createClient()
+  const { client } = await getClientRouteContext({ clientId: resolvedParams.clientId })
 
   if (!client) {
     notFound()

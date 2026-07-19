@@ -1,66 +1,81 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import type { Database } from "@/lib/types"
+import { canWriteClientData, getAuthorizedClient } from "@/lib/api-auth"
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import type { AccountHead, AccountHeadUpdate } from "@/lib/types"
 
 const updateAccountHeadSchema = z.object({
-  accountHeadName: z.string().min(2),
-  openingBalance: z.number().default(0),
+  accountHeadName: z.string().trim().min(2, "Account head name is required."),
+  openingBalance: z.coerce.number().default(0),
   balanceType: z.enum(["debit", "credit"]),
   is_active: z.boolean().default(true),
 })
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
+  return supabaseAdmin
 }
 
-async function getAuthorizedClient(
-  accessToken: string,
-  clientId: string,
-  supabase: ReturnType<typeof createServiceRoleClient>
-) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(accessToken)
+function sanitizeAccountHead(head: AccountHead): AccountHead {
+  return {
+    ...head,
+    is_active: head.is_active ?? true,
+  }
+}
 
-  if (!user) {
-    return { user: null, client: null }
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ clientId: string; accountHeadId: string }> }
+) {
+  const { clientId, accountHeadId } = await params
+  const authHeader = request.headers.get("authorization")
+
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
-  const { data: membership } = await supabase
-    .from("organization_members")
+  const accessToken = authHeader.replace("Bearer ", "")
+  const supabase = createServiceRoleClient()
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, supabase)
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  }
+
+  if (!client) {
+    return NextResponse.json({ error: "Client not found." }, { status: 404 })
+  }
+
+  if (!canWriteClientData(membership)) {
+    return NextResponse.json(
+      { error: "You do not have permission to modify account heads." },
+      { status: 403 }
+    )
+  }
+
+  const { data: accountHead, error } = await supabase
+    .from("account_heads")
     .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
+    .eq("id", accountHeadId)
+    .eq("client_id", client.id)
     .maybeSingle()
 
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 })
+  }
 
-  return { user, client }
+  if (!accountHead) {
+    return NextResponse.json({ error: "Account head not found." }, { status: 404 })
+  }
+
+  return NextResponse.json(sanitizeAccountHead(accountHead))
 }
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { clientId: string; accountHeadId: string } }
+  { params }: { params: Promise<{ clientId: string; accountHeadId: string }> }
 ) {
+  const { clientId, accountHeadId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -79,7 +94,7 @@ export async function PATCH(
   }
 
   const supabase = createServiceRoleClient()
-  const { user, client } = await getAuthorizedClient(accessToken, params.clientId, supabase)
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, supabase)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
@@ -89,20 +104,58 @@ export async function PATCH(
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
   }
 
-  const { error } = await supabase
+  if (!canWriteClientData(membership)) {
+    return NextResponse.json(
+      { error: "You do not have permission to modify account heads." },
+      { status: 403 }
+    )
+  }
+
+  const { data: currentHead } = await supabase
     .from("account_heads")
-    .update({
-      name: parsed.data.accountHeadName,
-      opening_balance: parsed.data.openingBalance,
-      balance_type: parsed.data.balanceType,
-      is_active: parsed.data.is_active,
-    })
-    .eq("id", params.accountHeadId)
+    .select("id, sub_group_id")
+    .eq("id", accountHeadId)
     .eq("client_id", client.id)
+    .maybeSingle()
+
+  if (!currentHead) {
+    return NextResponse.json({ error: "Account head not found." }, { status: 404 })
+  }
+
+  const { data: existingHead } = await supabase
+    .from("account_heads")
+    .select("id")
+    .eq("client_id", client.id)
+    .eq("sub_group_id", currentHead.sub_group_id)
+    .ilike("name", parsed.data.accountHeadName)
+    .neq("id", accountHeadId)
+    .maybeSingle()
+
+  if (existingHead) {
+    return NextResponse.json(
+      { error: "An account head with this name already exists under the selected sub-group." },
+      { status: 400 }
+    )
+  }
+
+  const updateData: AccountHeadUpdate = {
+    name: parsed.data.accountHeadName.trim(),
+    opening_balance: parsed.data.openingBalance,
+    balance_type: parsed.data.balanceType,
+    is_active: parsed.data.is_active,
+  }
+
+  const { data: updatedHead, error } = await supabase
+    .from("account_heads")
+    .update(updateData)
+    .eq("id", accountHeadId)
+    .eq("client_id", client.id)
+    .select("*")
+    .single()
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ success: true, data: sanitizeAccountHead(updatedHead) })
 }

@@ -2,12 +2,13 @@
 // Keep Supabase Auth and Storage operations in Supabase SDK; use Prisma only on server code.
 
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Organization {
@@ -48,34 +49,31 @@ model OrganizationMember {
 }
 
 model Client {
-  id                      String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  orgId                   String?                  @map("org_id") @db.Uuid
-  name                    String
-  type                    String?                  @default("company")
-  tradeName               String?                  @map("trade_name")
-  bin                     String?
-  tin                     String?
-  address                 String?
-  phone                   String?
-  email                   String?
-  fiscalYearStart         Int?                     @default(7) @map("fiscal_year_start")
-  isActive                Boolean?                 @default(true) @map("is_active")
-  createdAt               DateTime?                @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime?                @default(now()) @map("updated_at") @db.Timestamptz(6)
-  organization            Organization?            @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  fiscalYears             FiscalYear[]
-  accountGroups           AccountGroup[]
-  accountSemiSubGroups    AccountSemiSubGroup[]
-  accountSubGroups        AccountSubGroup[]
-  accountHeads            AccountHead[]
-  paymentModes            PaymentMode[]
-  vouchers                Voucher[]
-  voucherAttachments      VoucherAttachment[]
-  payrollEmployees        PayrollEmployee[]
+  id                     String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId                String?                 @map("org_id") @db.Uuid
+  name                   String
+  type                   String?                 @default("company")
+  tradeName              String?                 @map("trade_name")
+  bin                    String?
+  tin                    String?
+  address                String?
+  phone                  String?
+  email                  String?
+  fiscalYearStart         Int?                   @default(7) @map("fiscal_year_start")
+  isActive               Boolean?                @default(true) @map("is_active")
+  createdAt              DateTime?               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime?               @default(now()) @map("updated_at") @db.Timestamptz(6)
+  organization           Organization?         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  fiscalYears            FiscalYear[]
+  accountHeads          AccountHead[]
+  paymentModes          PaymentMode[]
+  vouchers              Voucher[]
+  voucherAttachments     VoucherAttachment[]
+  payrollEmployees      PayrollEmployee[]
   payrollSalaryStructures PayrollSalaryStructure[]
-  payrollRuns             PayrollRun[]
-  payrollAccountMappings  PayrollAccountMapping[]
-  payrollPolicy           PayrollPolicy?
+  payrollRuns          PayrollRun[]
+  payrollAccountMappings PayrollAccountMapping[]
+  payrollPolicy         PayrollPolicy?
 
   @@map("clients")
 }
@@ -96,60 +94,25 @@ model FiscalYear {
   @@map("fiscal_years")
 }
 
-model AccountGroup {
-  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clientId      String?               @map("client_id") @db.Uuid
-  name          String
-  type          String
-  sortOrder     Int?                  @default(0) @map("sort_order")
-  client        Client?               @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  semiSubGroups AccountSemiSubGroup[]
-
-  @@map("account_groups")
-}
-
-model AccountSemiSubGroup {
-  id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clientId  String?           @map("client_id") @db.Uuid
-  groupId   String?           @map("group_id") @db.Uuid
-  name      String
-  sortOrder Int?              @default(0) @map("sort_order")
-  client    Client?           @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  group     AccountGroup?     @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  subGroups AccountSubGroup[]
-
-  @@map("account_semi_sub_groups")
-}
-
-model AccountSubGroup {
-  id           String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clientId     String?              @map("client_id") @db.Uuid
-  semiSubId    String?              @map("semi_sub_id") @db.Uuid
-  name         String
-  sortOrder    Int?                 @default(0) @map("sort_order")
-  client       Client?              @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  semiSubGroup AccountSemiSubGroup? @relation(fields: [semiSubId], references: [id], onDelete: Cascade)
-  accountHeads AccountHead[]
-
-  @@map("account_sub_groups")
-}
-
 model AccountHead {
   id                     String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   clientId               String?                 @map("client_id") @db.Uuid
-  subGroupId             String?                 @map("sub_group_id") @db.Uuid
+  parentId               String?                 @map("parent_id") @db.Uuid
   name                   String
+  type                   String?                 @map("type") // "expense", "income", "asset", "liability" (only for root nodes)
   openingBalance         Decimal?                @default(0) @map("opening_balance") @db.Decimal(15, 2)
   balanceType            String?                 @default("debit") @map("balance_type")
   isActive               Boolean?                @default(true) @map("is_active")
   sortOrder              Int?                    @default(0) @map("sort_order")
   createdAt              DateTime?               @default(now()) @map("created_at") @db.Timestamptz(6)
   client                 Client?                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  subGroup               AccountSubGroup?        @relation(fields: [subGroupId], references: [id], onDelete: Cascade)
+  parent                 AccountHead?            @relation("AccountHeadHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children               AccountHead[]           @relation("AccountHeadHierarchy")
   voucherEntries         VoucherEntry[]
   payrollAccountMappings PayrollAccountMapping[]
 
   @@index([clientId], map: "idx_account_heads_client")
+  @@index([parentId], map: "idx_account_heads_parent")
   @@map("account_heads")
 }
 

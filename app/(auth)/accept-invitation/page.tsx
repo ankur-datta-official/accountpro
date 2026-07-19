@@ -18,7 +18,6 @@ type InvitationState = {
 }
 
 export default function AcceptInvitationPage() {
-  const supabase = createClient()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -28,38 +27,52 @@ export default function AcceptInvitationPage() {
 
   useEffect(() => {
     const loadInvitation = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-
-      if (!session?.access_token) {
+      let supabase
+      try {
+        supabase = createClient()
+      } catch (error) {
         setLoading(false)
-        toast.error("Please open this page using your invitation email link.")
+        toast.error(error instanceof Error ? error.message : "Supabase is not configured.")
         return
       }
 
-      const response = await fetch("/api/team/invitation", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      })
-      const result = await response.json().catch(() => ({ error: "Unable to read invitation." }))
-      setLoading(false)
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
-      if (!response.ok) {
-        toast.error(result.error ?? "Unable to read invitation.")
-        return
-      }
+        if (!session?.access_token) {
+          setLoading(false)
+          toast.error("Please open this page using your invitation email link.")
+          return
+        }
 
-      setInvitation(result)
-      const metadataName = (session.user.user_metadata?.full_name as string | undefined) ?? ""
-      if (metadataName) {
-        setFullName(metadataName)
+        const response = await fetch("/api/team/invitation", {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        })
+        const result = await response.json().catch(() => ({ error: "Unable to read invitation." }))
+        setLoading(false)
+
+        if (!response.ok) {
+          toast.error(result.error ?? "Unable to read invitation.")
+          return
+        }
+
+        setInvitation(result)
+        const metadataName = (session.user.user_metadata?.full_name as string | undefined) ?? ""
+        if (metadataName) {
+          setFullName(metadataName)
+        }
+      } catch (error) {
+        setLoading(false)
+        toast.error(error instanceof Error ? error.message : "Unable to read invitation.")
       }
     }
 
     void loadInvitation()
-  }, [supabase.auth])
+  }, [])
 
   const handleSubmit = async () => {
     if (!fullName.trim() || password.length < 8) {
@@ -68,6 +81,15 @@ export default function AcceptInvitationPage() {
     }
 
     setSubmitting(true)
+    let supabase
+    try {
+      supabase = createClient()
+    } catch (error) {
+      setSubmitting(false)
+      toast.error(error instanceof Error ? error.message : "Supabase is not configured.")
+      return
+    }
+
     const {
       data: { session },
     } = await supabase.auth.getSession()

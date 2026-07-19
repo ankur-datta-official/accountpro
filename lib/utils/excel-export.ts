@@ -176,8 +176,9 @@ export function exportTrialBalance(
   const clientName = Array.isArray(dataOrPayload) ? clientNameArg ?? "Client" : dataOrPayload.clientName
   const period = Array.isArray(dataOrPayload) ? periodArg ?? "" : dataOrPayload.periodLabel ?? periodArg ?? ""
   const grouped = rowsInput.reduce<Record<string, TrialBalanceRow[]>>((acc, row) => {
-    if (!acc[row.semiSubGroupName]) acc[row.semiSubGroupName] = []
-    acc[row.semiSubGroupName].push(row)
+    const key = row.semiSubGroupName ?? "Other"
+    if (!acc[key]) acc[key] = []
+    acc[key].push(row)
     return acc
   }, {})
 
@@ -370,17 +371,18 @@ export type PayrollExportRow = {
 export function exportPayroll(
   data: PayrollExportRow[],
   clientName: string,
-  period: string
+  period: string,
+  fiscalYearLabel?: string
 ): Blob {
   const rows: Array<Array<string | number>> = [
-    ["Payroll"],
+    ["Payroll Salary Sheet"],
     [clientName],
-    [`Period: ${period}`],
+    [`Payroll Run: ${period}`],
+    fiscalYearLabel ? [`Fiscal Year: ${fiscalYearLabel}`] : [""],
     [],
     [
-      "Sl",
       "Employee Code",
-      "Staff Name",
+      "Employee Name",
       "Designation",
       "Grade",
       "Basic",
@@ -388,20 +390,18 @@ export function exportPayroll(
       "Medical",
       "Conveyance",
       "SubTotal",
-      "PF (Org Part)",
+      "PF Org Part",
       "Bonus",
       "Arrear",
       "Total Salary",
-      "PF (Total)",
+      "PF Org+Staff",
       "Loan Installment",
       "Loan Interest",
       "Tax",
       "Total Deduction",
-      "Net Pay",
-      "Month"
+      "Net Payable"
     ],
     ...data.map((row) => [
-      row.sl,
       row.employeeCode ?? "",
       row.staffName,
       row.designation ?? "",
@@ -420,15 +420,13 @@ export function exportPayroll(
       row.loanInterest,
       row.tax,
       row.totalDeduction,
-      row.netPay,
-      row.month
+      row.netPay
     ]),
     [],
     [
       "",
       "",
-      "Total",
-      "",
+      "Grand Total",
       "",
       data.reduce((sum, r) => sum + r.basic, 0),
       data.reduce((sum, r) => sum + r.housing, 0),
@@ -451,9 +449,8 @@ export function exportPayroll(
 
   const ws = XLSX.utils.aoa_to_sheet(rows)
   ws["!cols"] = [
-    { wch: 5 },
     { wch: 14 },
-    { wch: 20 },
+    { wch: 24 },
     { wch: 14 },
     { wch: 8 },
     { wch: 12 },
@@ -471,20 +468,24 @@ export function exportPayroll(
     { wch: 10 },
     { wch: 16 },
     { wch: 14 },
-    { wch: 10 }
+    { wch: 14 }
   ]
 
   styleCell(ws, "A1", { font: { bold: true, sz: 16 } })
   styleCell(ws, "A2", { font: { bold: true, sz: 12 } })
   styleCell(ws, "A3", { font: { bold: true } })
+  if (fiscalYearLabel) {
+    styleCell(ws, "A4", { font: { bold: true } })
+  }
 
-  for (let col = 0; col < 21; col += 1) {
-    const cell = XLSX.utils.encode_cell({ c: col, r: 4 })
+  const headerRowIndex = fiscalYearLabel ? 5 : 4
+  for (let col = 0; col < 19; col += 1) {
+    const cell = XLSX.utils.encode_cell({ c: col, r: headerRowIndex })
     styleCell(ws, cell, { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
   }
 
-  const totalRowIndex = 5 + data.length
-  for (let col = 0; col < 21; col += 1) {
+  const totalRowIndex = headerRowIndex + 1 + data.length
+  for (let col = 0; col < 19; col += 1) {
     const cell = XLSX.utils.encode_cell({ c: col, r: totalRowIndex })
     styleCell(ws, cell, { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
   }

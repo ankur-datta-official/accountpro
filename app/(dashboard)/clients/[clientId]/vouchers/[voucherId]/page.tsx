@@ -24,6 +24,13 @@ import {
 } from "@/components/ui/table"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { createClient } from "@/lib/supabase/server"
+import type { Database } from "@/lib/types"
+
+type VoucherEntryRecord = Database["public"]["Tables"]["voucher_entries"]["Row"]
+type FiscalYearRecord = Database["public"]["Tables"]["fiscal_years"]["Row"]
+type PaymentModeRecord = Database["public"]["Tables"]["payment_modes"]["Row"]
+type AccountHeadRecord = Database["public"]["Tables"]["account_heads"]["Row"]
+type VoucherAttachmentRecord = Database["public"]["Tables"]["voucher_attachments"]["Row"]
 
 function currency(value: number) {
   return new Intl.NumberFormat("en-BD", {
@@ -49,11 +56,13 @@ export default async function VoucherDetailPage({
   params,
   searchParams,
 }: {
-  params: { clientId: string; voucherId: string }
-  searchParams?: { print?: string }
+  params: Promise<{ clientId: string; voucherId: string }>
+  searchParams: Promise<{ print?: string }>
 }) {
-  const supabase = createClient()
-  const { client } = await getClientRouteContext({ clientId: params.clientId })
+  const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
+  const supabase = await createClient()
+  const { client } = await getClientRouteContext({ clientId: resolvedParams.clientId })
 
   if (!client) {
     notFound()
@@ -62,7 +71,7 @@ export default async function VoucherDetailPage({
   const { data: voucher } = await supabase
     .from("vouchers")
     .select("*")
-    .eq("id", params.voucherId)
+    .eq("id", resolvedParams.voucherId)
     .eq("client_id", client.id)
     .maybeSingle()
 
@@ -79,16 +88,20 @@ export default async function VoucherDetailPage({
     supabase.from("voucher_attachments").select("*").eq("voucher_id", voucher.id).order("created_at"),
   ])
 
-  const accountHeadIds = (entries ?? []).map((entry) => entry.account_head_id).filter(Boolean) as string[]
+  const entryRows = (entries ?? []) as VoucherEntryRecord[]
+  const fiscalYearRow = fiscalYear as FiscalYearRecord | null
+  const paymentModeRow = paymentMode as PaymentModeRecord | null
+  const attachmentRows = (attachments ?? []) as VoucherAttachmentRecord[]
+  const accountHeadIds = entryRows.map((entry: VoucherEntryRecord) => entry.account_head_id).filter(Boolean) as string[]
   const { data: accountHeads } = accountHeadIds.length
     ? await supabase.from("account_heads").select("*").in("id", accountHeadIds)
-    : { data: [] }
+    : { data: [] as AccountHeadRecord[] }
 
-  const accountHeadMap = new Map((accountHeads ?? []).map((head) => [head.id, head.name]))
-  const totalDebit = (entries ?? []).reduce((sum, entry) => sum + Number(entry.debit ?? 0), 0)
-  const totalCredit = (entries ?? []).reduce((sum, entry) => sum + Number(entry.credit ?? 0), 0)
-  const visibleEntries = (entries ?? []).filter((entry) => !isAutoBalanceEntry(entry.description))
-  const printLines = (visibleEntries.length ? visibleEntries : entries ?? []).map((entry) => ({
+  const accountHeadMap = new Map<string, string>((accountHeads ?? []).map((head: AccountHeadRecord) => [head.id, head.name]))
+  const totalDebit = entryRows.reduce((sum: number, entry: VoucherEntryRecord) => sum + Number(entry.debit ?? 0), 0)
+  const totalCredit = entryRows.reduce((sum: number, entry: VoucherEntryRecord) => sum + Number(entry.credit ?? 0), 0)
+  const visibleEntries = entryRows.filter((entry: VoucherEntryRecord) => !isAutoBalanceEntry(entry.description))
+  const printLines = (visibleEntries.length ? visibleEntries : entryRows).map((entry: VoucherEntryRecord) => ({
     id: entry.id,
     accountHeadName: accountHeadMap.get(entry.account_head_id ?? "") ?? "Unknown",
     accountsGroup: entry.accounts_group,
@@ -97,9 +110,9 @@ export default async function VoucherDetailPage({
     description: entry.description ?? null,
   }))
   const primaryAccountHeadName = printLines[0]?.accountHeadName ?? client.name
-  const autoPrint = searchParams?.print === "1"
+  const autoPrint = resolvedSearchParams?.print === "1"
   const attachmentItems = await Promise.all(
-    (attachments ?? []).map(async (attachment) => {
+    attachmentRows.map(async (attachment: VoucherAttachmentRecord) => {
       const { data } = await supabase.storage
         .from("voucher-documents")
         .createSignedUrl(attachment.file_path, 60 * 60)
@@ -136,7 +149,7 @@ export default async function VoucherDetailPage({
             companyName={client.name}
             voucherType={voucher.voucher_type}
             voucherDate={voucher.voucher_date}
-            paymentModeName={paymentMode?.name ?? null}
+            paymentModeName={paymentModeRow?.name ?? null}
             description={voucher.description ?? null}
             accountHeadName={primaryAccountHeadName}
             lines={printLines}
@@ -172,7 +185,7 @@ export default async function VoucherDetailPage({
             </div>
             <div>
               <p className="text-sm text-slate-500">Fiscal year</p>
-              <p className="mt-1 font-medium text-slate-950">{fiscalYear?.label ?? "—"}</p>
+              <p className="mt-1 font-medium text-slate-950">{fiscalYearRow?.label ?? "—"}</p>
             </div>
             <div>
               <p className="text-sm text-slate-500">Last updated</p>
@@ -259,7 +272,7 @@ export default async function VoucherDetailPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(entries ?? []).map((entry) => (
+              {entryRows.map((entry: VoucherEntryRecord) => (
                 <TableRow key={entry.id}>
                   <TableCell className="font-medium text-slate-900">
                     {accountHeadMap.get(entry.account_head_id ?? "") ?? "Unknown"}

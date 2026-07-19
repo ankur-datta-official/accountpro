@@ -1,58 +1,17 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 
-import type { Database } from "@/lib/types"
+import { canWriteClientData, getAuthorizedClient } from "@/lib/api-auth"
+import { supabaseAdmin } from "@/lib/supabase/admin"
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
-}
-
-async function getAuthorizedClient(
-  accessToken: string,
-  clientId: string,
-  supabase: ReturnType<typeof createServiceRoleClient>
-) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(accessToken)
-
-  if (!user) {
-    return { user: null, client: null }
-  }
-
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
-
-  return { user, client }
+  return supabaseAdmin
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: { clientId: string; paymentModeId: string } }
+  { params }: { params: Promise<{ clientId: string; paymentModeId: string }> }
 ) {
+  const { clientId, paymentModeId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -61,7 +20,7 @@ export async function POST(
 
   const accessToken = authHeader.replace("Bearer ", "")
   const supabase = createServiceRoleClient()
-  const { user, client } = await getAuthorizedClient(accessToken, params.clientId, supabase)
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, supabase)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
@@ -71,10 +30,17 @@ export async function POST(
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
   }
 
+  if (!canWriteClientData(membership)) {
+    return NextResponse.json(
+      { error: "You do not have permission to manage payment modes." },
+      { status: 403 }
+    )
+  }
+
   const { data: paymentMode } = await supabase
     .from("payment_modes")
     .select("*")
-    .eq("id", params.paymentModeId)
+    .eq("id", paymentModeId)
     .eq("client_id", client.id)
     .maybeSingle()
 

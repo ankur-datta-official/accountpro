@@ -19,7 +19,12 @@ type ChartResponse = {
   accountHeads: AccountHead[]
 }
 
-export type ChartTreeHead = AccountHead
+export type ChartTreeHead = AccountHead & {
+  children: ChartTreeHead[]
+  path: string[]
+  level: number
+  isLeaf: boolean
+}
 
 export type ChartTreeSubGroup = AccountSubGroup & {
   heads: ChartTreeHead[]
@@ -46,7 +51,75 @@ export type ChartFlatAccount = {
   semiSubGroupName: string
   subGroupId: string
   subGroupName: string
+  parentAccountHeadId: string | null
   label: string
+  path: string[]
+}
+
+function buildAccountLabel(path: string[]) {
+  return path.join(" > ")
+}
+
+function buildHeadTree(heads: AccountHead[], parentId: string | null, path: string[] = [], level = 0): ChartTreeHead[] {
+  return heads
+    .filter((head) => (head.parent_id ?? null) === parentId)
+    .sort((left, right) => {
+      const orderDiff = Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0)
+      return orderDiff !== 0 ? orderDiff : left.name.localeCompare(right.name)
+    })
+    .map((head) => {
+      const nextPath = [...path, head.name]
+      const children = buildHeadTree(heads, head.id, nextPath, level + 1)
+
+      return {
+        ...head,
+        children,
+        path: nextPath,
+        level,
+        isLeaf: children.length === 0,
+      }
+    })
+}
+
+function flattenPostingAccounts(
+  heads: ChartTreeHead[],
+  context: {
+    group: AccountGroup
+    semiSubGroup: AccountSemiSubGroup
+    subGroup: AccountSubGroup
+  }
+): ChartFlatAccount[] {
+  return heads.flatMap((head) => {
+    const own =
+      head.children.length === 0
+        ? [
+            {
+              id: head.id,
+              name: head.name,
+              openingBalance: Number(head.opening_balance ?? 0),
+              balanceType: (head.balance_type ?? "debit") as "debit" | "credit",
+              isActive: Boolean(head.is_active),
+              groupId: context.group.id,
+              groupName: context.group.name,
+              groupType: context.group.type,
+              semiSubGroupId: context.semiSubGroup.id,
+              semiSubGroupName: context.semiSubGroup.name,
+              subGroupId: context.subGroup.id,
+              subGroupName: context.subGroup.name,
+              parentAccountHeadId: head.parent_id ?? null,
+              label: buildAccountLabel([
+                context.group.name,
+                context.semiSubGroup.name,
+                context.subGroup.name,
+                ...head.path,
+              ]),
+              path: [context.group.name, context.semiSubGroup.name, context.subGroup.name, ...head.path],
+            } satisfies ChartFlatAccount,
+          ]
+        : []
+
+    return [...own, ...flattenPostingAccounts(head.children, context)]
+  })
 }
 
 export function useChartOfAccounts(clientId: string) {
@@ -61,55 +134,41 @@ export function useChartOfAccounts(clientId: string) {
     const groups = query.data?.groups ?? []
     const semiSubGroups = query.data?.semiSubGroups ?? []
     const subGroups = query.data?.subGroups ?? []
-    const accountHeads = query.data?.accountHeads ?? []
+    const accountHeads = (query.data?.accountHeads ?? []).map((head) => ({
+      ...head,
+      is_active: head.is_active ?? true,
+    }))
 
-    return groups.map((group) => {
-      const nestedSemiSubGroups = semiSubGroups
+    return groups.map((group) => ({
+      ...group,
+      semiSubGroups: semiSubGroups
         .filter((semiSubGroup) => semiSubGroup.group_id === group.id)
-        .map((semiSubGroup) => {
-          const nestedSubGroups = subGroups
+        .map((semiSubGroup) => ({
+          ...semiSubGroup,
+          subGroups: subGroups
             .filter((subGroup) => subGroup.semi_sub_id === semiSubGroup.id)
             .map((subGroup) => ({
               ...subGroup,
-              heads: accountHeads.filter((head) => head.sub_group_id === subGroup.id),
-            }))
-
-          return {
-            ...semiSubGroup,
-            subGroups: nestedSubGroups,
-          }
-        })
-
-      return {
-        ...group,
-        semiSubGroups: nestedSemiSubGroups,
-      }
-    })
+              heads: buildHeadTree(
+                accountHeads.filter((head) => head.sub_group_id === subGroup.id),
+                null
+              ),
+            })),
+        })),
+    }))
   }, [query.data])
 
-  const flatAccounts = useMemo<ChartFlatAccount[]>(() => {
-    return tree.flatMap((group) =>
-      group.semiSubGroups.flatMap((semiSubGroup) =>
-        semiSubGroup.subGroups.flatMap((subGroup) =>
-          subGroup.heads.map((head) => ({
-            id: head.id,
-            name: head.name,
-            openingBalance: Number(head.opening_balance ?? 0),
-            balanceType: (head.balance_type ?? "debit") as "debit" | "credit",
-            isActive: Boolean(head.is_active),
-            groupId: group.id,
-            groupName: group.name,
-            groupType: group.type,
-            semiSubGroupId: semiSubGroup.id,
-            semiSubGroupName: semiSubGroup.name,
-            subGroupId: subGroup.id,
-            subGroupName: subGroup.name,
-            label: `${head.name} - ${subGroup.name}`,
-          }))
+  const flatAccounts = useMemo<ChartFlatAccount[]>(
+    () =>
+      tree.flatMap((group) =>
+        group.semiSubGroups.flatMap((semiSubGroup) =>
+          semiSubGroup.subGroups.flatMap((subGroup) =>
+            flattenPostingAccounts(subGroup.heads, { group, semiSubGroup, subGroup })
+          )
         )
-      )
-    )
-  }, [tree])
+      ),
+    [tree]
+  )
 
   return {
     ...query,

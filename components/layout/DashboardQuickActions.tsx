@@ -21,11 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { buildClientPath } from "@/lib/routing/clients"
 
 export function DashboardQuickActions({
   clients,
 }: {
-  clients: Array<{ id: string; name: string }>
+  clients: Array<{ id: string; name: string; routeSegment?: string | null }>
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -63,7 +64,10 @@ export function DashboardQuickActions({
               disabled={!selectedClientId}
               onClick={() => {
                 setOpen(false)
-                router.push(`/clients/${selectedClientId}/vouchers/new`)
+                const selectedClient = clients.find((client) => client.id === selectedClientId)
+                if (selectedClient) {
+                  router.push(buildClientPath(selectedClient, "/vouchers/new"))
+                }
               }}
             >
               Continue

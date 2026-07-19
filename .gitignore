@@ -25,9 +25,16 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs/
+/logs/
 
 # local env files
+.env
+.env.local
 .env*.local
+.env.production
+.env.development
+.env.test
 
 # vercel
 .vercel
@@ -35,3 +42,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# agent/editor temp files
+.agents/
+.codex/
+.vscode/
+/.agents/
+/.codex/
+/.vscode/
+*.swp
+*.swo
+*.tmp
+*.temp
+*~

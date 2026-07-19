@@ -1,9 +1,28 @@
 "use client"
 
 import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { memo, useCallback, useMemo, useState, useTransition, useEffect } from "react"
 import { format } from "date-fns"
-import { X, Calculator, BookOpen, Wallet, Banknote, CheckCircle2, ChevronDown, HelpCircle, Loader2, PlayCircle, Save, Send, Settings, Trash2, UserPlus, Users, WalletCards, UploadCloud } from "lucide-react"
+import {
+  Banknote,
+  BriefcaseBusiness,
+  Calculator,
+  CheckCircle2,
+  ChevronDown,
+  HelpCircle,
+  Loader2,
+  PlayCircle,
+  Save,
+  Send,
+  Settings,
+  ShieldCheck,
+  Trash2,
+  UserPlus,
+  Users,
+  Wallet,
+  UploadCloud,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -19,7 +38,6 @@ import {
 } from "@/lib/actions/payroll"
 import { exportPayroll } from "@/lib/utils"
 import {
-  PAYROLL_COMPONENTS,
   calculatePayrollRowSummary,
   getPayrollRunTotals,
   normalizePayrollRows,
@@ -176,28 +194,6 @@ function statusLabel(status: PayrollRunStatus) {
   return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function employeeToForm(employee: PayrollEmployeeRow): EmployeeFormState {
-  return {
-    employeeId: employee.id,
-    employeeCode: employee.employee_code ?? "",
-    name: employee.name,
-    designation: employee.designation ?? "",
-    grade: employee.grade ?? "",
-    phone: employee.phone ?? "",
-    email: employee.email ?? "",
-    tin: employee.tin ?? "",
-    joiningDate: employee.joining_date ?? "",
-    leavingDate: employee.leaving_date ?? "",
-    isActive: employee.is_active ?? true,
-    basic: String(employee.salary?.basic ?? 0),
-    housing: String(employee.salary?.housing ?? 0),
-    medical: String(employee.salary?.medical ?? 0),
-    conveyance: String(employee.salary?.conveyance ?? 0),
-    employerPf: String(employee.salary?.employer_pf ?? 0),
-    staffPf: String(employee.salary?.staff_pf ?? 0),
-    tax: String(employee.salary?.tax ?? 0),
-  }
-}
 
 function buildManualRows(employees: PayrollEmployeeRow[]): PayrollDraftRow[] {
   return employees
@@ -234,7 +230,7 @@ export function PayrollManager({
   clientId,
   fiscalYearId,
   fiscalYearLabel,
-  fiscalYearStart,
+  fiscalYears,
   schemaReady,
   employees,
   payrollRuns,
@@ -246,7 +242,7 @@ export function PayrollManager({
   clientId: string
   fiscalYearId: string
   fiscalYearLabel: string
-  fiscalYearStart: string
+  fiscalYears: { id: string; label: string }[]
   schemaReady: boolean
   employees: PayrollEmployeeRow[]
   payrollRuns: PayrollRunRow[]
@@ -255,9 +251,10 @@ export function PayrollManager({
   payrollPolicy: PayrollPolicy | null
   accountHeads: { id: string; name: string }[]
 }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   // First declare ALL state variables
-  const [showGuide, setShowGuide] = useState(true)
-  const [isHydrated, setIsHydrated] = useState(false)
   const [policyForm, setPolicyForm] = useState({
     housingPercent: String(payrollPolicy?.housingPercent ?? 0),
     medicalPercent: String(payrollPolicy?.medicalPercent ?? 0),
@@ -281,32 +278,24 @@ export function PayrollManager({
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null)
   const [localEmployees, setLocalEmployees] = useState<PayrollEmployeeRow[]>(employees)
-  const [runMonth, setRunMonth] = useState(format(new Date(), "yyyy-MM"))
+  const [runMonth, setRunMonth] = useState("")
   const [runNotes, setRunNotes] = useState("")
   const [paymentModeId, setPaymentModeId] = useState(paymentModes[0]?.id ?? "")
+  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState(fiscalYearId)
   const [isPending, startTransition] = useTransition()
 
-  // Hydration: sync with localStorage after component mounts
   useEffect(() => {
-    setIsHydrated(true)
-    const workflowClosed = localStorage.getItem(`payroll-workflow-closed-${clientId}`)
-    setShowGuide(workflowClosed !== 'true')
-  }, [clientId])
+    setRunMonth(format(new Date(), "yyyy-MM"))
+  }, [])
+
+  useEffect(() => {
+    setSelectedFiscalYearId(fiscalYearId)
+  }, [fiscalYearId])
 
   // Sync localEmployees with employees prop
   useEffect(() => {
     setLocalEmployees(employees)
   }, [employees])
-
-  const handleDismissGuide = useCallback(() => {
-    setShowGuide(false)
-    localStorage.setItem(`payroll-workflow-closed-${clientId}`, 'true')
-  }, [clientId])
-
-  const handleShowGuide = useCallback(() => {
-    setShowGuide(true)
-    localStorage.setItem(`payroll-workflow-closed-${clientId}`, 'false')
-  }, [clientId])
 
   const savePayrollPolicy = useCallback(() => {
     startTransition(async () => {
@@ -372,30 +361,7 @@ export function PayrollManager({
     }
   }, [payrollPolicy])
 
-  // Handle employee salary component changes with auto-calc when basic changes
-  const handleEmployeeSalaryChange = useCallback((employeeId: string, component: keyof PayrollEmployeeRow['salary'], newValue: string) => {
-    setLocalEmployees(prev => prev.map(emp => {
-      if (emp.id !== employeeId) return emp
-      
-      let newSalary = { ...emp.salary, [component]: numberValue(newValue) }
-      
-      // If basic changed, auto-calculate other components
-      if (component === 'basic') {
-        const calculated = autoCalculateFromBasic(numberValue(newValue))
-        newSalary = {
-          ...newSalary,
-          housing: numberValue(calculated.housing),
-          medical: numberValue(calculated.medical),
-          conveyance: numberValue(calculated.conveyance),
-          employer_pf: numberValue(calculated.employerPf),
-          staff_pf: numberValue(calculated.staffPf),
-          tax: numberValue(calculated.tax)
-        }
-      }
-      
-      return { ...emp, salary: newSalary }
-    }))
-  }, [autoCalculateFromBasic])
+
 
   const handleInlineEditChange = useCallback((employeeId: string, field: keyof EmployeeFormState, value: string | boolean) => {
     setLocalEmployees(prev => prev.map(emp => {
@@ -407,13 +373,32 @@ export function PayrollManager({
                            field === 'staffPf' ? 'staff_pf' : 
                            field as keyof PayrollEmployeeRow['salary']
         
-        let newSalary = { ...emp.salary, [salaryField]: numberValue(value as string) }
+        const defaultSalary = {
+          basic: null,
+          housing: null,
+          medical: null,
+          conveyance: null,
+          employer_pf: null,
+          staff_pf: null,
+          tax: null
+        }
+        const currentSalary = emp.salary || defaultSalary
+        let newSalary = {
+          basic: currentSalary.basic ?? null,
+          housing: currentSalary.housing ?? null,
+          medical: currentSalary.medical ?? null,
+          conveyance: currentSalary.conveyance ?? null,
+          employer_pf: currentSalary.employer_pf ?? null,
+          staff_pf: currentSalary.staff_pf ?? null,
+          tax: currentSalary.tax ?? null,
+          [salaryField]: numberValue(value as string)
+        } as PayrollEmployeeRow['salary']
         
         // If basic changed, auto-calculate other components
         if (field === 'basic') {
           const calculated = autoCalculateFromBasic(numberValue(value as string))
           newSalary = {
-            ...newSalary,
+            basic: numberValue(value as string),
             housing: numberValue(calculated.housing),
             medical: numberValue(calculated.medical),
             conveyance: numberValue(calculated.conveyance),
@@ -437,18 +422,6 @@ export function PayrollManager({
 
   const manualRows = useMemo(() => normalizePayrollRows(buildManualRows(employees)), [employees])
   const manualTotals = useMemo(() => getPayrollRunTotals(manualRows), [manualRows])
-  const latestRun = payrollRuns[0]
-  const activeEmployeeCount = useMemo(
-    () => employees.filter((employee) => employee.is_active !== false).length,
-    [employees]
-  )
-  const totalPayrollPaid = useMemo(
-    () =>
-      payrollRuns
-        .filter((run) => run.status === "paid")
-        .reduce((sum, run) => sum + run.totals.netPayable, 0),
-    [payrollRuns]
-  )
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   
@@ -459,6 +432,23 @@ export function PayrollManager({
     const totalNet = payrollRuns.reduce((sum, run) => sum + run.totals.netPayable, 0)
     return { totalRuns, totalGross, totalDeductions, totalNet }
   }, [payrollRuns])
+
+  const activeEmployees = useMemo(
+    () => localEmployees.filter((employee) => employee.is_active !== false),
+    [localEmployees],
+  )
+
+  const latestRun = payrollRuns[0] ?? null
+  const completedRuns = useMemo(
+    () => payrollRuns.filter((run) => run.status === "paid").length,
+    [payrollRuns],
+  )
+  const postedRuns = useMemo(
+    () => payrollRuns.filter((run) => !!run.accrual_voucher_id).length,
+    [payrollRuns],
+  )
+  const totalSalaryBudget = manualTotals.netPayable
+  const averageNetPay = activeEmployees.length ? totalSalaryBudget / activeEmployees.length : 0
 
   const filteredPayrollRuns = useMemo(() => {
     return payrollRuns.filter((run) => {
@@ -748,12 +738,43 @@ export function PayrollManager({
     exportPayroll(exportData, "Employee Salary Sheet", format(new Date(), "MMMM yyyy"))
   }, [employees])
 
+  const handleFiscalYearChange = useCallback((value: string) => {
+    setSelectedFiscalYearId(value)
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("fiscalYear", value)
+    router.push(`${pathname}?${params.toString()}`)
+  }, [pathname, router, searchParams])
+
   const statCards = useMemo(() => [
-    { label: "Total Payroll Runs", value: dashboardStats.totalRuns },
-    { label: "Total Gross Salary", value: currency(dashboardStats.totalGross) },
-    { label: "Total Deductions", value: currency(dashboardStats.totalDeductions) },
-    { label: "Total Net Pay", value: currency(dashboardStats.totalNet) },
-  ], [dashboardStats])
+    {
+      label: "Active employees",
+      value: activeEmployees.length,
+      detail: `${localEmployees.length - activeEmployees.length} inactive`,
+      icon: Users,
+      tone: "slate",
+    },
+    {
+      label: "Ready net payroll",
+      value: currency(totalSalaryBudget),
+      detail: `${currency(averageNetPay)} average per employee`,
+      icon: Wallet,
+      tone: "emerald",
+    },
+    {
+      label: "Posted runs",
+      value: postedRuns,
+      detail: `${completedRuns} already paid`,
+      icon: ShieldCheck,
+      tone: "blue",
+    },
+    {
+      label: "Historical gross",
+      value: currency(dashboardStats.totalGross),
+      detail: `${dashboardStats.totalRuns} total run${dashboardStats.totalRuns === 1 ? "" : "s"}`,
+      icon: BriefcaseBusiness,
+      tone: "amber",
+    },
+  ], [activeEmployees.length, averageNetPay, completedRuns, dashboardStats.totalGross, dashboardStats.totalRuns, localEmployees.length, postedRuns, totalSalaryBudget])
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -770,45 +791,94 @@ export function PayrollManager({
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold text-slate-950">Payroll</h2>
-          <p className="mt-1 text-sm text-slate-500">Fiscal year: {fiscalYearLabel}. Create payroll, review it, post it, then pay employees.</p>
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-2 border-b border-slate-100 px-5 pt-5 pb-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-1.5">
+            <h2 className="text-[2rem] font-semibold leading-none text-slate-950">Payroll</h2>
+            <p className="text-sm text-slate-500">
+              Fiscal year: {fiscalYearLabel}. Create payroll, review it, post it, then pay employees.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+            <Badge className="h-8 rounded-full bg-slate-100 px-3 text-slate-700 hover:bg-slate-100">
+              {latestRun ? latestRun.period_label : "No run yet"}
+            </Badge>
+            <Badge className={`h-8 rounded-full px-3 ${latestRun ? getStatusClass(latestRun.status) : "bg-slate-100 text-slate-700 hover:bg-slate-100"}`}>
+              {latestRun ? statusLabel(latestRun.status) : "Waiting"}
+            </Badge>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {tabs.map((tab) => {
-            const Icon = tab.icon
-            const active = activeTab === tab.id
-            return (
-              <Button
-                key={tab.id}
-                type="button"
-                variant={active ? "default" : "outline"}
-                className="h-9 rounded-lg"
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <Icon className="mr-2 h-4 w-4" />
-                {tab.label}
-              </Button>
-            )
-          })}
+
+        <div className="flex flex-col gap-2 px-5 pt-3 pb-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {tabs.map((tab) => {
+              const Icon = tab.icon
+              const active = activeTab === tab.id
+              return (
+                <Button
+                  key={tab.id}
+                  type="button"
+                  variant={active ? "default" : "outline"}
+                  className="h-10 rounded-xl px-4 min-w-[124px] justify-center"
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <Icon className="mr-2 h-4 w-4" />
+                  {tab.label}
+                </Button>
+              )
+            })}
+          </div>
+
+          <div className="min-w-[220px] lg:w-[240px]">
+            <LabelWithHelp label="Fiscal Year" help="Switch payroll data by fiscal year." />
+            <select
+              className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              value={selectedFiscalYearId}
+              onChange={(event) => handleFiscalYearChange(event.target.value)}
+            >
+              {fiscalYears.map((year) => (
+                <option key={year.id} value={year.id}>
+                  {year.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
       {activeTab === "dashboard" ? (
         <div className="space-y-6">
-          {showGuide && <WorkflowGuide onDismiss={handleDismissGuide} payrollRuns={payrollRuns} />}
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {statCards.map((stat) => (
-              <Card key={stat.label} className="rounded-2xl border-slate-200 bg-white shadow-sm">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm text-slate-500">{stat.label}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-2xl font-semibold text-slate-950">{stat.value}</p>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {statCards.map((stat) => {
+              const Icon = stat.icon
+              const iconToneClass =
+                stat.tone === "emerald"
+                  ? "bg-emerald-50 text-emerald-700"
+                  : stat.tone === "blue"
+                    ? "bg-blue-50 text-blue-700"
+                    : stat.tone === "amber"
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-slate-100 text-slate-600"
+              return (
+                <Card key={stat.label} className="rounded-2xl border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+                  <CardHeader className="pb-2 pt-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <CardTitle className="text-sm font-medium text-slate-500">{stat.label}</CardTitle>
+                        <div className="h-1 w-8 rounded-full bg-slate-100" />
+                      </div>
+                      <div className={`rounded-xl p-2 ${iconToneClass}`}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0 pb-5">
+                    <p className="text-[1.8rem] font-semibold leading-none text-slate-950">{stat.value}</p>
+                    <p className="mt-2 text-sm text-slate-500">{stat.detail}</p>
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
           <PayrollRunsTable
             clientId={clientId}
@@ -1121,11 +1191,8 @@ export function PayrollManager({
                   {currency(manualTotals.totalDeductions)} | Net Pay {currency(manualTotals.netPayable)}
                 </div>
               </div>
-
-
             </CardContent>
           </Card>
-          {showGuide && <WorkflowGuide payrollRuns={payrollRuns} />}
         </div>
       ) : null}
 
@@ -1133,22 +1200,6 @@ export function PayrollManager({
 
       {activeTab === "settings" ? (
         <div className="space-y-6">
-          {!showGuide && (
-            <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
-              <CardContent className="pt-5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">Payroll Workflow Guide</p>
-                    <p className="text-sm text-slate-500 mt-1">View the interactive workflow guide to understand payroll operations.</p>
-                  </div>
-                  <Button type="button" variant="outline" onClick={handleShowGuide}>
-                    <HelpCircle className="mr-2 h-4 w-4" />
-                    Show Workflow Guide
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
           <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <div>
@@ -1285,193 +1336,6 @@ function HelpTooltip({ text }: { text: string }) {
   )
 }
 
-function WorkflowGuide({ 
-  onDismiss, 
-  payrollRuns 
-}: { 
-  onDismiss?: () => void, 
-  payrollRuns?: PayrollRunRow[] 
-}) {
-  const latestRun = payrollRuns?.[0]
-  const currentStep = latestRun ? (
-    latestRun.status === "paid" ? 3 :
-    latestRun.status === "posted" ? 2 : 1
-  ) : 1
-
-  const steps = [
-    { 
-      label: "Run Payroll", 
-      description: "Generate monthly salary sheet",
-      tooltip: "Run Payroll = Generate monthly salary sheet",
-      icon: Calculator,
-      completed: !!latestRun,
-      current: currentStep === 1 && (!latestRun || latestRun.status === "draft" || latestRun.status === "reviewed")
-    },
-    { 
-      label: "Post to Accounts", 
-      description: "Create the payroll accounting voucher",
-      tooltip: "Post to Accounts = Create vouchers",
-      icon: BookOpen,
-      completed: !!latestRun?.accrual_voucher_id,
-      current: currentStep === 2 && !!latestRun && !latestRun.payment_voucher_id
-    },
-    { 
-      label: "Make Payment", 
-      description: "Record salary payment from cash or bank",
-      tooltip: "Make Payment = Record salary disbursement",
-      icon: Wallet,
-      completed: !!latestRun?.payment_voucher_id,
-      current: currentStep === 3 && !!latestRun && latestRun.status !== "paid"
-    },
-  ]
-
-  return (
-    <div className="relative rounded-2xl border border-slate-200 bg-white shadow-sm p-5 overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-top-2">
-      {onDismiss && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={onDismiss}
-              className="absolute top-3 right-3 p-2 hover:bg-slate-100 rounded-full transition-colors"
-              aria-label="Hide Workflow Guide"
-            >
-              <X className="h-4 w-4 text-slate-500" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Hide Workflow Guide</TooltipContent>
-        </Tooltip>
-      )}
-      
-      <div className="mb-6">
-        <h3 className="text-lg font-semibold text-slate-950">Payroll Workflow</h3>
-        <p className="text-sm text-slate-500 mt-1">Follow these steps to complete payroll processing</p>
-      </div>
-
-      {/* Horizontal Stepper - Desktop */}
-      <div className="hidden md:flex items-center justify-between gap-4">
-        {steps.map((step, index) => {
-          const Icon = step.icon
-          const isLast = index === steps.length - 1
-          
-          return (
-            <div key={step.label} className="flex-1 flex items-center">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex flex-col items-center cursor-pointer group">
-                    <div className={`flex h-14 w-14 items-center justify-center rounded-full shadow-sm transition-all duration-200 ${
-                      step.completed 
-                        ? 'bg-emerald-500 text-white ring-4 ring-emerald-100' 
-                        : step.current 
-                          ? 'bg-blue-500 text-white ring-4 ring-blue-100 scale-105' 
-                          : 'bg-white text-slate-400 border-2 border-slate-300 group-hover:border-slate-400'
-                    }`}>
-                      {step.completed ? (
-                        <CheckCircle2 className="h-7 w-7" />
-                      ) : (
-                        <Icon className="h-7 w-7" />
-                      )}
-                    </div>
-                    
-                    <div className="mt-3 text-center">
-                      <p className={`text-sm font-semibold ${
-                        step.completed ? 'text-emerald-700' : step.current ? 'text-blue-700' : 'text-slate-600'
-                      }`}>
-                        {step.label}
-                      </p>
-                      {step.current && (
-                        <Badge className="mt-1 bg-blue-100 text-blue-700 text-xs">Current</Badge>
-                      )}
-                      {step.completed && (
-                        <Badge className="mt-1 bg-emerald-100 text-emerald-700 text-xs">Done</Badge>
-                      )}
-                    </div>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-64 text-xs">
-                  <p className="font-semibold">{step.label}</p>
-                  <p className="mt-1">{step.tooltip}</p>
-                </TooltipContent>
-              </Tooltip>
-              
-              {!isLast && (
-                <div className={`flex-1 h-1 mx-4 rounded-full transition-all duration-300 ${
-                  step.completed ? 'bg-emerald-500' : 'bg-slate-200'
-                }`}>
-                  <div className={`h-full rounded-full transition-all duration-500 ${
-                    step.completed ? 'bg-emerald-500' : ''
-                  }`}></div>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Stacked Stepper - Mobile */}
-      <div className="md:hidden space-y-4">
-        {steps.map((step, index) => {
-          const Icon = step.icon
-          
-          return (
-            <Tooltip key={step.label}>
-              <TooltipTrigger asChild>
-                <div 
-                  className={`flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 ${
-                    step.completed 
-                      ? 'bg-emerald-50 border border-emerald-200' 
-                      : step.current 
-                        ? 'bg-blue-50 border border-blue-200' 
-                        : 'bg-slate-50 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-sm z-10 transition-all ${
-                    step.completed 
-                      ? 'bg-emerald-500 text-white' 
-                      : step.current 
-                        ? 'bg-blue-500 text-white' 
-                        : 'bg-white text-slate-400 border-2 border-slate-300'
-                  }`}>
-                    {step.completed ? (
-                      <CheckCircle2 className="h-6 w-6" />
-                    ) : (
-                      <Icon className="h-6 w-6" />
-                    )}
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className={`text-sm font-semibold ${
-                        step.completed ? 'text-emerald-900' : step.current ? 'text-blue-900' : 'text-slate-700'
-                      }`}>
-                        {step.label}
-                      </p>
-                      {step.current && (
-                        <Badge className="bg-blue-100 text-blue-700 text-xs">Current</Badge>
-                      )}
-                      {step.completed && (
-                        <Badge className="bg-emerald-100 text-emerald-700 text-xs">Done</Badge>
-                      )}
-                    </div>
-                    
-                    <div className={`mt-1 text-sm ${
-                      step.completed ? 'text-emerald-600' : step.current ? 'text-blue-600' : 'text-slate-500'
-                    }`}>
-                      {step.description}
-                    </div>
-                  </div>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-64 text-xs">
-                {step.tooltip}
-              </TooltipContent>
-            </Tooltip>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 
 
 const PayrollRunsTable = memo(function PayrollRunsTable({
@@ -1507,58 +1371,67 @@ const PayrollRunsTable = memo(function PayrollRunsTable({
 }) {
   return (
     <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
-      <CardHeader className="space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <CardTitle>Payroll Runs</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">Review totals, re-run drafts after edits, then post to accounts and make payment.</p>
+      <CardHeader className="p-5">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-end">
+            <div className="space-y-1.5">
+              <div className="inline-flex h-7 items-center rounded-full border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-500">
+                Payroll overview
+              </div>
+              <CardTitle>Payroll Runs</CardTitle>
+              <p className="max-w-2xl text-sm text-slate-500">Review totals, re-run drafts after edits, then post to accounts and make payment from one place.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="space-y-1.5">
+                <LabelWithHelp label="Pay From" help="Choose the cash or bank account used when you click Pay Now." />
+                <select
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  value={paymentModeId}
+                  onChange={(event) => setPaymentModeId(event.target.value)}
+                >
+                  {paymentModes.map((mode) => (
+                    <option key={mode.id} value={mode.id}>
+                      {mode.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <LabelWithHelp label="Pay From" help="Choose the cash or bank account used when you click Pay Now." />
-            <select
-              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-              value={paymentModeId}
-              onChange={(event) => setPaymentModeId(event.target.value)}
-            >
-              {paymentModes.map((mode) => (
-                <option key={mode.id} value={mode.id}>
-                  {mode.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="flex-1">
-            <LabelWithHelp label="Search" help="Search by payroll period" />
-            <Input
-              type="text"
-              placeholder="Search payroll periods..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="min-w-[180px]">
-            <LabelWithHelp label="Status" help="Filter by payroll status" />
-            <select
-              className="w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">All Statuses</option>
-              <option value="draft">Draft</option>
-              <option value="reviewed">Reviewed</option>
-              <option value="posted">Posted</option>
-              <option value="paid">Paid</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
+          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <LabelWithHelp label="Search" help="Search by payroll period" />
+              <Input
+                type="text"
+                placeholder="Search payroll periods..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="mt-1.5"
+              />
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <LabelWithHelp label="Status" help="Filter by payroll status" />
+              <select
+                className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All Statuses</option>
+                <option value="draft">Draft</option>
+                <option value="reviewed">Reviewed</option>
+                <option value="posted">Posted</option>
+                <option value="paid">Paid</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pt-0">
+        <div className="overflow-hidden rounded-2xl border border-slate-200">
         <Table>
           <TableHeader>
-            <TableRow>
+            <TableRow className="bg-slate-50">
               <TableHead>Period</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Gross Salary</TableHead>
@@ -1571,20 +1444,20 @@ const PayrollRunsTable = memo(function PayrollRunsTable({
           <TableBody>
             {payrollRuns.length ? (
               payrollRuns.map((run) => (
-                <TableRow key={run.id}>
-                  <TableCell>
-                    <Link href={`/clients/${clientId}/payroll/runs/${run.id}`} className="block">
+                <TableRow key={run.id} className="align-top">
+                  <TableCell className="py-5">
+                    <Link href={`/clients/${clientId}/payroll/runs/${run.id}`} className="block space-y-1">
                       <p className="font-medium text-slate-950 hover:text-blue-700">{run.period_label}</p>
-                      <p className="text-xs text-slate-500">{run.source}</p>
+                      <p className="text-xs uppercase tracking-[0.16em] text-slate-400">{run.source}</p>
                     </Link>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-5">
                     <Badge className={getStatusClass(run.status)}>{statusLabel(run.status)}</Badge>
                   </TableCell>
-                  <TableCell>{currency(run.totals.grossSalary)}</TableCell>
-                  <TableCell>{currency(run.totals.totalDeductions)}</TableCell>
-                  <TableCell>{currency(run.totals.netPayable)}</TableCell>
-                  <TableCell className="space-y-1">
+                  <TableCell className="py-5 font-medium text-slate-900">{currency(run.totals.grossSalary)}</TableCell>
+                  <TableCell className="py-5 font-medium text-slate-900">{currency(run.totals.totalDeductions)}</TableCell>
+                  <TableCell className="py-5 font-semibold text-slate-950">{currency(run.totals.netPayable)}</TableCell>
+                  <TableCell className="space-y-1 py-5">
                     {run.accrual_voucher_id ? (
                       <Link className="block text-sm text-blue-700 hover:underline" href={`/clients/${clientId}/vouchers/${run.accrual_voucher_id}`}>
                         Posted voucher #{run.accrual_voucher_no ?? "-"}
@@ -1600,7 +1473,7 @@ const PayrollRunsTable = memo(function PayrollRunsTable({
                       <span className="block text-sm text-slate-400">Not paid</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="py-5 text-right">
                     <div className="flex flex-wrap justify-end gap-2">
                       <Link href={`/clients/${clientId}/payroll/runs/${run.id}`}>
                         <Button type="button" size="sm" variant="outline" disabled={isPending}>
@@ -1645,6 +1518,7 @@ const PayrollRunsTable = memo(function PayrollRunsTable({
             )}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   )

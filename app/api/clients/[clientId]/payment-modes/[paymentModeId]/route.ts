@@ -1,12 +1,13 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { canWriteClientData, getAuthorizedClient } from "@/lib/api-auth"
 import {
   normalizePaymentModeName,
 } from "@/lib/accounting/payment-modes"
 import { syncPaymentModeAccountHeadForClient } from "@/lib/accounting/defaults"
-import type { Database } from "@/lib/types"
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import type { PaymentMode } from "@/lib/types"
 
 const paymentModeSchema = z.object({
   name: z.string().min(2),
@@ -16,55 +17,14 @@ const paymentModeSchema = z.object({
 })
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
-}
-
-async function getAuthorizedClient(
-  accessToken: string,
-  clientId: string,
-  supabase: ReturnType<typeof createServiceRoleClient>
-) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(accessToken)
-
-  if (!user) {
-    return { user: null, client: null }
-  }
-
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
-
-  return { user, client }
+  return supabaseAdmin
 }
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { clientId: string; paymentModeId: string } }
+  { params }: { params: Promise<{ clientId: string; paymentModeId: string }> }
 ) {
+  const { clientId, paymentModeId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -83,7 +43,7 @@ export async function PATCH(
   }
 
   const supabase = createServiceRoleClient()
-  const { user, client } = await getAuthorizedClient(accessToken, params.clientId, supabase)
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, supabase)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
@@ -93,10 +53,17 @@ export async function PATCH(
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
   }
 
+  if (!canWriteClientData(membership)) {
+    return NextResponse.json(
+      { error: "You do not have permission to manage payment modes." },
+      { status: 403 }
+    )
+  }
+
   const { data: existingMode } = await supabase
     .from("payment_modes")
     .select("*")
-    .eq("id", params.paymentModeId)
+    .eq("id", paymentModeId)
     .eq("client_id", client.id)
     .maybeSingle()
 
@@ -110,9 +77,9 @@ export async function PATCH(
     .from("payment_modes")
     .select("id, name")
     .eq("client_id", client.id)
-    .eq("type", parsed.data.type)
+    .eq("type", parsed.data.type) as { data: Pick<PaymentMode, "id" | "name">[] | null }
 
-  const duplicateMode = (existingModes ?? []).find(
+  const duplicateMode = (existingModes ?? [] as Pick<PaymentMode, "id" | "name">[]).find(
     (mode) =>
       mode.id !== existingMode.id &&
       normalizePaymentModeName(mode.name).toLowerCase() === normalizedName.toLowerCase()
@@ -130,7 +97,7 @@ export async function PATCH(
       account_no: parsed.data.account_no || null,
       is_active: parsed.data.is_active,
     })
-    .eq("id", params.paymentModeId)
+    .eq("id", paymentModeId)
     .eq("client_id", client.id)
 
   if (error) {

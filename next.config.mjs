@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const baseConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   images: {
     remotePatterns: [
       {
