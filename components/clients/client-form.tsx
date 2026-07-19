@@ -9,6 +9,7 @@ import { toast } from "sonner"
 import { z } from "zod"
 
 import { clientTypeGroups, clientTypeValues, fiscalYearMonths } from "@/lib/accounting/clients"
+import { buildClientPath } from "@/lib/routing/clients"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -90,7 +91,7 @@ export function ClientForm() {
     }
 
     toast.success("Client created successfully.")
-    router.replace(`/clients/${result.clientId}`)
+    router.replace(buildClientPath({ id: result.clientId, name: values.trade_name || values.name }))
     router.refresh()
   }
 

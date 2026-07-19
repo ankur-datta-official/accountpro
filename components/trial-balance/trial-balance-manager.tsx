@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { Fragment, useRef, useState } from "react"
 import { format } from "date-fns"
 import { Download, FileSpreadsheet, Printer } from "lucide-react"
 import { useReactToPrint } from "react-to-print"
@@ -28,6 +28,10 @@ function amount(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value)
+}
+
+function getTrialBalanceRowKey(groupName: string, accountHeadId: string, accountHeadName: string, index: number) {
+  return `${groupName}-${accountHeadId}-${accountHeadName}-${index}`
 }
 
 export function TrialBalanceManager({
@@ -60,9 +64,10 @@ export function TrialBalanceManager({
     const map = new Map<string, typeof data.accounts>()
 
     for (const account of data.accounts) {
-      const list = map.get(account.semiSubGroupName) ?? []
+      const key = account.semiSubGroupName ?? "Other"
+      const list = map.get(key) ?? []
       list.push(account)
-      map.set(account.semiSubGroupName, list)
+      map.set(key, list)
     }
 
     return Array.from(map.entries())
@@ -186,16 +191,18 @@ export function TrialBalanceManager({
                   const subTotalCredit = rows.reduce((sum, row) => sum + row.credit, 0)
 
                   return (
-                    <>
-                      <TableRow key={`${groupName}-header`} className="bg-slate-100 font-semibold">
+                    <Fragment key={groupName}>
+                      <TableRow className="bg-slate-100 font-semibold">
                         <TableCell>{groupName}</TableCell>
                         <TableCell />
                         <TableCell className="text-right" />
                         <TableCell className="text-right" />
                         <TableCell className="text-right" />
                       </TableRow>
-                      {rows.map((row) => (
-                        <TableRow key={row.accountHeadId}>
+                      {rows.map((row, index) => (
+                        <TableRow
+                          key={getTrialBalanceRowKey(groupName, row.accountHeadId, row.accountHeadName, index)}
+                        >
                           <TableCell />
                           <TableCell>{row.accountHeadName}</TableCell>
                           <TableCell className="text-right">{amount(row.debit)}</TableCell>
@@ -203,14 +210,14 @@ export function TrialBalanceManager({
                           <TableCell className="text-right">{row.balanceLabel}</TableCell>
                         </TableRow>
                       ))}
-                      <TableRow key={`${groupName}-subtotal`} className="bg-slate-50 font-semibold">
+                      <TableRow className="bg-slate-50 font-semibold">
                         <TableCell />
                         <TableCell>Subtotal</TableCell>
                         <TableCell className="text-right">{amount(subTotalDebit)}</TableCell>
                         <TableCell className="text-right text-blue-700">{amount(subTotalCredit)}</TableCell>
                         <TableCell className="text-right">-</TableCell>
                       </TableRow>
-                    </>
+                    </Fragment>
                   )
                 })
               ) : (

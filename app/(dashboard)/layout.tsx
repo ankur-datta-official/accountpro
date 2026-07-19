@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 
 import { DashboardShell } from "@/components/layout/dashboard-shell"
+import { buildClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 
 export default async function DashboardLayout({
@@ -8,7 +9,7 @@ export default async function DashboardLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { organization, membership, user } = await getCurrentOrganizationContext()
 
   if (!user) {
@@ -18,7 +19,7 @@ export default async function DashboardLayout({
   const { data: clients } = membership?.org_id
     ? await supabase
         .from("clients")
-        .select("id,name,type")
+        .select("id,name,type,trade_name")
         .eq("org_id", membership.org_id)
         .eq("is_active", true)
         .order("created_at", { ascending: false })
@@ -34,6 +35,7 @@ export default async function DashboardLayout({
         id: client.id,
         name: client.name,
         type: client.type,
+        routeSegment: buildClientRouteSegment(client),
       }))}
     >
       {children}

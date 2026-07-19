@@ -3,33 +3,33 @@ import { cookies } from "next/headers"
 import { cache } from "react"
 
 import type { User } from "@supabase/supabase-js"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
-import type { Database, Organization, OrganizationMember } from "@/lib/types"
+import { requireSupabasePublicEnv } from "@/lib/supabase/env"
+import type { Organization, OrganizationMember } from "@/lib/types"
+import type { Database } from "@/lib/types/database"
 
-export function createClient() {
-  const cookieStore = cookies()
+export async function createClient(): Promise<SupabaseClient<Database>> {
+  const cookieStore = await cookies()
+  const supabaseEnv = requireSupabasePublicEnv()
 
-  return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name) {
-          return cookieStore.get(name)?.value
-        },
-        set(name, value, options) {
-          try {
-            cookieStore.set({ name, value, ...options })
-          } catch {}
-        },
-        remove(name, options) {
-          try {
-            cookieStore.set({ name, value: "", ...options })
-          } catch {}
-        },
+  return createServerClient<Database>(supabaseEnv.supabaseUrl, supabaseEnv.supabaseAnonKey, {
+    cookies: {
+      get(name) {
+        return cookieStore.get(name)?.value
       },
-    }
-  )
+      set(name, value, options) {
+        try {
+          cookieStore.set({ name, value, ...options })
+        } catch {}
+      },
+      remove(name, options) {
+        try {
+          cookieStore.set({ name, value: "", ...options })
+        } catch {}
+      },
+    },
+  })
 }
 
 type OrganizationContext = {
@@ -39,10 +39,15 @@ type OrganizationContext = {
 }
 
 export const getCurrentOrganizationContext = cache(async function getCurrentOrganizationContext(): Promise<OrganizationContext> {
-  const supabase = createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const supabase = await createClient()
+
+  let user: User | null = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch {
+    user = null
+  }
 
   if (!user) {
     return {
@@ -52,13 +57,19 @@ export const getCurrentOrganizationContext = cache(async function getCurrentOrga
     }
   }
 
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
+  let membership: OrganizationMember | null = null
+  try {
+    const { data } = await supabase
+      .from("organization_members")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle()
+    membership = data
+  } catch {
+    membership = null
+  }
 
   if (!membership?.org_id) {
     return {
@@ -68,11 +79,17 @@ export const getCurrentOrganizationContext = cache(async function getCurrentOrga
     }
   }
 
-  const { data: organization } = await supabase
-    .from("organizations")
-    .select("*")
-    .eq("id", membership.org_id)
-    .maybeSingle()
+  let organization: Organization | null = null
+  try {
+    const { data } = await supabase
+      .from("organizations")
+      .select("*")
+      .eq("id", membership.org_id)
+      .maybeSingle()
+    organization = data
+  } catch {
+    organization = null
+  }
 
   return {
     membership,

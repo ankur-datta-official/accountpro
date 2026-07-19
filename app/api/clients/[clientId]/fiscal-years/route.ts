@@ -1,9 +1,10 @@
-import { createClient } from "@supabase/supabase-js"
 import { parseISO } from "date-fns"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import type { Database } from "@/lib/types"
+import { canWriteClientData, getAuthorizedClient } from "@/lib/api-auth"
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import type { FiscalYear } from "@/lib/types"
 
 const fiscalYearSchema = z.object({
   label: z.string().min(2),
@@ -12,22 +13,14 @@ const fiscalYearSchema = z.object({
 })
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
+  return supabaseAdmin
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
+  const { clientId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -46,44 +39,32 @@ export async function POST(
   }
 
   const supabase = createServiceRoleClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(accessToken)
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, supabase)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", params.clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
-
   if (!client) {
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
+  }
+
+  if (!canWriteClientData(membership)) {
+    return NextResponse.json(
+      { error: "You do not have permission to manage fiscal years." },
+      { status: 403 }
+    )
   }
 
   const { data: existingYears } = await supabase
     .from("fiscal_years")
     .select("*")
-    .eq("client_id", client.id)
+    .eq("client_id", client.id) as { data: FiscalYear[] | null }
 
   const nextStart = parseISO(parsed.data.startDate).getTime()
   const nextEnd = parseISO(parsed.data.endDate).getTime()
 
-  const overlaps = (existingYears ?? []).some((year) => {
+  const overlaps = (existingYears ?? [] as FiscalYear[]).some((year) => {
     const currentStart = parseISO(year.start_date).getTime()
     const currentEnd = parseISO(year.end_date).getTime()
     return nextStart <= currentEnd && nextEnd >= currentStart

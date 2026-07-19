@@ -2,21 +2,38 @@ import { eachMonthOfInterval, format } from "date-fns"
 import { notFound } from "next/navigation"
 
 import { DayBookReport, type DayBookRow } from "@/components/reports/day-book-report"
+import { resolveAccountHierarchy } from "@/lib/accounting/chart-hierarchy"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { getVoucherTypeLabel, isAutoBalanceEntry } from "@/lib/accounting/vouchers"
 import { createClient } from "@/lib/supabase/server"
+import type { Database } from "@/lib/types"
+
+type VoucherRecord = Database["public"]["Tables"]["vouchers"]["Row"]
+type PaymentModeRecord = Database["public"]["Tables"]["payment_modes"]["Row"]
+type AccountHeadRecord = Database["public"]["Tables"]["account_heads"]["Row"]
+type VoucherEntryRecord = Database["public"]["Tables"]["voucher_entries"]["Row"]
+type AccountHeadDetail = {
+  name: string
+  subGroupName: string
+  semiSubGroupName: string
+  groupName: string
+  openingBalance: number
+  path: string[]
+}
 
 export default async function ClientDayBookPage({
   params,
   searchParams,
 }: {
-  params: { clientId: string }
-  searchParams?: { fiscalYear?: string }
+  params: Promise<{ clientId: string }>
+  searchParams: Promise<{ fiscalYear?: string }>
 }) {
-  const supabase = createClient()
+  const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
+  const supabase = await createClient()
   const { client, selectedFiscalYear } = await getClientRouteContext({
-    clientId: params.clientId,
-    fiscalYearId: searchParams?.fiscalYear,
+    clientId: resolvedParams.clientId,
+    fiscalYearId: resolvedSearchParams?.fiscalYear,
   })
 
   if (!client) {
@@ -27,7 +44,7 @@ export default async function ClientDayBookPage({
     notFound()
   }
 
-  const [{ data: vouchers }, { data: paymentModes }, { data: groups }, { data: semiSubGroups }, { data: subGroups }, { data: accountHeads }] =
+  const [{ data: vouchers }, { data: paymentModes }, { data: _groups }, { data: _semiSubGroups }, { data: _subGroups }, { data: accountHeads }] =
     await Promise.all([
       supabase
         .from("vouchers")
@@ -43,39 +60,43 @@ export default async function ClientDayBookPage({
       supabase.from("account_heads").select("*").eq("client_id", client.id),
     ])
 
-  const voucherIds = (vouchers ?? []).map((voucher) => voucher.id)
+  const voucherRows = (vouchers ?? []) as VoucherRecord[]
+  const paymentModeRows = (paymentModes ?? []) as PaymentModeRecord[]
+  const accountHeadRows = (accountHeads ?? []) as AccountHeadRecord[]
+
+  const voucherIds = voucherRows.map((voucher: VoucherRecord) => voucher.id)
   const { data: entries } = voucherIds.length
     ? await supabase.from("voucher_entries").select("*").in("voucher_id", voucherIds)
-    : { data: [] }
+    : { data: [] as VoucherEntryRecord[] }
 
-  const paymentModeMap = new Map((paymentModes ?? []).map((mode) => [mode.id, mode.name]))
-  const voucherMap = new Map((vouchers ?? []).map((voucher) => [voucher.id, voucher]))
-  const subGroupMap = new Map((subGroups ?? []).map((subGroup) => [subGroup.id, subGroup]))
-  const semiSubGroupMap = new Map((semiSubGroups ?? []).map((semiSubGroup) => [semiSubGroup.id, semiSubGroup]))
-  const groupMap = new Map((groups ?? []).map((group) => [group.id, group]))
-
+  const paymentModeMap = new Map<string, string>(paymentModeRows.map((mode: PaymentModeRecord) => [mode.id, mode.name]))
+  const voucherMap = new Map<string, VoucherRecord>(voucherRows.map((voucher: VoucherRecord) => [voucher.id, voucher]))
   const accountHeadDetails = new Map(
-    (accountHeads ?? []).map((head) => {
-      const subGroup = subGroupMap.get(head.sub_group_id ?? "")
-      const semiSubGroup = subGroup ? semiSubGroupMap.get(subGroup.semi_sub_id ?? "") : null
-      const group = semiSubGroup ? groupMap.get(semiSubGroup.group_id ?? "") : null
-
+    accountHeadRows.map((head: AccountHeadRecord) => {
+      const hierarchy = resolveAccountHierarchy(head, {
+        accountHeads: accountHeadRows,
+        groups: (_groups ?? []) as Database["public"]["Tables"]["account_groups"]["Row"][],
+        semiSubGroups: (_semiSubGroups ?? []) as Database["public"]["Tables"]["account_semi_sub_groups"]["Row"][],
+        subGroups: (_subGroups ?? []) as Database["public"]["Tables"]["account_sub_groups"]["Row"][],
+      })
+      
       return [
         head.id,
         {
           name: head.name,
-          subGroupName: subGroup?.name ?? "",
-          semiSubGroupName: semiSubGroup?.name ?? "",
-          groupName: group?.name ?? "",
+          subGroupName: hierarchy.subGroupName,
+          semiSubGroupName: hierarchy.semiSubGroupName,
+          groupName: hierarchy.groupName || "General",
           openingBalance: Number(head.opening_balance ?? 0),
+          path: hierarchy.path,
         },
       ]
     })
   )
 
   const rows: DayBookRow[] = (entries ?? [])
-    .filter((entry) => !isAutoBalanceEntry(entry.description))
-    .map((entry) => {
+    .filter((entry: VoucherEntryRecord) => !isAutoBalanceEntry(entry.description))
+    .map((entry: VoucherEntryRecord) => {
       const voucher = voucherMap.get(entry.voucher_id ?? "")
       const accountHead = accountHeadDetails.get(entry.account_head_id ?? "")
 
@@ -101,7 +122,7 @@ export default async function ClientDayBookPage({
         month: voucher.month_label ?? format(new Date(voucher.voucher_date), "MMM-yyyy"),
       }
     })
-    .filter((row): row is DayBookRow => Boolean(row))
+    .filter((row: DayBookRow | null): row is DayBookRow => Boolean(row))
 
   const months = eachMonthOfInterval({
     start: new Date(selectedFiscalYear.start_date),
@@ -109,12 +130,22 @@ export default async function ClientDayBookPage({
   }).map((month) => format(month, "MMM-yyyy"))
 
   const cashBankHeadIds = Array.from(accountHeadDetails.entries())
-    .filter(([, detail]) => detail.subGroupName === "Cash & Bank Balance")
+    .filter(([, detail]: [string, AccountHeadDetail]) =>
+      detail.path.some(
+        (segment: string) =>
+          segment.includes("Cash & Bank Balance") ||
+          segment.includes("Cash") ||
+          segment.includes("Bank")
+      )
+    )
     .map(([headId]) => headId)
 
   const openingCashBankBalance = Array.from(accountHeadDetails.entries())
-    .filter(([headId]) => cashBankHeadIds.includes(headId))
-    .reduce((sum, [, detail]) => sum + detail.openingBalance, 0)
+    .filter(([headId]: [string, AccountHeadDetail]) => cashBankHeadIds.includes(headId))
+    .reduce(
+      (sum: number, [, detail]: [string, AccountHeadDetail]) => sum + detail.openingBalance,
+      0
+    )
 
   return (
     <DayBookReport
@@ -124,7 +155,7 @@ export default async function ClientDayBookPage({
       defaultTo={selectedFiscalYear.end_date}
       rows={rows}
       months={months}
-      paymentModes={(paymentModes ?? []).map((mode) => ({ id: mode.id, name: mode.name }))}
+      paymentModes={paymentModeRows.map((mode: PaymentModeRecord) => ({ id: mode.id, name: mode.name }))}
       openingCashBankBalance={openingCashBankBalance}
       cashBankHeadIds={cashBankHeadIds}
     />

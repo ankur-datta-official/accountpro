@@ -188,7 +188,7 @@ async function main() {
       "prisma/migrations/20260630000000_add_payroll_policies/migration.sql",
     ])
     run("npx", ["prisma", "migrate", "resolve", "--applied", "20260630000000_add_payroll_policies"])
-  } catch (e) {
+  } catch (_error) {
     // If table already exists, this will fail, which is fine
     console.log("Payroll policies table might already exist, skipping.")
   }

@@ -13,11 +13,11 @@ import {
   FileSpreadsheet,
   Landmark,
   Home,
-  LayoutDashboard,
   LineChart,
   Plus,
   ReceiptText,
   BadgeDollarSign,
+  FileBadge2,
   ScrollText,
   Search,
   Settings,
@@ -59,12 +59,18 @@ import {
   SidebarSeparator,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
+import {
+  buildClientPath,
+  buildLegacyClientRouteSegment,
+  extractClientIdFromRouteSegment,
+} from "@/lib/routing/clients"
 import { cn } from "@/lib/utils"
 
 type SidebarClient = {
   id: string
   name: string
   type?: string | null
+  routeSegment: string
 }
 
 type NavItem = {
@@ -118,6 +124,7 @@ const booksOfAccountsItems = (clientId: string): NavItem[] => [
 const financialStatementItems = (clientId: string): NavItem[] => [
   { href: `/clients/${clientId}/balance-sheet`, label: "Balance Sheet", icon: Landmark },
   { href: `/clients/${clientId}/profit-loss`, label: "Profit & Loss", icon: LineChart },
+  { href: `/clients/${clientId}/salary-certificates`, label: "Salary Certificates", icon: FileBadge2 },
 ]
 
 const clientSettingsItems = (clientId: string): NavItem[] => [
@@ -160,22 +167,39 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
   if (pathname === "/settings") return "Organization Settings"
 
   if (currentClient) {
-    const clientId = currentClient.id
+    const clientPath = buildClientPath(currentClient)
+    const legacyClientPath = `/clients/${buildLegacyClientRouteSegment(currentClient)}`
     const clientRoutes: Array<[string, string]> = [
-      [`/clients/${clientId}/vouchers/new`, "Add New Voucher"],
-      [`/clients/${clientId}/vouchers`, "Posted Vouchers"],
-      [`/clients/${clientId}/accounts`, "Chart of Accounts"],
-      [`/clients/${clientId}/ledger`, "Ledger"],
-      [`/clients/${clientId}/daybook`, "Day Book"],
-      [`/clients/${clientId}/day-book`, "Day Book"],
-      [`/clients/${clientId}/trial-balance`, "Trial Balance"],
-      [`/clients/${clientId}/payroll`, "Payroll"],
-      [`/clients/${clientId}/balance-sheet`, "Balance Sheet"],
-      [`/clients/${clientId}/profit-loss`, "Profit & Loss"],
-      [`/clients/${clientId}/bank-statements`, "Bank Statements"],
-      [`/clients/${clientId}/settings/fiscal-years`, "Fiscal Years"],
-      [`/clients/${clientId}/settings/payment-modes`, "Payment Modes"],
-      [`/clients/${clientId}/settings`, "Organization Settings"],
+      [`${clientPath}/vouchers/new`, "Add New Voucher"],
+      [`${clientPath}/vouchers`, "Posted Vouchers"],
+      [`${clientPath}/accounts`, "Chart of Accounts"],
+      [`${clientPath}/ledger`, "Ledger"],
+      [`${clientPath}/daybook`, "Day Book"],
+      [`${clientPath}/day-book`, "Day Book"],
+      [`${clientPath}/trial-balance`, "Trial Balance"],
+      [`${clientPath}/payroll`, "Payroll"],
+      [`${clientPath}/balance-sheet`, "Balance Sheet"],
+      [`${clientPath}/profit-loss`, "Profit & Loss"],
+      [`${clientPath}/salary-certificates`, "Salary Certificates"],
+      [`${clientPath}/bank-statements`, "Bank Statements"],
+      [`${clientPath}/settings/fiscal-years`, "Fiscal Years"],
+      [`${clientPath}/settings/payment-modes`, "Payment Modes"],
+      [`${clientPath}/settings`, "Organization Settings"],
+      [`${legacyClientPath}/vouchers/new`, "Add New Voucher"],
+      [`${legacyClientPath}/vouchers`, "Posted Vouchers"],
+      [`${legacyClientPath}/accounts`, "Chart of Accounts"],
+      [`${legacyClientPath}/ledger`, "Ledger"],
+      [`${legacyClientPath}/daybook`, "Day Book"],
+      [`${legacyClientPath}/day-book`, "Day Book"],
+      [`${legacyClientPath}/trial-balance`, "Trial Balance"],
+      [`${legacyClientPath}/payroll`, "Payroll"],
+      [`${legacyClientPath}/balance-sheet`, "Balance Sheet"],
+      [`${legacyClientPath}/profit-loss`, "Profit & Loss"],
+      [`${legacyClientPath}/salary-certificates`, "Salary Certificates"],
+      [`${legacyClientPath}/bank-statements`, "Bank Statements"],
+      [`${legacyClientPath}/settings/fiscal-years`, "Fiscal Years"],
+      [`${legacyClientPath}/settings/payment-modes`, "Payment Modes"],
+      [`${legacyClientPath}/settings`, "Organization Settings"],
     ]
 
     const route = clientRoutes.find(([href]) => pathname === href || pathname.startsWith(`${href}/`))
@@ -412,7 +436,7 @@ function ClientSwitcher({
           {filteredClients.length ? (
             filteredClients.map((client) => (
               <DropdownMenuItem key={client.id} asChild>
-                <Link href={`/clients/${client.id}`} prefetch className="cursor-pointer select-none">
+                <Link href={buildClientPath(client)} prefetch className="cursor-pointer select-none">
                   <Building2 className="h-4 w-4" />
                   <span className="truncate">{client.name}</span>
                 </Link>
@@ -478,14 +502,14 @@ function AppSidebar({
         {currentClient && (
           <>
             <SidebarSeparator />
-            <ClientModuleSection clientId={currentClient.id} pathname={pathname} />
+            <ClientModuleSection clientId={currentClient.routeSegment} pathname={pathname} />
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu>
                   <CollapsibleNavGroup
                     label="Organization Settings"
                     icon={Settings2}
-                    items={clientSettingsItems(currentClient.id)}
+                    items={clientSettingsItems(currentClient.routeSegment)}
                     pathname={pathname}
                   />
                 </SidebarMenu>
@@ -543,7 +567,10 @@ export function DashboardShell({
 }>) {
   const pathname = usePathname()
   const currentClientId = getCurrentClientId(pathname)
-  const currentClient = clients.find((client) => client.id === currentClientId) ?? null
+  const currentClient =
+    clients.find((client) => client.routeSegment === currentClientId) ??
+    clients.find((client) => client.id === extractClientIdFromRouteSegment(currentClientId ?? "")) ??
+    null
   const pageTitle = getPageTitle(pathname, currentClient)
   const pageSubtitle = currentClient?.name ?? orgName
 

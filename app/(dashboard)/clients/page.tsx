@@ -1,8 +1,9 @@
 import { ClientsTable, type ClientTableRow } from "@/components/clients/clients-table"
+import { buildClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 
 export default async function ClientsPage() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
 
   const { data: clients } = membership?.org_id
@@ -35,6 +36,7 @@ export default async function ClientsPage() {
     bin: client.bin,
     fiscalYearLabel: activeFiscalYearMap.get(client.id) ?? "Not initialized",
     isActive: Boolean(client.is_active),
+    routeSegment: buildClientRouteSegment(client),
   }))
 
   return <ClientsTable data={rows} />

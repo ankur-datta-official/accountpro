@@ -1,9 +1,9 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { clientTypeValues } from "@/lib/accounting/clients"
-import type { Database } from "@/lib/types"
+import { canManageClient, getAuthorizedClient } from "@/lib/api-auth"
+import { supabaseAdmin } from "@/lib/supabase/admin"
 
 const updateClientSchema = z.object({
   name: z.string().min(2),
@@ -17,22 +17,14 @@ const updateClientSchema = z.object({
 })
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
+  return supabaseAdmin
 }
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
+  const { clientId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -46,25 +38,21 @@ export async function PATCH(
 
   const accessToken = authHeader.replace("Bearer ", "")
   const serviceClient = createServiceRoleClient()
-  const {
-    data: { user },
-    error: userError,
-  } = await serviceClient.auth.getUser(accessToken)
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, serviceClient)
 
-  if (userError || !user) {
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
-  const { data: membership } = await serviceClient
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
+  if (!client) {
+    return NextResponse.json({ error: "Client not found." }, { status: 404 })
+  }
 
-  if (!membership?.org_id) {
-    return NextResponse.json({ error: "Forbidden." }, { status: 403 })
+  if (!canManageClient(membership)) {
+    return NextResponse.json(
+      { error: "Only owners and admins can update client settings." },
+      { status: 403 }
+    )
   }
 
   const { error } = await serviceClient
@@ -80,8 +68,7 @@ export async function PATCH(
       fiscal_year_start: parsed.data.fiscal_year_start,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", params.clientId)
-    .eq("org_id", membership.org_id)
+    .eq("id", clientId)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })

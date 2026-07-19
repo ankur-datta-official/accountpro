@@ -43,18 +43,28 @@ export function useClient(): UseClientState {
         .limit(1)
         .maybeSingle()
 
-      if (!membership?.org_id) {
-        return null
+      // Try with org_id first
+      if (membership?.org_id) {
+        const { data: clientByOrg } = await supabase
+          .from("clients")
+          .select("*")
+          .eq("id", clientId)
+          .eq("org_id", membership.org_id)
+          .maybeSingle()
+
+        if (clientByOrg) {
+          return clientByOrg
+        }
       }
 
-      const { data: client } = await supabase
+      // Fallback to just client_id
+      const { data: clientById } = await supabase
         .from("clients")
         .select("*")
         .eq("id", clientId)
-        .eq("org_id", membership.org_id)
         .maybeSingle()
 
-      return client ?? null
+      return clientById ?? null
     },
   })
 

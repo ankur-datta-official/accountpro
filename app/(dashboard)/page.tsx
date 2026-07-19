@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { MetricCard, PageHeader } from "@/components/ui/page-shell"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getClientTypeLabel } from "@/lib/accounting/clients"
+import { buildClientPath, buildClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 
 function formatMonthStart(date: Date) {
@@ -18,7 +19,7 @@ function formatMonthStart(date: Date) {
 }
 
 export default async function DashboardPage() {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { organization, membership, user } = await getCurrentOrganizationContext()
 
   if (!user) {
@@ -89,6 +90,9 @@ export default async function DashboardPage() {
 
   const headMap = new Map((recentHeads ?? []).map((head) => [head.id, head.name]))
   const clientNameMap = new Map((orgClients ?? []).map((client) => [client.id, client.name]))
+  const clientRouteSegmentMap = new Map(
+    (orgClients ?? []).map((client) => [client.id, buildClientRouteSegment(client)])
+  )
 
   const voucherSummaryMap = new Map<string, { amount: number; headName: string }>()
   for (const entry of recentEntries ?? []) {
@@ -160,7 +164,14 @@ export default async function DashboardPage() {
     alertItems.push({
       id: `fiscal-year-ending-${warningYear.id}`,
       message: `Fiscal year ${warningYear.label} for ${clientName} ends in 30 days`,
-      href: `/clients/${warningYear.client_id}/settings`,
+      href: buildClientPath(
+        {
+          id: warningYear.client_id,
+          name: clientName,
+          routeSegment: clientRouteSegmentMap.get(warningYear.client_id),
+        },
+        "/settings"
+      ),
     })
   }
 
@@ -173,7 +184,11 @@ export default async function DashboardPage() {
   }
 
   const userName = user.user_metadata.full_name || user.email || "AccountPro User"
-  const quickActionClients = (orgClients ?? []).map((client) => ({ id: client.id, name: client.name }))
+  const quickActionClients = (orgClients ?? []).map((client) => ({
+    id: client.id,
+    name: client.name,
+    routeSegment: clientRouteSegmentMap.get(client.id),
+  }))
 
   const stats = [
     { label: "Active Clients", value: totalClients ?? 0, detail: "Client workspaces ready for daily accounting", icon: Building2 },
@@ -224,7 +239,14 @@ export default async function DashboardPage() {
                     <TableCell className="font-medium">{clientNameMap.get(voucher.client_id ?? "") ?? "Client"}</TableCell>
                     <TableCell>
                       <Link
-                        href={`/clients/${voucher.client_id}/vouchers/${voucher.id}`}
+                        href={buildClientPath(
+                          {
+                            id: voucher.client_id ?? "",
+                            name: clientNameMap.get(voucher.client_id ?? "") ?? "Client",
+                            routeSegment: clientRouteSegmentMap.get(voucher.client_id ?? ""),
+                          },
+                          `/vouchers/${voucher.id}`
+                        )}
                         className="font-medium text-slate-900 hover:underline"
                       >
                         #{voucher.voucher_no}
@@ -273,13 +295,13 @@ export default async function DashboardPage() {
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Button asChild size="sm">
-                      <Link href={`/clients/${client.id}`}>Open</Link>
+                      <Link href={buildClientPath(client)}>Open</Link>
                     </Button>
                     <Button asChild size="sm" variant="outline">
-                      <Link href={`/clients/${client.id}/vouchers/new`}>New Voucher</Link>
+                      <Link href={buildClientPath(client, "/vouchers/new")}>New Voucher</Link>
                     </Button>
                     <Button asChild size="sm" variant="outline">
-                      <Link href={`/clients/${client.id}/reports`}>Reports</Link>
+                      <Link href={buildClientPath(client, "/reports")}>Reports</Link>
                     </Button>
                   </div>
                 </div>

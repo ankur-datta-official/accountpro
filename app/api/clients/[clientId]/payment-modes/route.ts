@@ -1,68 +1,33 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { normalizePaymentModeName } from "@/lib/accounting/payment-modes"
+import { canWriteClientData, getAuthorizedClient } from "@/lib/api-auth"
+import {
+  normalizePaymentModeName,
+  syncPaymentModeAccountLink,
+  validateExplicitPaymentModeAccountHead,
+} from "@/lib/accounting/payment-modes"
 import { createPaymentModeAccountHeadForClient } from "@/lib/accounting/defaults"
-import type { Database } from "@/lib/types"
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import type { PaymentMode } from "@/lib/types"
 
 const paymentModeSchema = z.object({
   name: z.string().min(2),
   type: z.enum(["bank", "cash", "mobile_banking", "other"]),
   account_no: z.string().optional().nullable(),
   is_active: z.boolean().default(true),
+  account_head_id: z.string().uuid().optional().nullable(),
 })
 
 function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
-}
-
-async function getAuthorizedClient(
-  accessToken: string,
-  clientId: string,
-  supabase: ReturnType<typeof createServiceRoleClient>
-) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(accessToken)
-
-  if (!user) {
-    return { user: null, client: null }
-  }
-
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
-
-  return { user, client }
+  return supabaseAdmin
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
+  const { clientId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -81,7 +46,7 @@ export async function POST(
   }
 
   const supabase = createServiceRoleClient()
-  const { user, client } = await getAuthorizedClient(accessToken, params.clientId, supabase)
+  const { user, membership, client } = await getAuthorizedClient(accessToken, clientId, supabase)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
@@ -91,15 +56,32 @@ export async function POST(
     return NextResponse.json({ error: "Client not found." }, { status: 404 })
   }
 
+  if (!canWriteClientData(membership)) {
+    return NextResponse.json(
+      { error: "You do not have permission to manage payment modes." },
+      { status: 403 }
+    )
+  }
+
   const normalizedName = normalizePaymentModeName(parsed.data.name)
+  const explicitAccountHead = parsed.data.account_head_id
+    ? await validateExplicitPaymentModeAccountHead(supabase, {
+        clientId: client.id,
+        accountHeadId: parsed.data.account_head_id,
+      })
+    : null
+
+  if (explicitAccountHead && !explicitAccountHead.success) {
+    return NextResponse.json({ error: explicitAccountHead.error }, { status: 400 })
+  }
 
   const { data: existingModes } = await supabase
     .from("payment_modes")
     .select("id, name")
     .eq("client_id", client.id)
-    .eq("type", parsed.data.type)
+    .eq("type", parsed.data.type) as { data: Pick<PaymentMode, "id" | "name">[] | null }
 
-  const duplicateMode = (existingModes ?? []).find(
+  const duplicateMode = (existingModes ?? [] as Pick<PaymentMode, "id" | "name">[]).find(
     (mode) => normalizePaymentModeName(mode.name).toLowerCase() === normalizedName.toLowerCase()
   )
 
@@ -115,6 +97,7 @@ export async function POST(
       type: parsed.data.type,
       account_no: parsed.data.account_no || null,
       is_active: parsed.data.is_active,
+      account_head_id: explicitAccountHead?.success ? explicitAccountHead.accountHead.id : null,
     })
     .select("*")
     .single()
@@ -126,7 +109,22 @@ export async function POST(
     )
   }
 
-  await createPaymentModeAccountHeadForClient(client.id, insertedMode.name, supabase)
+  if (!explicitAccountHead?.success) {
+    await createPaymentModeAccountHeadForClient(client.id, insertedMode.name, supabase)
+
+    const linkedMode = await syncPaymentModeAccountLink({
+      supabase,
+      clientId: client.id,
+      paymentMode: insertedMode,
+    })
+
+    if (!linkedMode.success) {
+      await supabase.from("payment_modes").delete().eq("id", insertedMode.id)
+      return NextResponse.json({ error: linkedMode.error }, { status: 400 })
+    }
+
+    return NextResponse.json({ success: true, paymentMode: linkedMode.paymentMode })
+  }
 
   return NextResponse.json({ success: true, paymentMode: insertedMode })
 }

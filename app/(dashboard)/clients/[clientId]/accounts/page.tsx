@@ -1,9 +1,10 @@
 import { ChartOfAccountsManager } from "@/components/accounts/chart-of-accounts-manager"
 
-export default function ClientAccountsPage({
+export default async function ClientAccountsPage({
   params,
 }: {
-  params: { clientId: string }
+  params: Promise<{ clientId: string }>
 }) {
-  return <ChartOfAccountsManager clientId={params.clientId} />
+  const { clientId } = await params
+  return <ChartOfAccountsManager clientId={clientId} />
 }

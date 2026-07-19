@@ -80,14 +80,14 @@ export async function calculateProfitLoss(
     incomeRows.find((row) => row.accountHeadName.toLowerCase().includes("closing stock"))?.credit ?? 0
 
   const adminExpenseItems = expenseRows
-    .filter((row) => row.semiSubGroupName.toLowerCase().includes("administrative"))
+    .filter((row) => row.path?.some(p => p.toLowerCase().includes("administrative")))
     .map((row) => ({
       name: row.accountHeadName,
       amount: Math.max(0, signedAmount(row.debit, row.credit, row.groupType)),
     }))
 
   const revenueExpenseItems = expenseRows
-    .filter((row) => !row.semiSubGroupName.toLowerCase().includes("administrative"))
+    .filter((row) => !row.path?.some(p => p.toLowerCase().includes("administrative")))
     .map((row) => ({
       name: row.accountHeadName,
       amount: Math.max(0, signedAmount(row.debit, row.credit, row.groupType)),

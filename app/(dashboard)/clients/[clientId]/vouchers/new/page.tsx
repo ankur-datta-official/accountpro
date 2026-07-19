@@ -3,18 +3,23 @@ import { notFound } from "next/navigation"
 import { VoucherEntryForm } from "@/components/voucher/voucher-entry-form"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { createClient } from "@/lib/supabase/server"
+import type { Database } from "@/lib/types"
+
+type PaymentModeRecord = Database["public"]["Tables"]["payment_modes"]["Row"]
 
 export default async function NewVoucherPage({
   params,
   searchParams,
 }: {
-  params: { clientId: string }
-  searchParams: { fiscalYear?: string }
+  params: Promise<{ clientId: string }>
+  searchParams: Promise<{ fiscalYear?: string }>
 }) {
-  const supabase = createClient()
+  const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
+  const supabase = await createClient()
   const { client, selectedFiscalYear } = await getClientRouteContext({
-    clientId: params.clientId,
-    fiscalYearId: searchParams.fiscalYear,
+    clientId: resolvedParams.clientId,
+    fiscalYearId: resolvedSearchParams.fiscalYear,
   })
 
   if (!client) {
@@ -44,15 +49,13 @@ export default async function NewVoucherPage({
     <div className="space-y-6">
       <VoucherEntryForm
         clientId={client.id}
-        clientName={client.name}
         fiscalYearId={selectedFiscalYear.id}
-        fiscalYearLabel={selectedFiscalYear.label}
         defaultVoucherNo={Number(vouchers?.[0]?.voucher_no ?? 0) + 1}
-        paymentModes={(paymentModes ?? []).map((mode) => ({
-          id: mode.id,
-          name: mode.name,
-          type: mode.type,
-        }))}
+        paymentModes={((paymentModes ?? []) as PaymentModeRecord[]).map((mode: PaymentModeRecord) => ({
+        id: mode.id,
+        name: mode.name,
+        type: mode.type,
+      }))}
       />
     </div>
   )

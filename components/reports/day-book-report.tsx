@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { Download, Printer, Search } from "lucide-react"
 
@@ -630,7 +630,7 @@ export function DayBookReport({
                 </thead>
                 <tbody>
                   {sortedAndGroupedRows.map((group) => (
-                    <>
+                    <Fragment key={group.date}>
                       <tr key={`${group.date}-header`}>
                         <td colSpan={9} className="date-header font-semibold">
                           {format(new Date(group.date), "dd MMM yyyy")}
@@ -661,7 +661,7 @@ export function DayBookReport({
                         <td style={{ textAlign: "right" }}>{formatAmount(group.payments)}</td>
                         <td />
                       </tr>
-                    </>
+                    </Fragment>
                   ))}
                 </tbody>
                 <tfoot>
@@ -748,7 +748,7 @@ export function DayBookReport({
               </thead>
               <tbody>
                 {paginatedGroups.map((group) => (
-                  <>
+                  <Fragment key={group.date}>
                     <tr key={`${group.date}-header`} className="bg-slate-100/80">
                       <td colSpan={9} className="px-3 py-2 font-semibold text-slate-900">
                         {format(new Date(group.date), "dd MMM yyyy")}
@@ -792,7 +792,7 @@ export function DayBookReport({
                       <td className="px-3 py-2 text-right">{formatAmount(group.payments)}</td>
                       <td colSpan={1} />
                     </tr>
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
               <tfoot>
@@ -842,4 +842,3 @@ export function DayBookReport({
     </div>
   )
 }
-

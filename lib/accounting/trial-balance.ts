@@ -1,14 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { resolveAccountHierarchy } from "@/lib/accounting/chart-hierarchy"
 import type { AccountGroupType, AccountHeadBalanceType, Database } from "@/lib/types"
 
 export type TrialBalanceRow = {
-  semiSubGroupId: string
-  semiSubGroupName: string
   accountHeadId: string
   accountHeadName: string
   groupType: AccountGroupType
   groupName: string
+  subGroupName?: string
+  semiSubGroupName?: string
+  path: string[]
   openingBalance: number
   balanceType: AccountHeadBalanceType
   totalDebit: number
@@ -47,17 +49,11 @@ function amountLabel({
 function toTrialBalanceRows(input: {
   accountHeads: Database["public"]["Tables"]["account_heads"]["Row"][]
   groups: Database["public"]["Tables"]["account_groups"]["Row"][]
-  subGroups: Database["public"]["Tables"]["account_sub_groups"]["Row"][]
   semiSubGroups: Database["public"]["Tables"]["account_semi_sub_groups"]["Row"][]
+  subGroups: Database["public"]["Tables"]["account_sub_groups"]["Row"][]
   voucherEntries: Database["public"]["Tables"]["voucher_entries"]["Row"][]
 }) {
-  const { accountHeads, groups, subGroups, semiSubGroups, voucherEntries } = input
-
-  const groupMap = new Map(groups.map((group) => [group.id, group]))
-  const subGroupMap = new Map(subGroups.map((subGroup) => [subGroup.id, subGroup]))
-  const semiSubGroupMap = new Map(
-    semiSubGroups.map((semiSubGroup) => [semiSubGroup.id, semiSubGroup])
-  )
+  const { accountHeads, groups, semiSubGroups, subGroups, voucherEntries } = input
 
   const debitCreditByHead = new Map<string, { debit: number; credit: number }>()
 
@@ -97,17 +93,21 @@ function toTrialBalanceRows(input: {
       debit = netBalance < 0 ? Math.abs(netBalance) : 0
     }
 
-    const subGroup = subGroupMap.get(accountHead.sub_group_id ?? "")
-    const semiSubGroup = semiSubGroupMap.get(subGroup?.semi_sub_id ?? "")
-    const group = groupMap.get(semiSubGroup?.group_id ?? "")
+    const hierarchy = resolveAccountHierarchy(accountHead, {
+      accountHeads,
+      groups,
+      semiSubGroups,
+      subGroups,
+    })
 
     return {
-      semiSubGroupId: semiSubGroup?.id ?? "uncategorized",
-      semiSubGroupName: semiSubGroup?.name ?? "Uncategorized",
       accountHeadId: accountHead.id,
       accountHeadName: accountHead.name,
-      groupType: (group?.type ?? "asset") as AccountGroupType,
-      groupName: group?.name ?? "General",
+      groupType: hierarchy.groupType,
+      groupName: hierarchy.groupName,
+      subGroupName: hierarchy.subGroupName || undefined,
+      semiSubGroupName: hierarchy.semiSubGroupName || undefined,
+      path: hierarchy.path,
       openingBalance,
       balanceType,
       totalDebit,
@@ -119,11 +119,7 @@ function toTrialBalanceRows(input: {
   })
 
   return rows.sort((left, right) => {
-    if (left.semiSubGroupName === right.semiSubGroupName) {
-      return left.accountHeadName.localeCompare(right.accountHeadName)
-    }
-
-    return left.semiSubGroupName.localeCompare(right.semiSubGroupName)
+    return left.accountHeadName.localeCompare(right.accountHeadName)
   })
 }
 
@@ -139,6 +135,7 @@ export async function calculateTrialBalance(
     .select("id")
     .eq("client_id", clientId)
     .eq("fiscal_year_id", fiscalYearId)
+    .or("is_posted.eq.true,is_posted.is.null")
 
   if (fromDate) {
     voucherQuery = voucherQuery.gte("voucher_date", fromDate)
@@ -150,17 +147,17 @@ export async function calculateTrialBalance(
 
   const [
     { data: accountHeads },
-    { data: groups },
-    { data: subGroups },
-    { data: semiSubGroups },
     { data: vouchers },
+    { data: groups },
+    { data: semiSubGroups },
+    { data: subGroups },
   ] =
     await Promise.all([
-      supabase.from("account_heads").select("*").eq("client_id", clientId).eq("is_active", true),
-      supabase.from("account_groups").select("*").eq("client_id", clientId),
-      supabase.from("account_sub_groups").select("*").eq("client_id", clientId),
-      supabase.from("account_semi_sub_groups").select("*").eq("client_id", clientId),
+      supabase.from("account_heads").select("*").eq("client_id", clientId).or("is_active.eq.true,is_active.is.null"),
       voucherQuery,
+      supabase.from("account_groups").select("*").eq("client_id", clientId),
+      supabase.from("account_semi_sub_groups").select("*").eq("client_id", clientId),
+      supabase.from("account_sub_groups").select("*").eq("client_id", clientId),
     ])
 
   const voucherIds = (vouchers ?? []).map((voucher) => voucher.id)
@@ -171,8 +168,8 @@ export async function calculateTrialBalance(
   const rows = toTrialBalanceRows({
     accountHeads: accountHeads ?? [],
     groups: groups ?? [],
-    subGroups: subGroups ?? [],
     semiSubGroups: semiSubGroups ?? [],
+    subGroups: subGroups ?? [],
     voucherEntries: voucherEntries ?? [],
   })
 

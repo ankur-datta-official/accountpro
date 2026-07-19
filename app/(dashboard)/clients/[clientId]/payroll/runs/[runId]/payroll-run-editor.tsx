@@ -1,26 +1,28 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { 
-  Printer, FileSpreadsheet, Save, Send, Banknote, CheckCircle2, ChevronDown } from 'lucide-react'
+  Printer, FileSpreadsheet, Save, Send, ChevronDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
+import { useReactToPrint } from 'react-to-print'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { PayrollSalarySheetPrint } from '@/components/payroll/PayrollSalarySheetPrint'
 import { savePayrollRunItemsAction } from '@/lib/actions/payroll'
 import { postPayrollAccrualAction } from '@/lib/actions/payroll'
 import { exportPayroll, type PayrollExportRow } from '@/lib/utils/excel-export'
-import { calculatePayrollRowSummary } from '@/lib/accounting/payroll'
+import { calculatePayrollRowSummary, type PayrollComponentCode } from '@/lib/accounting/payroll'
 
 type PayrollRunItem = {
   id: string
   employee_id: string | null
+  employee_code: string | null
   employee_name: string
   designation: string | null
   grade: string | null
@@ -52,8 +54,6 @@ type PayrollRun = {
   items: PayrollRunItem[]
 }
 
-type PaymentModeOption = { id: string; name: string; type: string | null }
-
 function currency(value: number | null | undefined) {
   return new Intl.NumberFormat('en-BD', {
     style: 'currency',
@@ -84,59 +84,103 @@ function statusLabel(status: string) {
   return status.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function HelpTooltip({ text }: { text: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button type="button" className="text-slate-400 transition hover:text-slate-600" aria-label={text}>
-          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-64 text-xs">{text}</TooltipContent>
-    </Tooltip>
-  )
-}
-
 export function PayrollRunEditor({
   clientId,
   payrollRun,
-  fiscalYearId,
-  paymentModes
+  fiscalYearLabel,
+  companyName,
 }: {
   clientId: string
   payrollRun: PayrollRun
-  fiscalYearId: string
-  paymentModes: PaymentModeOption[]
+  fiscalYearLabel: string
+  companyName: string
 }) {
   const [isPending, startTransition] = useTransition()
+  const printRef = useRef<HTMLDivElement>(null)
   const [localItems, setLocalItems] = useState<PayrollRunItem[]>(payrollRun.items)
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
-  const [paymentModeId, setPaymentModeId] = useState<string>(paymentModes[0]?.id || '')
+  const payrollRunLabel = format(new Date(payrollRun.period_start), 'MMMM yyyy')
+  const monthLabel = format(new Date(payrollRun.period_start), 'MMM-yy')
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: `${companyName}-payroll-${monthLabel}`,
+  })
 
-  // Calculate totals
-  const totals = useMemo(() => {
-    return localItems.reduce((acc, item) => {
-      const components = item.components.map(c => ({ code: c.code as any, amount: numberValue(c.amount) }))
-      const summary = calculatePayrollRowSummary(components)
-      acc.subTotal += summary.subTotal
-      acc.totalSalary += summary.totalSalary
-      acc.totalDeductions += summary.totalDeductions
-      acc.netPayable += summary.netPayable
-      return acc
-    }, {
-      subTotal: 0,
-      totalSalary: 0,
-      totalDeductions: 0,
-      netPayable: 0
+  const exportRows = useMemo<PayrollExportRow[]>(() => {
+    return localItems.map((item, index) => {
+      const componentsForSummary = item.components.map((c) => ({
+        code: c.code as PayrollComponentCode,
+        amount: numberValue(c.amount),
+      }))
+      const summary = calculatePayrollRowSummary(componentsForSummary)
+
+      return {
+        sl: index + 1,
+        employeeCode: item.employee_code,
+        staffName: item.employee_name,
+        designation: item.designation,
+        grade: item.grade,
+        basic: summary.basic,
+        housing: summary.housing,
+        medical: summary.medical,
+        conveyance: summary.conveyance,
+        subTotal: summary.subTotal,
+        pfOrgPart: summary.employerPf,
+        bonus: summary.bonus,
+        arrear: summary.arrearSalary,
+        totalSalary: summary.totalSalary,
+        pfTotal: summary.pfTotal,
+        loanInstallment: summary.loanInstallment,
+        loanInterest: summary.loanInterest,
+        tax: summary.tax,
+        totalDeduction: summary.totalDeductions,
+        netPay: summary.netPayable,
+        month: monthLabel,
+      }
     })
-  }, [localItems])
+  }, [localItems, monthLabel])
 
-  const getComponentValue = (components: any[], code: string) => {
-    const component = components.find(c => c.code === code)
-    return numberValue(component?.amount)
-  }
+  const totals = useMemo(() => {
+    return exportRows.reduce(
+      (acc, row) => {
+        acc.basic += row.basic
+        acc.housing += row.housing
+        acc.medical += row.medical
+        acc.conveyance += row.conveyance
+        acc.subTotal += row.subTotal
+        acc.pfOrgPart += row.pfOrgPart
+        acc.bonus += row.bonus
+        acc.arrear += row.arrear
+        acc.totalSalary += row.totalSalary
+        acc.pfTotal += row.pfTotal
+        acc.loanInstallment += row.loanInstallment
+        acc.loanInterest += row.loanInterest
+        acc.tax += row.tax
+        acc.totalDeductions += row.totalDeduction
+        acc.netPay += row.netPay
+        acc.netPayable += row.netPay
+        return acc
+      },
+      {
+        basic: 0,
+        housing: 0,
+        medical: 0,
+        conveyance: 0,
+        subTotal: 0,
+        pfOrgPart: 0,
+        bonus: 0,
+        arrear: 0,
+        totalSalary: 0,
+        pfTotal: 0,
+        loanInstallment: 0,
+        loanInterest: 0,
+        tax: 0,
+        totalDeductions: 0,
+        netPay: 0,
+        netPayable: 0,
+      }
+    )
+  }, [exportRows])
 
   const handleComponentChange = (itemId: string, componentCode: string, newValue: string) => {
     setLocalItems(items => items.map(item => {
@@ -151,7 +195,7 @@ export function PayrollRunEditor({
 
       // If component doesn't exist, add it
       if (!newComponents.find(c => c.code === componentCode)) {
-        const definitions: any = {
+        const definitions: Record<string, { label: string; kind: string }> = {
           basic: { label: 'Basic', kind: 'earning' },
           housing: { label: 'Housing', kind: 'earning' },
           medical: { label: 'Medical', kind: 'earning' },
@@ -175,10 +219,10 @@ export function PayrollRunEditor({
       }
 
       // Remove components with 0 amount
-      newComponents = newComponents.filter(c => c.amount > 0)
+      newComponents = newComponents.filter(c => (c.amount ?? 0) > 0)
 
       // Recalculate summary
-      const componentsForSummary = newComponents.map(c => ({ code: c.code as any, amount: numberValue(c.amount) }))
+      const componentsForSummary = newComponents.map(c => ({ code: c.code as PayrollComponentCode, amount: numberValue(c.amount) }))
       const summary = calculatePayrollRowSummary(componentsForSummary)
 
       return {
@@ -200,7 +244,7 @@ export function PayrollRunEditor({
         items: localItems.map(item => ({
           id: item.id,
           components: item.components.map(c => ({
-            code: c.code,
+            code: c.code as PayrollComponentCode,
             amount: numberValue(c.amount)
           }))
         }))
@@ -231,46 +275,25 @@ export function PayrollRunEditor({
   }
 
   const handleExport = () => {
-    const exportData: PayrollExportRow[] = localItems.map((item, index) => {
-      const componentsForSummary = item.components.map(c => ({ code: c.code as any, amount: numberValue(c.amount) }))
-      const summary = calculatePayrollRowSummary(componentsForSummary)
-      return {
-      sl: index + 1,
-      employeeCode: '',
-      staffName: item.employee_name,
-      designation: item.designation,
-      grade: item.grade,
-      basic: summary.basic,
-      housing: summary.housing,
-      medical: summary.medical,
-      conveyance: summary.conveyance,
-      subTotal: summary.subTotal,
-      pfOrgPart: summary.employerPf,
-      bonus: summary.bonus,
-      arrear: summary.arrearSalary,
-      totalSalary: summary.totalSalary,
-      pfTotal: summary.pfTotal,
-      loanInstallment: summary.loanInstallment,
-      loanInterest: summary.loanInterest,
-      tax: summary.tax,
-      totalDeduction: summary.totalDeductions,
-      netPay: summary.netPayable,
-      month: payrollRun.period_label
-    }
-    })
-    exportPayroll(exportData, 'Client', payrollRun.period_label)
-  }
-
-  const handlePrint = () => {
-    window.print()
+    exportPayroll(exportRows, companyName, payrollRunLabel, fiscalYearLabel)
   }
 
   const isEditable = !payrollRun.accrual_voucher_id && !payrollRun.payment_voucher_id
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <div className="space-y-6">
-        <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
+    <div className="space-y-6">
+      <div className="fixed left-[-10000px] top-0">
+        <PayrollSalarySheetPrint
+          ref={printRef}
+          companyName={companyName}
+          fiscalYearLabel={fiscalYearLabel}
+          payrollRunLabel={payrollRunLabel}
+          rows={exportRows}
+          totals={totals}
+          printedDate={format(new Date(), 'dd MMM yyyy')}
+        />
+      </div>
+      <Card className="rounded-2xl border-slate-200 bg-white shadow-sm">
           <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <CardTitle>Payroll Run: {payrollRun.period_label}</CardTitle>
@@ -315,9 +338,9 @@ export function PayrollRunEditor({
               <p className="mt-1 text-sm text-slate-500">Editable salary sheet with expandable rows.</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={handlePrint} disabled={isPending}>
+              <Button type="button" variant="outline" onClick={() => void handlePrint()} disabled={isPending}>
                 <Printer className="mr-2 h-4 w-4" />
-                Print
+                Export PDF
               </Button>
               <Button type="button" variant="outline" onClick={handleExport} disabled={isPending}>
                 <FileSpreadsheet className="mr-2 h-4 w-4" />
@@ -340,7 +363,7 @@ export function PayrollRunEditor({
           <CardContent>
             <div className="grid gap-4">
               {localItems.map((item, index) => {
-                const componentsForSummary = item.components.map(c => ({ code: c.code as any, amount: numberValue(c.amount) }))
+                const componentsForSummary = item.components.map(c => ({ code: c.code as PayrollComponentCode, amount: numberValue(c.amount) }))
                 const summary = calculatePayrollRowSummary(componentsForSummary)
                 const isExpanded = expandedRowId === item.id
                 return (
@@ -471,12 +494,12 @@ export function PayrollRunEditor({
                                 {isEditable ? (
                                   <Input
                                     type="number"
-                                    value={summary.arrear}
+                                    value={summary.arrearSalary}
                                     onChange={(e) => handleComponentChange(item.id, 'arrear_salary', e.target.value)}
                                     className="h-8 w-32 text-right"
                                   />
                                 ) : (
-                                  <span className="font-medium">{currency(summary.arrear)}</span>
+                                  <span className="font-medium">{currency(summary.arrearSalary)}</span>
                                 )}
                               </div>
                               <div className="flex justify-between items-center text-sm font-semibold border-t border-slate-200 pt-2">
@@ -584,6 +607,5 @@ export function PayrollRunEditor({
           </CardContent>
         </Card>
       </div>
-    </TooltipProvider>
   )
 }

@@ -35,6 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { getClientTypeLabel } from "@/lib/accounting/clients"
+import { buildClientPath } from "@/lib/routing/clients"
 import { createClient } from "@/lib/supabase/client"
 
 export type ClientTableRow = {
@@ -45,6 +46,7 @@ export type ClientTableRow = {
   bin: string | null
   fiscalYearLabel: string
   isActive: boolean
+  routeSegment?: string | null
 }
 
 export function ClientsTable({ data }: { data: ClientTableRow[] }) {
@@ -144,7 +146,7 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
     toast.success("Client replication completed successfully.")
     setReplicationTarget(null)
     setReplicationName("")
-    router.replace(`/clients/${result.clientId}`)
+    router.replace(buildClientPath({ id: result.clientId, name }))
     router.refresh()
   }, [replicationName, replicationTarget, router])
 
@@ -154,7 +156,7 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
         accessorKey: "name",
         header: "Name",
         cell: ({ row }) => (
-          <Link href={`/clients/${row.original.id}`} className="block">
+          <Link href={buildClientPath(row.original)} className="block">
             <p className="font-medium text-slate-900 hover:text-slate-600 transition-colors">{row.original.name}</p>
             <p className="text-xs text-slate-500">{row.original.fiscalYearLabel}</p>
           </Link>
@@ -203,13 +205,13 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
         cell: ({ row }) => (
           <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-slate-600">
-              <Link href={`/clients/${row.original.id}`}>
+              <Link href={buildClientPath(row.original)}>
                 <Eye className="mr-1.5 h-3.5 w-3.5" />
                 View
               </Link>
             </Button>
             <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-slate-600">
-              <Link href={`/clients/${row.original.id}/settings`}>
+              <Link href={buildClientPath(row.original, "/settings")}>
                 <PencilLine className="mr-1.5 h-3.5 w-3.5" />
                 Edit
               </Link>

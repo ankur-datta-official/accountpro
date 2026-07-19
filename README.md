@@ -30,6 +30,8 @@ DATABASE_URL=postgresql://postgres:your_password@db.your_project_ref.supabase.co
 DIRECT_URL=postgresql://postgres:your_password@db.your_project_ref.supabase.co:5432/postgres
 ```
 
+`NEXT_PUBLIC_SUPABASE_URL` must be the full `https://<project-ref>.supabase.co` URL. If it is missing or malformed, the app now falls back safely instead of crashing the middleware.
+
 3. Run the development server:
 
 ```bash

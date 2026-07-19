@@ -6,8 +6,14 @@ import { ensurePayrollDefaultsAction } from "@/lib/actions/payroll"
 import { createClient } from "@/lib/supabase/server"
 import type { Database } from "@/lib/types"
 
-type PayrollRunItem = Database["public"]["Tables"]["payroll_run_items"]["Row"]
-type PayrollRunComponent = Database["public"]["Tables"]["payroll_run_components"]["Row"]
+type PayrollEmployeeRecord = Database["public"]["Tables"]["payroll_employees"]["Row"]
+type PayrollSalaryRecord = Database["public"]["Tables"]["payroll_salary_structures"]["Row"]
+type PayrollRunRecord = Database["public"]["Tables"]["payroll_runs"]["Row"]
+type PaymentModeRecord = Database["public"]["Tables"]["payment_modes"]["Row"]
+type PayrollAccountMappingRecord = Database["public"]["Tables"]["payroll_account_mappings"]["Row"]
+type AccountHeadRecord = Database["public"]["Tables"]["account_heads"]["Row"]
+type PayrollRunItemRecord = Database["public"]["Tables"]["payroll_run_items"]["Row"]
+type PayrollRunComponentRecord = Database["public"]["Tables"]["payroll_run_components"]["Row"]
 
 function isMissingPayrollSchemaError(message?: string | null) {
   if (!message) return false
@@ -26,13 +32,15 @@ export default async function PayrollPage({
   params,
   searchParams,
 }: {
-  params: { clientId: string }
-  searchParams: { fiscalYear?: string }
+  params: Promise<{ clientId: string }>
+  searchParams: Promise<{ fiscalYear?: string }>
 }) {
-  const supabase = createClient()
-  const { client, selectedFiscalYear } = await getClientRouteContext({
-    clientId: params.clientId,
-    fiscalYearId: searchParams.fiscalYear,
+  const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
+  const supabase = await createClient()
+  const { client, selectedFiscalYear, fiscalYears } = await getClientRouteContext({
+    clientId: resolvedParams.clientId,
+    fiscalYearId: resolvedSearchParams.fiscalYear,
   })
 
   if (!client || !selectedFiscalYear) {
@@ -105,16 +113,16 @@ export default async function PayrollPage({
     }
   }
 
-  const salariesByEmployee = new Map(
-    (salaryResult.data ?? []).map((salary) => [salary.employee_id, salary])
+  const salariesByEmployee = new Map<string, PayrollSalaryRecord>(
+    (salaryResult.data ?? []).map((salary: PayrollSalaryRecord) => [salary.employee_id, salary])
   )
-  const employees = (employeesResult.data ?? []).map((employee) => ({
+  const employees = (employeesResult.data ?? []).map((employee: PayrollEmployeeRecord) => ({
     ...employee,
     salary: salariesByEmployee.get(employee.id) ?? null,
   }))
 
-  const payrollRuns = runsResult.data ?? []
-  const runIds = payrollRuns.map((run) => run.id)
+  const payrollRuns: PayrollRunRecord[] = runsResult.data ?? []
+  const runIds = payrollRuns.map((run: PayrollRunRecord) => run.id)
   const voucherIds = Array.from(
     new Set(
       payrollRuns
@@ -122,30 +130,34 @@ export default async function PayrollPage({
         .filter(Boolean) as string[]
     )
   )
-  const mappingHeadIds = (mappingsResult.data ?? []).map((mapping) => mapping.account_head_id)
+  const mappingHeadIds = (mappingsResult.data ?? []).map((mapping: PayrollAccountMappingRecord) => mapping.account_head_id)
 
   const itemsResult = runIds.length
     ? await supabase.from("payroll_run_items").select("*").in("payroll_run_id", runIds)
-    : { data: [] }
-  const runItemIds = itemsResult.data?.map(i => i.id) ?? []
+    : { data: [] as PayrollRunItemRecord[] }
+  const runItemIds = (itemsResult.data ?? []).map((item: PayrollRunItemRecord) => item.id)
   const [componentsResult, vouchersResult, accountHeadsByIdResult] = await Promise.all([
     runItemIds.length
       ? supabase.from("payroll_run_components").select("*").in("run_item_id", runItemIds)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [] as PayrollRunComponentRecord[] }),
     voucherIds.length
       ? supabase.from("vouchers").select("id,voucher_no").in("id", voucherIds)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [] as { id: string; voucher_no: number | null }[] }),
     mappingHeadIds.length
       ? supabase.from("account_heads").select("id,name").in("id", mappingHeadIds)
-      : Promise.resolve({ data: [] }),
+      : Promise.resolve({ data: [] as Pick<AccountHeadRecord, "id" | "name">[] }),
   ])
 
-  const voucherNoById = new Map((vouchersResult.data ?? []).map((voucher) => [voucher.id, voucher.voucher_no]))
-  const accountHeadNameById = new Map((accountHeadsByIdResult.data ?? []).map((head) => [head.id, head.name]))
-  const payrollItems = (itemsResult.data ?? []) as PayrollRunItem[]
-  const payrollComponents = (componentsResult.data ?? []) as PayrollRunComponent[]
-  const itemsByRun = new Map<string, PayrollRunItem[]>()
-  const componentsByItem = new Map<string, PayrollRunComponent[]>()
+  const voucherNoById = new Map<string, number | null>(
+    (vouchersResult.data ?? []).map((voucher: { id: string; voucher_no: number | null }) => [voucher.id, voucher.voucher_no])
+  )
+  const accountHeadNameById = new Map<string, string>(
+    (accountHeadsByIdResult.data ?? []).map((head: Pick<AccountHeadRecord, "id" | "name">) => [head.id, head.name])
+  )
+  const payrollItems = (itemsResult.data ?? []) as PayrollRunItemRecord[]
+  const payrollComponents = (componentsResult.data ?? []) as PayrollRunComponentRecord[]
+  const itemsByRun = new Map<string, PayrollRunItemRecord[]>()
+  const componentsByItem = new Map<string, PayrollRunComponentRecord[]>()
 
   for (const item of payrollItems) {
     const current = itemsByRun.get(item.payroll_run_id) ?? []
@@ -159,14 +171,14 @@ export default async function PayrollPage({
     componentsByItem.set(component.run_item_id, current)
   }
 
-  const runs = payrollRuns.map((run) => {
+  const runs = payrollRuns.map((run: PayrollRunRecord) => {
     const items = itemsByRun.get(run.id) ?? []
-    const itemsWithComponents = items.map(item => ({
+    const itemsWithComponents = items.map((item: PayrollRunItemRecord) => ({
       ...item,
-      components: componentsByItem.get(item.id) ?? []
+      components: componentsByItem.get(item.id) ?? [],
     }))
     const totals = items.reduce(
-      (acc, item) => {
+      (acc, item: PayrollRunItemRecord) => {
         acc.grossSalary += amount(item.gross_salary)
         acc.totalAdditions += amount(item.total_additions)
         acc.totalDeductions += amount(item.total_deductions)
@@ -190,7 +202,7 @@ export default async function PayrollPage({
     }
   })
 
-  const accountMappings = (mappingsResult.data ?? []).map((mapping) => ({
+  const accountMappings = (mappingsResult.data ?? []).map((mapping: PayrollAccountMappingRecord) => ({
     component_code: mapping.component_code,
     account_head_id: mapping.account_head_id,
     account_head_name: accountHeadNameById.get(mapping.account_head_id) ?? "Missing account head",
@@ -212,11 +224,14 @@ export default async function PayrollPage({
       clientId={client.id}
       fiscalYearId={selectedFiscalYear.id}
       fiscalYearLabel={selectedFiscalYear.label}
-      fiscalYearStart={selectedFiscalYear.start_date}
+      fiscalYears={fiscalYears.map((year) => ({
+        id: year.id,
+        label: year.label,
+      }))}
       schemaReady={schemaReady}
       employees={employees}
       payrollRuns={runs}
-      paymentModes={(paymentModesResult.data ?? []).map((mode) => ({
+      paymentModes={(paymentModesResult.data ?? []).map((mode: PaymentModeRecord) => ({
         id: mode.id,
         name: mode.name,
         type: mode.type,

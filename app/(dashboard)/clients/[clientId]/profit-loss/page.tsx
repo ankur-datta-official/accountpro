@@ -7,12 +7,14 @@ export default async function ClientProfitLossPage({
   params,
   searchParams,
 }: {
-  params: { clientId: string }
-  searchParams?: { fiscalYear?: string }
+  params: Promise<{ clientId: string }>
+  searchParams: Promise<{ fiscalYear?: string }>
 }) {
+  const resolvedParams = await params
+  const resolvedSearchParams = await searchParams
   const { client, selectedFiscalYear } = await getClientRouteContext({
-    clientId: params.clientId,
-    fiscalYearId: searchParams?.fiscalYear,
+    clientId: resolvedParams.clientId,
+    fiscalYearId: resolvedSearchParams?.fiscalYear,
   })
 
   if (!client) notFound()

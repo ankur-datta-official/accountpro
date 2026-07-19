@@ -2,13 +2,16 @@ import { randomUUID } from "crypto"
 
 import { getPlanClientLimit } from "@/lib/team"
 import type {
-  AccountGroupInsert,
+  AccountHead,
   AccountHeadInsert,
-  AccountSemiSubGroupInsert,
-  AccountSubGroupInsert,
+  Client,
   ClientInsert,
+  FiscalYear,
   FiscalYearInsert,
+  PaymentMode,
   PaymentModeInsert,
+  Voucher,
+  VoucherEntry,
   VoucherEntryInsert,
   VoucherInsert,
 } from "@/lib/types"
@@ -35,39 +38,6 @@ async function insertPaymentModes(rows: PaymentModeInsert[]) {
   for (let index = 0; index < rows.length; index += 200) {
     const chunk = rows.slice(index, index + 200)
     const { error } = await supabaseAdmin.from("payment_modes").insert(chunk)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-  }
-}
-
-async function insertAccountGroups(rows: AccountGroupInsert[]) {
-  for (let index = 0; index < rows.length; index += 200) {
-    const chunk = rows.slice(index, index + 200)
-    const { error } = await supabaseAdmin.from("account_groups").insert(chunk)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-  }
-}
-
-async function insertAccountSemiSubGroups(rows: AccountSemiSubGroupInsert[]) {
-  for (let index = 0; index < rows.length; index += 200) {
-    const chunk = rows.slice(index, index + 200)
-    const { error } = await supabaseAdmin.from("account_semi_sub_groups").insert(chunk)
-
-    if (error) {
-      throw new Error(error.message)
-    }
-  }
-}
-
-async function insertAccountSubGroups(rows: AccountSubGroupInsert[]) {
-  for (let index = 0; index < rows.length; index += 200) {
-    const chunk = rows.slice(index, index + 200)
-    const { error } = await supabaseAdmin.from("account_sub_groups").insert(chunk)
 
     if (error) {
       throw new Error(error.message)
@@ -113,9 +83,6 @@ async function insertInChunks(
   rows:
     | FiscalYearInsert[]
     | PaymentModeInsert[]
-    | AccountGroupInsert[]
-    | AccountSemiSubGroupInsert[]
-    | AccountSubGroupInsert[]
     | AccountHeadInsert[]
     | VoucherInsert[]
     | VoucherEntryInsert[]
@@ -126,15 +93,6 @@ async function insertInChunks(
       return
     case "payment_modes":
       await insertPaymentModes(rows as PaymentModeInsert[])
-      return
-    case "account_groups":
-      await insertAccountGroups(rows as AccountGroupInsert[])
-      return
-    case "account_semi_sub_groups":
-      await insertAccountSemiSubGroups(rows as AccountSemiSubGroupInsert[])
-      return
-    case "account_sub_groups":
-      await insertAccountSubGroups(rows as AccountSubGroupInsert[])
       return
     case "account_heads":
       await insertAccountHeads(rows as AccountHeadInsert[])
@@ -162,7 +120,11 @@ async function buildCopyName(orgId: string, sourceName: string) {
     throw new Error(error.message)
   }
 
-  const existingNames = new Set((existingClients ?? []).map((client) => client.name.trim().toLowerCase()))
+  const existingNames = new Set(
+    ((existingClients ?? []) as Pick<Client, "name">[]).map((client: Pick<Client, "name">) =>
+      client.name.trim().toLowerCase()
+    )
+  )
 
   if (!existingNames.has(baseName.toLowerCase())) {
     return baseName
@@ -253,21 +215,11 @@ export async function replicateClientWorkspace({
   const [
     { data: fiscalYears, error: fiscalYearsError },
     { data: paymentModes, error: paymentModesError },
-    { data: accountGroups, error: accountGroupsError },
-    { data: accountSemiSubGroups, error: accountSemiSubGroupsError },
-    { data: accountSubGroups, error: accountSubGroupsError },
     { data: accountHeads, error: accountHeadsError },
     { data: vouchers, error: vouchersError },
   ] = await Promise.all([
     supabaseAdmin.from("fiscal_years").select("*").eq("client_id", sourceClient.id).order("start_date"),
     supabaseAdmin.from("payment_modes").select("*").eq("client_id", sourceClient.id).order("name"),
-    supabaseAdmin.from("account_groups").select("*").eq("client_id", sourceClient.id).order("sort_order"),
-    supabaseAdmin
-      .from("account_semi_sub_groups")
-      .select("*")
-      .eq("client_id", sourceClient.id)
-      .order("sort_order"),
-    supabaseAdmin.from("account_sub_groups").select("*").eq("client_id", sourceClient.id).order("sort_order"),
     supabaseAdmin.from("account_heads").select("*").eq("client_id", sourceClient.id).order("sort_order"),
     supabaseAdmin.from("vouchers").select("*").eq("client_id", sourceClient.id).order("voucher_date"),
   ])
@@ -275,9 +227,6 @@ export async function replicateClientWorkspace({
   const dataErrors = [
     fiscalYearsError,
     paymentModesError,
-    accountGroupsError,
-    accountSemiSubGroupsError,
-    accountSubGroupsError,
     accountHeadsError,
     vouchersError,
   ].filter(Boolean)
@@ -286,7 +235,7 @@ export async function replicateClientWorkspace({
     throw new Error(dataErrors[0]?.message ?? "Unable to load client data for replication.")
   }
 
-  const voucherIds = (vouchers ?? []).map((voucher) => voucher.id)
+  const voucherIds = ((vouchers ?? []) as Voucher[]).map((voucher: Voucher) => voucher.id)
   const { data: voucherEntries, error: voucherEntriesError } = voucherIds.length
     ? await supabaseAdmin
         .from("voucher_entries")
@@ -302,9 +251,6 @@ export async function replicateClientWorkspace({
   const newClientId = randomUUID()
   const fiscalYearIdMap = new Map<string, string>()
   const paymentModeIdMap = new Map<string, string>()
-  const accountGroupIdMap = new Map<string, string>()
-  const semiSubGroupIdMap = new Map<string, string>()
-  const subGroupIdMap = new Map<string, string>()
   const accountHeadIdMap = new Map<string, string>()
   const voucherIdMap = new Map<string, string>()
 
@@ -324,7 +270,7 @@ export async function replicateClientWorkspace({
     updated_at: new Date().toISOString(),
   }
 
-  const fiscalYearRows: FiscalYearInsert[] = (fiscalYears ?? []).map((row) => {
+  const fiscalYearRows: FiscalYearInsert[] = ((fiscalYears ?? []) as FiscalYear[]).map((row: FiscalYear) => {
     const newId = randomUUID()
     fiscalYearIdMap.set(row.id, newId)
 
@@ -340,7 +286,7 @@ export async function replicateClientWorkspace({
     }
   })
 
-  const paymentModeRows: PaymentModeInsert[] = (paymentModes ?? []).map((row) => {
+  const paymentModeRows: PaymentModeInsert[] = ((paymentModes ?? []) as PaymentMode[]).map((row: PaymentMode) => {
     const newId = randomUUID()
     paymentModeIdMap.set(row.id, newId)
 
@@ -354,63 +300,25 @@ export async function replicateClientWorkspace({
     }
   })
 
-  const accountGroupRows: AccountGroupInsert[] = (accountGroups ?? []).map((row) => {
-    const newId = randomUUID()
-    accountGroupIdMap.set(row.id, newId)
+  const sourceAccountHeads = (accountHeads ?? []) as AccountHead[]
+  for (const row of sourceAccountHeads) {
+    accountHeadIdMap.set(row.id, randomUUID())
+  }
 
-    return {
-      id: newId,
-      client_id: newClientId,
-      name: row.name,
-      type: row.type,
-      sort_order: row.sort_order,
-    }
-  })
+  const accountHeadRows: AccountHeadInsert[] = sourceAccountHeads.map((row: AccountHead) => ({
+    id: accountHeadIdMap.get(row.id) ?? randomUUID(),
+    client_id: newClientId,
+    parent_id: row.parent_id ? accountHeadIdMap.get(row.parent_id) ?? null : null,
+    name: row.name,
+    type: row.type,
+    opening_balance: row.opening_balance,
+    balance_type: row.balance_type,
+    is_active: row.is_active,
+    sort_order: row.sort_order,
+    created_at: row.created_at,
+  }))
 
-  const semiSubGroupRows: AccountSemiSubGroupInsert[] = (accountSemiSubGroups ?? []).map((row) => {
-    const newId = randomUUID()
-    semiSubGroupIdMap.set(row.id, newId)
-
-    return {
-      id: newId,
-      client_id: newClientId,
-      group_id: row.group_id ? accountGroupIdMap.get(row.group_id) ?? null : null,
-      name: row.name,
-      sort_order: row.sort_order,
-    }
-  })
-
-  const subGroupRows: AccountSubGroupInsert[] = (accountSubGroups ?? []).map((row) => {
-    const newId = randomUUID()
-    subGroupIdMap.set(row.id, newId)
-
-    return {
-      id: newId,
-      client_id: newClientId,
-      semi_sub_id: row.semi_sub_id ? semiSubGroupIdMap.get(row.semi_sub_id) ?? null : null,
-      name: row.name,
-      sort_order: row.sort_order,
-    }
-  })
-
-  const accountHeadRows: AccountHeadInsert[] = (accountHeads ?? []).map((row) => {
-    const newId = randomUUID()
-    accountHeadIdMap.set(row.id, newId)
-
-    return {
-      id: newId,
-      client_id: newClientId,
-      sub_group_id: row.sub_group_id ? subGroupIdMap.get(row.sub_group_id) ?? null : null,
-      name: row.name,
-      opening_balance: row.opening_balance,
-      balance_type: row.balance_type,
-      is_active: row.is_active,
-      sort_order: row.sort_order,
-      created_at: row.created_at,
-    }
-  })
-
-  const voucherRows: VoucherInsert[] = (vouchers ?? []).map((row) => {
+  const voucherRows: VoucherInsert[] = ((vouchers ?? []) as Voucher[]).map((row: Voucher) => {
     const newId = randomUUID()
     voucherIdMap.set(row.id, newId)
 
@@ -431,7 +339,8 @@ export async function replicateClientWorkspace({
     }
   })
 
-  const voucherEntryRows: VoucherEntryInsert[] = (voucherEntries ?? []).map((row) => ({
+  const voucherEntryRows: VoucherEntryInsert[] = ((voucherEntries ?? []) as VoucherEntry[]).map(
+    (row: VoucherEntry) => ({
     id: randomUUID(),
     voucher_id: row.voucher_id ? voucherIdMap.get(row.voucher_id) ?? null : null,
     account_head_id: row.account_head_id ? accountHeadIdMap.get(row.account_head_id) ?? null : null,
@@ -451,9 +360,6 @@ export async function replicateClientWorkspace({
 
     await insertInChunks("fiscal_years", fiscalYearRows)
     await insertInChunks("payment_modes", paymentModeRows)
-    await insertInChunks("account_groups", accountGroupRows)
-    await insertInChunks("account_semi_sub_groups", semiSubGroupRows)
-    await insertInChunks("account_sub_groups", subGroupRows)
     await insertInChunks("account_heads", accountHeadRows)
     await insertInChunks("vouchers", voucherRows)
     await insertInChunks("voucher_entries", voucherEntryRows)

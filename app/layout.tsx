@@ -30,8 +30,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="font-sans">
-      <body className={cn(geistSans.variable, geistMono.variable, "antialiased")}>
+    <html lang="en" className="font-sans" suppressHydrationWarning>
+      <body className={cn(geistSans.variable, geistMono.variable, "antialiased")} suppressHydrationWarning>
         <QueryProvider>
           <ErrorBoundary>{children}</ErrorBoundary>
           <Toaster richColors position="top-right" />

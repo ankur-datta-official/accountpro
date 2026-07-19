@@ -25,6 +25,7 @@ export type VoucherType =
 export type PayrollRunStatus = "draft" | "reviewed" | "posted" | "paid" | "cancelled"
 export type PayrollRunSource = "manual" | "import"
 export type PayrollComponentKind = "earning" | "employer_contribution" | "deduction"
+export type SalaryCertificateStatus = "draft" | "issued" | "cancelled"
 
 export interface Database {
   public: {
@@ -271,7 +272,9 @@ export interface Database {
           id: string
           client_id: string | null
           sub_group_id: string | null
+          parent_id: string | null
           name: string
+          type: AccountGroupType | null
           opening_balance: number | null
           balance_type: AccountHeadBalanceType | null
           is_active: boolean | null
@@ -282,7 +285,9 @@ export interface Database {
           id?: string
           client_id?: string | null
           sub_group_id?: string | null
+          parent_id?: string | null
           name: string
+          type?: AccountGroupType | null
           opening_balance?: number | null
           balance_type?: AccountHeadBalanceType | null
           is_active?: boolean | null
@@ -293,7 +298,9 @@ export interface Database {
           id?: string
           client_id?: string | null
           sub_group_id?: string | null
+          parent_id?: string | null
           name?: string
+          type?: AccountGroupType | null
           opening_balance?: number | null
           balance_type?: AccountHeadBalanceType | null
           is_active?: boolean | null
@@ -310,6 +317,7 @@ export interface Database {
           type: PaymentModeType | null
           account_no: string | null
           is_active: boolean | null
+          account_head_id: string | null
         }
         Insert: {
           id?: string
@@ -318,6 +326,7 @@ export interface Database {
           type?: PaymentModeType | null
           account_no?: string | null
           is_active?: boolean | null
+          account_head_id?: string | null
         }
         Update: {
           id?: string
@@ -326,6 +335,7 @@ export interface Database {
           type?: PaymentModeType | null
           account_no?: string | null
           is_active?: boolean | null
+          account_head_id?: string | null
         }
         Relationships: []
       }
@@ -343,6 +353,12 @@ export interface Database {
           show_supporting_documents: boolean | null
           month_label: string | null
           is_posted: boolean | null
+          is_reversal: boolean
+          reversal_reason: string | null
+          reversed_at: string | null
+          reversed_by: string | null
+          reversed_voucher_id: string | null
+          reversal_voucher_id: string | null
           created_by: string | null
           created_at: string | null
           updated_at: string | null
@@ -360,6 +376,12 @@ export interface Database {
           show_supporting_documents?: boolean | null
           month_label?: string | null
           is_posted?: boolean | null
+          is_reversal?: boolean
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          reversed_by?: string | null
+          reversed_voucher_id?: string | null
+          reversal_voucher_id?: string | null
           created_by?: string | null
           created_at?: string | null
           updated_at?: string | null
@@ -377,6 +399,12 @@ export interface Database {
           show_supporting_documents?: boolean | null
           month_label?: string | null
           is_posted?: boolean | null
+          is_reversal?: boolean
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          reversed_by?: string | null
+          reversed_voucher_id?: string | null
+          reversal_voucher_id?: string | null
           created_by?: string | null
           created_at?: string | null
           updated_at?: string | null
@@ -737,6 +765,45 @@ export interface Database {
           tax_percent?: number | null
           created_at?: string | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      salary_certificates: {
+        Row: {
+          id: string
+          client_id: string
+          employee_id: string | null
+          fiscal_year_id: string
+          certificate_no: string
+          issue_date: string
+          generated_by: string | null
+          generated_at: string | null
+          status: SalaryCertificateStatus
+          snapshot_json: Record<string, unknown>
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          employee_id?: string | null
+          fiscal_year_id: string
+          certificate_no: string
+          issue_date: string
+          generated_by?: string | null
+          generated_at?: string | null
+          status?: SalaryCertificateStatus
+          snapshot_json: Record<string, unknown>
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          employee_id?: string | null
+          fiscal_year_id?: string
+          certificate_no?: string
+          issue_date?: string
+          generated_by?: string | null
+          generated_at?: string | null
+          status?: SalaryCertificateStatus
+          snapshot_json?: Record<string, unknown>
         }
         Relationships: []
       }

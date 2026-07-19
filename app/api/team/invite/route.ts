@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getPlanMemberLimit } from "@/lib/team"
+import type { User } from "@supabase/supabase-js"
 
 const inviteSchema = z.object({
   email: z.string().email("Enter a valid email address."),
@@ -68,7 +69,9 @@ export async function POST(request: Request) {
   const normalizedEmail = parsed.data.email.trim().toLowerCase()
 
   const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
-  const matchedAuthUser = existingUser.users.find((item) => item.email?.toLowerCase() === normalizedEmail)
+  const matchedAuthUser = existingUser.users.find(
+    (item: User) => item.email?.toLowerCase() === normalizedEmail
+  )
 
   const { data: duplicateMembership } = matchedAuthUser?.id
     ? await supabaseAdmin

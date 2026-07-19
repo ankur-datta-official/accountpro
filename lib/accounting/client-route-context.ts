@@ -1,5 +1,10 @@
 import { cache } from "react"
 
+import {
+  buildClientRouteSegment,
+  isUuid,
+  matchesClientRouteSegment,
+} from "@/lib/routing/clients"
 import type { Database } from "@/lib/types/database"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 
@@ -8,6 +13,7 @@ type FiscalYear = Database["public"]["Tables"]["fiscal_years"]["Row"]
 
 export type ClientRouteContext = {
   client: Client | null
+  routeSegment: string | null
   fiscalYears: FiscalYear[]
   selectedFiscalYear: FiscalYear | null
 }
@@ -16,21 +22,31 @@ const getCachedClientRouteContext = cache(async function getCachedClientRouteCon
   clientId: string,
   fiscalYearId: string
 ): Promise<ClientRouteContext> {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
 
-  const { data: client } = membership?.org_id
-    ? await supabase
+  let client: Client | null = null
+
+  if (membership?.org_id) {
+    if (isUuid(clientId)) {
+      const { data } = await supabase
         .from("clients")
         .select("*")
         .eq("id", clientId)
         .eq("org_id", membership.org_id)
         .maybeSingle()
-    : { data: null }
+      client = data ?? null
+    } else {
+      const { data } = await supabase.from("clients").select("*").eq("org_id", membership.org_id)
+      const clientRows = (data ?? []) as Client[]
+      client = clientRows.find((candidate) => matchesClientRouteSegment(candidate, clientId)) ?? null
+    }
+  }
 
   if (!client) {
     return {
       client: null,
+      routeSegment: null,
       fiscalYears: [],
       selectedFiscalYear: null,
     }
@@ -42,15 +58,16 @@ const getCachedClientRouteContext = cache(async function getCachedClientRouteCon
     .eq("client_id", client.id)
     .order("start_date", { ascending: false })
 
-  const fiscalYearList = fiscalYears ?? []
+  const fiscalYearList: FiscalYear[] = fiscalYears ?? []
   const selectedFiscalYear =
-    fiscalYearList.find((year) => year.id === fiscalYearId) ??
-    fiscalYearList.find((year) => year.is_active) ??
+    fiscalYearList.find((year: FiscalYear) => year.id === fiscalYearId) ??
+    fiscalYearList.find((year: FiscalYear) => year.is_active) ??
     fiscalYearList[0] ??
     null
 
   return {
     client,
+    routeSegment: buildClientRouteSegment(client),
     fiscalYears: fiscalYearList,
     selectedFiscalYear,
   }

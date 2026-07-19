@@ -11,6 +11,7 @@ export type {
   PayrollComponentKind,
   PayrollRunSource,
   PayrollRunStatus,
+  SalaryCertificateStatus,
   VoucherType,
 } from "./database"
 
@@ -89,3 +90,7 @@ export type PayrollAccountMappingUpdate = Database["public"]["Tables"]["payroll_
 export type PayrollPolicy = Database["public"]["Tables"]["payroll_policies"]["Row"]
 export type PayrollPolicyInsert = Database["public"]["Tables"]["payroll_policies"]["Insert"]
 export type PayrollPolicyUpdate = Database["public"]["Tables"]["payroll_policies"]["Update"]
+
+export type SalaryCertificate = Database["public"]["Tables"]["salary_certificates"]["Row"]
+export type SalaryCertificateInsert = Database["public"]["Tables"]["salary_certificates"]["Insert"]
+export type SalaryCertificateUpdate = Database["public"]["Tables"]["salary_certificates"]["Update"]

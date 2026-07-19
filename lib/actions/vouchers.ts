@@ -4,20 +4,28 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { getMonthLabel } from "@/lib/accounting/fiscal-year"
-import { resolveOrCreatePaymentMode } from "@/lib/accounting/payment-modes"
+import { resolveOrCreatePaymentMode, resolvePaymentModeAccountHead } from "@/lib/accounting/payment-modes"
+import {
+  runAtomicVoucherOperation,
+  validateVoucherAccountHeads,
+  validateVoucherDateInFiscalYear,
+  validateVoucherLines,
+  validateVoucherMutationPolicy,
+} from "@/lib/accounting/voucher-integrity"
 import {
   getVoucherLineAmountRuleError,
   normalizeVoucherLineAmounts,
 } from "@/lib/accounting/voucher-entry-rules"
 import { AUTO_BALANCE_ENTRY_PREFIX } from "@/lib/accounting/vouchers"
+import { extractClientIdFromRouteSegment, isUuid, matchesClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 import type { Database, PaymentModeType } from "@/lib/types"
 
 const voucherLineSchema = z.object({
   accountsGroup: z.enum(["expense", "income", "asset", "liability"]),
   accountHeadId: z.string().min(1),
-  debitAmount: z.number().min(0),
-  creditAmount: z.number().min(0),
+  debitAmount: z.number().finite().min(0),
+  creditAmount: z.number().finite().min(0),
   description: z.string().optional(),
 })
 
@@ -40,6 +48,14 @@ export type CreateVoucherInput = z.input<typeof createVoucherSchema>
 
 const updateVoucherSchema = createVoucherSchema.extend({
   voucherId: z.string().min(1),
+})
+
+const reverseVoucherSchema = z.object({
+  clientId: z.string().min(1),
+  fiscalYearId: z.string().min(1),
+  voucherId: z.string().min(1),
+  reversalDate: z.string().min(1),
+  reversalReason: z.string().trim().min(1, "Reversal reason is required."),
 })
 
 const deleteVoucherSchema = z.object({
@@ -66,9 +82,42 @@ const registerVoucherAttachmentsSchema = z.object({
 })
 
 export type UpdateVoucherInput = z.input<typeof updateVoucherSchema>
+export type ReverseVoucherInput = z.input<typeof reverseVoucherSchema>
 export type RegisterVoucherAttachmentsInput = z.input<typeof registerVoucherAttachmentsSchema>
 
-type ServerSupabase = ReturnType<typeof createClient>
+type ServerSupabase = Awaited<ReturnType<typeof createClient>>
+type ClientRow = Database["public"]["Tables"]["clients"]["Row"]
+type AccountHeadRow = Database["public"]["Tables"]["account_heads"]["Row"]
+type VoucherRow = Database["public"]["Tables"]["vouchers"]["Row"]
+type VoucherEntryRow = Database["public"]["Tables"]["voucher_entries"]["Row"]
+type FiscalYearRow = Database["public"]["Tables"]["fiscal_years"]["Row"]
+
+type VoucherReversalSeed = Pick<
+  VoucherRow,
+  | "id"
+  | "client_id"
+  | "fiscal_year_id"
+  | "voucher_no"
+  | "voucher_date"
+  | "voucher_type"
+  | "payment_mode_id"
+  | "show_description"
+  | "description"
+  | "show_supporting_documents"
+  | "month_label"
+  | "is_posted"
+  | "is_reversal"
+  | "reversal_reason"
+  | "reversed_at"
+  | "reversed_by"
+  | "reversed_voucher_id"
+  | "reversal_voucher_id"
+>
+
+type VoucherReversalEntrySeed = Pick<
+  VoucherEntryRow,
+  "account_head_id" | "accounts_group" | "debit" | "credit" | "description"
+>
 
 type ValidatedContext = {
   supabase: ServerSupabase
@@ -78,8 +127,9 @@ type ValidatedContext = {
 }
 
 async function getValidatedVoucherContext(clientId: string, fiscalYearId: string) {
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
+  const normalizedClientId = extractClientIdFromRouteSegment(clientId)
 
   if (!membership?.org_id) {
     return {
@@ -88,12 +138,18 @@ async function getValidatedVoucherContext(clientId: string, fiscalYearId: string
     }
   }
 
-  const { data: client } = await supabase
-    .from("clients")
-    .select("*")
-    .eq("id", clientId)
-    .eq("org_id", membership.org_id)
-    .maybeSingle()
+  const client = isUuid(normalizedClientId)
+    ? (
+        await supabase
+          .from("clients")
+          .select("*")
+          .eq("id", normalizedClientId)
+          .eq("org_id", membership.org_id)
+          .maybeSingle()
+      ).data ?? null
+    : (
+        await supabase.from("clients").select("*").eq("org_id", membership.org_id)
+      ).data?.find((candidate: ClientRow) => matchesClientRouteSegment(candidate, clientId)) ?? null
 
   if (!client) {
     return {
@@ -155,6 +211,47 @@ function validateVoucherLineRules(lines: CreateVoucherInput["lines"]) {
   return null
 }
 
+async function validateVoucherAccountOwnership(
+  supabase: ServerSupabase,
+  clientId: string,
+  lines: CreateVoucherInput["lines"]
+) {
+  const uniqueAccountHeadIds = Array.from(new Set(lines.map((line) => line.accountHeadId)))
+
+  const { data: accountHeads, error } = await supabase
+    .from("account_heads")
+    .select("id, client_id, sub_group_id, is_active, type")
+    .in("id", uniqueAccountHeadIds)
+    .eq("client_id", clientId)
+
+  if (error) {
+    return {
+      success: false as const,
+      error: error.message ?? "Unable to validate voucher account heads.",
+    }
+  }
+
+  const result = validateVoucherAccountHeads({
+    clientId,
+    lines,
+    accountHeads: (accountHeads ?? []) as Pick<
+      AccountHeadRow,
+      "id" | "client_id" | "sub_group_id" | "is_active" | "type"
+    >[],
+  })
+
+  if (!result.ok) {
+    return {
+      success: false as const,
+      error: result.error,
+    }
+  }
+
+  return {
+    success: true as const,
+  }
+}
+
 async function getVoucherNumber(
   supabase: ServerSupabase,
   {
@@ -201,21 +298,17 @@ async function buildVoucherEntries(
   {
     clientId,
     voucherId,
-    voucherType,
     paymentMode,
     lines,
+    requiresAutoBalance,
   }: {
     clientId: string
     voucherId: string
-    voucherType: CreateVoucherInput["voucherType"]
     paymentMode?: Database["public"]["Tables"]["payment_modes"]["Row"]
     lines: CreateVoucherInput["lines"]
+    requiresAutoBalance: boolean
   }
 ) {
-  const { difference } = getEntryTotals(lines)
-  const requiresPaymentModeBalance =
-    ["payment", "received"].includes(voucherType) && difference !== 0
-
   const voucherEntries: Database["public"]["Tables"]["voucher_entries"]["Insert"][] = lines.map(
     (line) => ({
       voucher_id: voucherId,
@@ -227,7 +320,7 @@ async function buildVoucherEntries(
     })
   )
 
-  if (!requiresPaymentModeBalance) {
+  if (!requiresAutoBalance) {
     return { success: true as const, entries: voucherEntries }
   }
 
@@ -238,19 +331,28 @@ async function buildVoucherEntries(
     }
   }
 
-  const { data: paymentModeHead } = await supabase
-    .from("account_heads")
-    .select("*")
-    .eq("client_id", clientId)
-    .eq("name", paymentMode.name)
-    .maybeSingle()
+  const resolvedPaymentModeHead = await resolvePaymentModeAccountHead(supabase, {
+    clientId,
+    paymentMode,
+  })
 
-  if (!paymentModeHead) {
+  if (!resolvedPaymentModeHead.success) {
     return {
       success: false as const,
-      error: "No chart of accounts head matches the selected payment mode.",
+      error: resolvedPaymentModeHead.error,
     }
   }
+
+  const paymentModeHead = resolvedPaymentModeHead.accountHead
+
+  if (lines.some((line) => line.accountHeadId === paymentModeHead.id)) {
+    return {
+      success: false as const,
+      error: "Add the payment-mode account explicitly or let the system balance it, but do not do both.",
+    }
+  }
+
+  const { difference } = getEntryTotals(lines)
 
   voucherEntries.push({
     voucher_id: voucherId,
@@ -279,6 +381,246 @@ function revalidateVoucherPaths(clientId: string, voucherId?: string) {
     revalidatePath(`/clients/${clientId}/vouchers/${voucherId}`)
     revalidatePath(`/clients/${clientId}/vouchers/${voucherId}/edit`)
   }
+}
+
+function buildReversalDescription({
+  originalVoucherNo,
+  originalDescription,
+  reversalReason,
+}: {
+  originalVoucherNo: number
+  originalDescription: string | null
+  reversalReason: string
+}) {
+  const parts = [originalDescription?.trim() || null, `Reversal of voucher #${originalVoucherNo}`, `Reason: ${reversalReason}`]
+
+  return parts.filter((part): part is string => Boolean(part)).join(" | ")
+}
+
+function prepareVoucherReversal({
+  voucher,
+  entries,
+  targetClientId,
+  targetFiscalYear,
+  reversalDate,
+  reversalReason,
+  reversedBy,
+  nextVoucherNo,
+  now = new Date().toISOString(),
+}: {
+  voucher: VoucherReversalSeed
+  entries: VoucherReversalEntrySeed[]
+  targetClientId: string
+  targetFiscalYear: Pick<FiscalYearRow, "id" | "client_id" | "start_date" | "end_date" | "is_active" | "is_closed">
+  reversalDate: string
+  reversalReason: string
+  reversedBy: string | null
+  nextVoucherNo: number
+  now?: string
+}) {
+  const normalizedReason = reversalReason.trim()
+
+  if (!normalizedReason) {
+    return {
+      ok: false as const,
+      error: "Reversal reason is required.",
+    }
+  }
+
+  if (voucher.client_id !== targetClientId) {
+    return {
+      ok: false as const,
+      error: "Voucher not found.",
+    }
+  }
+
+  if (voucher.is_posted === false) {
+    return {
+      ok: false as const,
+      error: "Only posted vouchers can be reversed.",
+    }
+  }
+
+  if (voucher.is_reversal || voucher.reversed_voucher_id) {
+    return {
+      ok: false as const,
+      error: "Reversal vouchers cannot be reversed again.",
+    }
+  }
+
+  if (voucher.reversal_voucher_id || voucher.reversed_at) {
+    return {
+      ok: false as const,
+      error: "This voucher has already been reversed.",
+    }
+  }
+
+  if (!targetFiscalYear.is_active || targetFiscalYear.is_closed) {
+    return {
+      ok: false as const,
+      error: "Reversal date must belong to an open fiscal year.",
+    }
+  }
+
+  const reversalDateValidation = validateVoucherDateInFiscalYear({
+    expectedClientId: targetClientId,
+    fiscalYearClientId: targetFiscalYear.client_id,
+    voucherDate: reversalDate,
+    fiscalYearStart: targetFiscalYear.start_date,
+    fiscalYearEnd: targetFiscalYear.end_date,
+  })
+
+  if (!reversalDateValidation.ok) {
+    return {
+      ok: false as const,
+      error: reversalDateValidation.error,
+    }
+  }
+
+  if (!entries.length) {
+    return {
+      ok: false as const,
+      error: "The original voucher has no entries to reverse.",
+    }
+  }
+
+  const reversalEntries = entries.map((entry) => ({
+    account_head_id: entry.account_head_id,
+    accounts_group: entry.accounts_group,
+    debit: Number(entry.credit || 0),
+    credit: Number(entry.debit || 0),
+    description: entry.description,
+  }))
+
+  return {
+    ok: true as const,
+    reversalVoucherInsert: {
+      client_id: targetClientId,
+      fiscal_year_id: targetFiscalYear.id,
+      voucher_no: nextVoucherNo,
+      voucher_date: reversalDateValidation.voucherDate,
+      voucher_type: voucher.voucher_type,
+      payment_mode_id: voucher.payment_mode_id,
+      show_description: voucher.show_description,
+      description: buildReversalDescription({
+        originalVoucherNo: voucher.voucher_no,
+        originalDescription: voucher.description,
+        reversalReason: normalizedReason,
+      }),
+      show_supporting_documents: voucher.show_supporting_documents,
+      month_label: getMonthLabel(new Date(reversalDateValidation.voucherDate)),
+      is_posted: true,
+      is_reversal: true,
+      reversal_reason: normalizedReason,
+      reversed_at: now,
+      reversed_by: reversedBy,
+      reversed_voucher_id: voucher.id,
+      created_by: reversedBy,
+      updated_at: now,
+    } satisfies Database["public"]["Tables"]["vouchers"]["Insert"],
+    reversalEntries,
+    buildOriginalVoucherUpdate: (reversalVoucherId: string) =>
+      ({
+        reversal_voucher_id: reversalVoucherId,
+        reversal_reason: normalizedReason,
+        reversed_at: now,
+        reversed_by: reversedBy,
+        updated_at: now,
+      }) satisfies Database["public"]["Tables"]["vouchers"]["Update"],
+  }
+}
+
+async function applyVoucherReversalMutation({
+  createReversalVoucher,
+  insertReversalEntries,
+  updateOriginalVoucher,
+  rollbackReversalVoucher,
+}: {
+  createReversalVoucher: () => Promise<{ id: string }>
+  insertReversalEntries: (reversalVoucherId: string) => Promise<void>
+  updateOriginalVoucher: (reversalVoucherId: string) => Promise<void>
+  rollbackReversalVoucher: (reversalVoucherId: string) => Promise<boolean>
+}) {
+  let reversalVoucherId: string | null = null
+
+  return runAtomicVoucherOperation({
+    perform: async () => {
+      const createdVoucher = await createReversalVoucher()
+      reversalVoucherId = createdVoucher.id
+      await insertReversalEntries(createdVoucher.id)
+      await updateOriginalVoucher(createdVoucher.id)
+    },
+    rollback: async () => {
+      if (!reversalVoucherId) {
+        return true
+      }
+
+      return rollbackReversalVoucher(reversalVoucherId)
+    },
+    failureMessage: "Unable to create voucher reversal.",
+    rollbackFailureMessage:
+      "Voucher reversal could not be completed safely because the rollback failed after the reversal began.",
+  })
+}
+
+async function restoreVoucherUpdateSnapshot(
+  supabase: ServerSupabase,
+  {
+    voucherId,
+    previousVoucher,
+    previousEntries,
+  }: {
+    voucherId: string
+    previousVoucher: Pick<
+      VoucherRow,
+      | "voucher_no"
+      | "voucher_date"
+      | "voucher_type"
+      | "fiscal_year_id"
+      | "payment_mode_id"
+      | "show_description"
+      | "description"
+      | "show_supporting_documents"
+      | "month_label"
+      | "updated_at"
+    >
+    previousEntries: Pick<
+      VoucherEntryRow,
+      "account_head_id" | "accounts_group" | "debit" | "credit" | "description"
+    >[]
+  }
+) {
+  const { error: voucherRestoreError } = await supabase
+    .from("vouchers")
+    .update(previousVoucher)
+    .eq("id", voucherId)
+
+  if (voucherRestoreError) {
+    return false
+  }
+
+  const { error: clearEntriesError } = await supabase.from("voucher_entries").delete().eq("voucher_id", voucherId)
+
+  if (clearEntriesError) {
+    return false
+  }
+
+  if (!previousEntries.length) {
+    return true
+  }
+
+  const { error: restoreEntriesError } = await supabase.from("voucher_entries").insert(
+    previousEntries.map((entry) => ({
+      voucher_id: voucherId,
+      account_head_id: entry.account_head_id,
+      accounts_group: entry.accounts_group,
+      debit: entry.debit,
+      credit: entry.credit,
+      description: entry.description,
+    }))
+  )
+
+  return !restoreEntriesError
 }
 
 export async function createVoucherAction(input: CreateVoucherInput) {
@@ -316,6 +658,21 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     }
   }
 
+  const fiscalYearDateValidation = validateVoucherDateInFiscalYear({
+    expectedClientId: client.id,
+    fiscalYearClientId: fiscalYear.client_id,
+    voucherDate: values.voucherDate,
+    fiscalYearStart: fiscalYear.start_date,
+    fiscalYearEnd: fiscalYear.end_date,
+  })
+
+  if (!fiscalYearDateValidation.ok) {
+    return {
+      success: false as const,
+      error: fiscalYearDateValidation.error,
+    }
+  }
+
   const lineRuleError = validateVoucherLineRules(values.lines)
   if (lineRuleError) {
     return {
@@ -324,17 +681,20 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     }
   }
 
-  const { difference } = getEntryTotals(values.lines)
-  const requiresPaymentModeBalance =
-    ["payment", "received"].includes(values.voucherType) && difference !== 0
-  const requiresPaymentModeSelection = ["payment", "received"].includes(values.voucherType)
-
-  if (!["payment", "received"].includes(values.voucherType) && difference !== 0) {
+  const lineValidation = validateVoucherLines(values.lines, values.voucherType)
+  if (!lineValidation.ok) {
     return {
       success: false as const,
-      error: "Total debit and total credit must be balanced.",
+      error: lineValidation.error,
     }
   }
+
+  const accountOwnershipValidation = await validateVoucherAccountOwnership(supabase, client.id, values.lines)
+  if (!accountOwnershipValidation.success) {
+    return accountOwnershipValidation
+  }
+
+  const requiresPaymentModeSelection = ["payment", "received"].includes(values.voucherType)
 
   if (requiresPaymentModeSelection && !values.paymentModeId && !values.paymentModeName) {
     return {
@@ -398,9 +758,9 @@ export async function createVoucherAction(input: CreateVoucherInput) {
   const entryResult = await buildVoucherEntries(supabase, {
     clientId: client.id,
     voucherId: insertedVoucher.id,
-    voucherType: values.voucherType,
-    paymentMode: requiresPaymentModeBalance ? paymentModeResult?.paymentMode : undefined,
+    paymentMode: lineValidation.requiresAutoBalance ? paymentModeResult?.paymentMode : undefined,
     lines: values.lines,
+    requiresAutoBalance: lineValidation.requiresAutoBalance,
   })
 
   if (!entryResult.success) {
@@ -408,13 +768,27 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     return entryResult
   }
 
-  const { error: entryError } = await supabase.from("voucher_entries").insert(entryResult.entries)
+  const createEntriesResult = await runAtomicVoucherOperation({
+    perform: async () => {
+      const { error: entryError } = await supabase.from("voucher_entries").insert(entryResult.entries)
 
-  if (entryError) {
-    await supabase.from("vouchers").delete().eq("id", insertedVoucher.id)
+      if (entryError) {
+        throw new Error(entryError.message ?? "Unable to create voucher entries.")
+      }
+    },
+    rollback: async () => {
+      const { error } = await supabase.from("vouchers").delete().eq("id", insertedVoucher.id)
+      return !error
+    },
+    failureMessage: "Unable to create voucher entries.",
+    rollbackFailureMessage:
+      "Voucher creation could not be completed safely because the rollback failed after entry creation was rejected.",
+  })
+
+  if (!createEntriesResult.ok) {
     return {
       success: false as const,
-      error: entryError.message ?? "Unable to create voucher entries.",
+      error: createEntriesResult.error,
     }
   }
 
@@ -425,22 +799,6 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     voucherId: insertedVoucher.id,
     voucherNo,
   }
-}
-
-async function findFiscalYearForDate(
-  supabase: ServerSupabase,
-  clientId: string,
-  date: string
-) {
-  const { data: fiscalYear } = await supabase
-    .from("fiscal_years")
-    .select("*")
-    .eq("client_id", clientId)
-    .lte("start_date", date)
-    .gte("end_date", date)
-    .maybeSingle()
-
-  return fiscalYear
 }
 
 export async function updateVoucherAction(input: UpdateVoucherInput) {
@@ -469,7 +827,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     return validation
   }
 
-  const { supabase, client } = validation.context
+  const { supabase, client, fiscalYear } = validation.context
 
   const { data: existingVoucher } = await supabase
     .from("vouchers")
@@ -485,20 +843,38 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     }
   }
 
-  // Determine the correct fiscal year for the selected date
-  const targetFiscalYear = await findFiscalYearForDate(supabase, client.id, values.voucherDate)
+  const updatePolicy = validateVoucherMutationPolicy({
+    operation: "update",
+    isPosted: existingVoucher.is_posted,
+    isFiscalYearClosed: fiscalYear.is_closed,
+  })
 
-  if (!targetFiscalYear) {
+  if (!updatePolicy.ok) {
     return {
       success: false as const,
-      error: "No active fiscal year found for the selected voucher date. Please check your fiscal years in settings.",
+      error: updatePolicy.error,
     }
   }
 
-  if (targetFiscalYear.is_closed) {
+  if (existingVoucher.fiscal_year_id !== fiscalYear.id) {
     return {
       success: false as const,
-      error: "The fiscal year for the selected date is closed.",
+      error: "Draft vouchers cannot be moved to a different fiscal year.",
+    }
+  }
+
+  const fiscalYearDateValidation = validateVoucherDateInFiscalYear({
+    expectedClientId: client.id,
+    fiscalYearClientId: fiscalYear.client_id,
+    voucherDate: values.voucherDate,
+    fiscalYearStart: fiscalYear.start_date,
+    fiscalYearEnd: fiscalYear.end_date,
+  })
+
+  if (!fiscalYearDateValidation.ok) {
+    return {
+      success: false as const,
+      error: fiscalYearDateValidation.error,
     }
   }
 
@@ -510,17 +886,20 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     }
   }
 
-  const { difference } = getEntryTotals(values.lines)
-  const requiresPaymentModeBalance =
-    ["payment", "received"].includes(values.voucherType) && difference !== 0
-  const requiresPaymentModeSelection = ["payment", "received"].includes(values.voucherType)
-
-  if (!["payment", "received"].includes(values.voucherType) && difference !== 0) {
+  const lineValidation = validateVoucherLines(values.lines, values.voucherType)
+  if (!lineValidation.ok) {
     return {
       success: false as const,
-      error: "Total debit and total credit must be balanced.",
+      error: lineValidation.error,
     }
   }
+
+  const accountOwnershipValidation = await validateVoucherAccountOwnership(supabase, client.id, values.lines)
+  if (!accountOwnershipValidation.success) {
+    return accountOwnershipValidation
+  }
+
+  const requiresPaymentModeSelection = ["payment", "received"].includes(values.voucherType)
 
   if (requiresPaymentModeSelection && !values.paymentModeId && !values.paymentModeName) {
     return {
@@ -544,7 +923,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
 
   const voucherNo = await getVoucherNumber(supabase, {
     clientId: client.id,
-    fiscalYearId: targetFiscalYear.id,
+    fiscalYearId: fiscalYear.id,
     desiredVoucherNo: values.voucherNo,
     voucherId: existingVoucher.id,
   })
@@ -554,23 +933,59 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
   const entryResult = await buildVoucherEntries(supabase, {
     clientId: client.id,
     voucherId: existingVoucher.id,
-    voucherType: values.voucherType,
-    paymentMode: requiresPaymentModeBalance ? paymentModeResult?.paymentMode : undefined,
+    paymentMode: lineValidation.requiresAutoBalance ? paymentModeResult?.paymentMode : undefined,
     lines: values.lines,
+    requiresAutoBalance: lineValidation.requiresAutoBalance,
   })
 
   if (!entryResult.success) {
     return entryResult
   }
 
-  // Update voucher record
+  const { data: existingEntries, error: existingEntriesError } = await supabase
+    .from("voucher_entries")
+    .select("account_head_id, accounts_group, debit, credit, description")
+    .eq("voucher_id", existingVoucher.id)
+
+  if (existingEntriesError) {
+    return {
+      success: false as const,
+      error: existingEntriesError.message ?? "Unable to read the current voucher entries before update.",
+    }
+  }
+
+  const previousVoucherSnapshot = {
+    voucher_no: existingVoucher.voucher_no,
+    voucher_date: existingVoucher.voucher_date,
+    voucher_type: existingVoucher.voucher_type,
+    fiscal_year_id: existingVoucher.fiscal_year_id,
+    payment_mode_id: existingVoucher.payment_mode_id,
+    show_description: existingVoucher.show_description,
+    description: existingVoucher.description,
+    show_supporting_documents: existingVoucher.show_supporting_documents,
+    month_label: existingVoucher.month_label,
+    updated_at: existingVoucher.updated_at,
+  } satisfies Pick<
+    VoucherRow,
+    | "voucher_no"
+    | "voucher_date"
+    | "voucher_type"
+    | "fiscal_year_id"
+    | "payment_mode_id"
+    | "show_description"
+    | "description"
+    | "show_supporting_documents"
+    | "month_label"
+    | "updated_at"
+  >
+
   const { error: voucherError } = await supabase
     .from("vouchers")
     .update({
       voucher_no: voucherNo,
       voucher_date: values.voucherDate,
       voucher_type: values.voucherType,
-      fiscal_year_id: targetFiscalYear.id,
+      fiscal_year_id: fiscalYear.id,
       payment_mode_id:
         values.voucherType === "payment" ||
         values.voucherType === "received" ||
@@ -589,73 +1004,44 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     return {
       success: false as const,
       error: voucherError.message ?? "Unable to update voucher.",
-    }
-  }
-
-  // Delete ALL existing entries first. The latest submitted lines are the only
-  // source of truth for the voucher and every ledger/report derived from it.
-  const { data: deletedEntries, error: deleteEntriesError } = await supabase
-    .from("voucher_entries")
-    .delete()
-    .eq("voucher_id", existingVoucher.id)
-    .select("id")
-
-  if (deleteEntriesError) {
-    return {
-      success: false as const,
-      error: deleteEntriesError.message ?? "Unable to refresh voucher entries.",
-    }
-  }
-
-  const { count: remainingEntryCount, error: remainingEntriesError } = await supabase
-    .from("voucher_entries")
-    .select("id", { count: "exact", head: true })
-    .eq("voucher_id", existingVoucher.id)
-
-  if (remainingEntriesError) {
-    return {
-      success: false as const,
-      error: remainingEntriesError.message ?? "Unable to verify voucher entries were refreshed.",
-    }
-  }
-
-  if ((remainingEntryCount ?? 0) > 0) {
-    return {
-      success: false as const,
-      error:
-        "Unable to replace the old voucher entries. Please apply the latest database migration and try again.",
-    }
-  }
-
-  if ((deletedEntries?.length ?? 0) === 0) {
-    const { count: existingEntryCount, error: existingEntriesError } = await supabase
-      .from("voucher_entries")
-      .select("id", { count: "exact", head: true })
-      .eq("voucher_id", existingVoucher.id)
-
-    if (existingEntriesError) {
-      return {
-        success: false as const,
-        error: existingEntriesError.message ?? "Unable to verify voucher entries before update.",
       }
-    }
-
-    if ((existingEntryCount ?? 0) > 0) {
-      return {
-        success: false as const,
-        error:
-          "Unable to clear the old voucher entries. Please apply the latest database migration and try again.",
-      }
-    }
   }
 
-  // Insert NEW entries based on the latest updated data only.
-  const { error: entryError } = await supabase.from("voucher_entries").insert(entryResult.entries)
+  const updateEntriesResult = await runAtomicVoucherOperation({
+    perform: async () => {
+      const { error: deleteEntriesError } = await supabase
+        .from("voucher_entries")
+        .delete()
+        .eq("voucher_id", existingVoucher.id)
 
-  if (entryError) {
+      if (deleteEntriesError) {
+        throw new Error(deleteEntriesError.message ?? "Unable to refresh voucher entries.")
+      }
+
+      const { error: entryError } = await supabase.from("voucher_entries").insert(entryResult.entries)
+
+      if (entryError) {
+        throw new Error(entryError.message ?? "Unable to update voucher entries.")
+      }
+    },
+    rollback: async () =>
+      restoreVoucherUpdateSnapshot(supabase, {
+        voucherId: existingVoucher.id,
+        previousVoucher: previousVoucherSnapshot,
+        previousEntries: (existingEntries ?? []) as Pick<
+          VoucherEntryRow,
+          "account_head_id" | "accounts_group" | "debit" | "credit" | "description"
+        >[],
+      }),
+    failureMessage: "Unable to update voucher entries.",
+    rollbackFailureMessage:
+      "Voucher update could not be completed safely because restoring the previous voucher state failed.",
+  })
+
+  if (!updateEntriesResult.ok) {
     return {
       success: false as const,
-      error: entryError.message ?? "Unable to update voucher entries.",
+      error: updateEntriesResult.error,
     }
   }
 
@@ -665,6 +1051,153 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     success: true as const,
     voucherId: existingVoucher.id,
     voucherNo,
+  }
+}
+
+export async function reverseVoucherAction(input: ReverseVoucherInput) {
+  const parsed = reverseVoucherSchema.safeParse(input)
+
+  if (!parsed.success) {
+    return {
+      success: false as const,
+      error: parsed.error.issues[0]?.message ?? "Invalid reversal request.",
+    }
+  }
+
+  const validation = await getValidatedVoucherContext(parsed.data.clientId, parsed.data.fiscalYearId)
+
+  if (!validation.success) {
+    return validation
+  }
+
+  const { supabase, client, fiscalYear, userId } = validation.context
+
+  const { data: voucher, error: voucherError } = await supabase
+    .from("vouchers")
+    .select("*")
+    .eq("id", parsed.data.voucherId)
+    .eq("client_id", client.id)
+    .maybeSingle()
+
+  if (voucherError) {
+    return {
+      success: false as const,
+      error: voucherError.message ?? "Unable to load voucher reversal source.",
+    }
+  }
+
+  if (!voucher) {
+    return {
+      success: false as const,
+      error: "Voucher not found.",
+    }
+  }
+
+  const { data: originalEntries, error: entriesError } = await supabase
+    .from("voucher_entries")
+    .select("account_head_id, accounts_group, debit, credit, description")
+    .eq("voucher_id", voucher.id)
+
+  if (entriesError) {
+    return {
+      success: false as const,
+      error: entriesError.message ?? "Unable to load voucher entries for reversal.",
+    }
+  }
+
+  const reversalVoucherNo = await getVoucherNumber(supabase, {
+    clientId: client.id,
+    fiscalYearId: fiscalYear.id,
+  })
+
+  const preparedReversal = prepareVoucherReversal({
+    voucher: voucher as VoucherReversalSeed,
+    entries: (originalEntries ?? []) as VoucherReversalEntrySeed[],
+    targetClientId: client.id,
+    targetFiscalYear: fiscalYear,
+    reversalDate: parsed.data.reversalDate,
+    reversalReason: parsed.data.reversalReason,
+    reversedBy: userId,
+    nextVoucherNo: reversalVoucherNo,
+  })
+
+  if (!preparedReversal.ok) {
+    return {
+      success: false as const,
+      error: preparedReversal.error,
+    }
+  }
+
+  const reversalResult = await applyVoucherReversalMutation({
+    createReversalVoucher: async () => {
+      const { data: createdVoucher, error } = await supabase
+        .from("vouchers")
+        .insert(preparedReversal.reversalVoucherInsert)
+        .select("id")
+        .single()
+
+      if (error || !createdVoucher) {
+        throw new Error(error?.message ?? "Unable to create reversal voucher.")
+      }
+
+      return createdVoucher
+    },
+    insertReversalEntries: async (reversalVoucherId) => {
+      const { error } = await supabase.from("voucher_entries").insert(
+        preparedReversal.reversalEntries.map((entry) => ({
+          voucher_id: reversalVoucherId,
+          account_head_id: entry.account_head_id,
+          accounts_group: entry.accounts_group,
+          debit: entry.debit,
+          credit: entry.credit,
+          description: entry.description,
+        }))
+      )
+
+      if (error) {
+        throw new Error(error.message ?? "Unable to create reversal voucher entries.")
+      }
+    },
+    updateOriginalVoucher: async (reversalVoucherId) => {
+      const { error } = await supabase
+        .from("vouchers")
+        .update(preparedReversal.buildOriginalVoucherUpdate(reversalVoucherId))
+        .eq("id", voucher.id)
+        .is("reversal_voucher_id", null)
+
+      if (error) {
+        throw new Error(error.message ?? "Unable to link the original voucher to its reversal.")
+      }
+
+      const { data: linkedVoucher, error: linkedVoucherError } = await supabase
+        .from("vouchers")
+        .select("id")
+        .eq("id", voucher.id)
+        .eq("reversal_voucher_id", reversalVoucherId)
+        .maybeSingle()
+
+      if (linkedVoucherError || !linkedVoucher) {
+        throw new Error(linkedVoucherError?.message ?? "Duplicate reversal detected for this voucher.")
+      }
+    },
+    rollbackReversalVoucher: async (reversalVoucherId) => {
+      const { error } = await supabase.from("vouchers").delete().eq("id", reversalVoucherId)
+      return !error
+    },
+  })
+
+  if (!reversalResult.ok) {
+    return {
+      success: false as const,
+      error: reversalResult.error,
+    }
+  }
+
+  revalidateVoucherPaths(client.id, voucher.id)
+
+  return {
+    success: true as const,
+    voucherNo: reversalVoucherNo,
   }
 }
 
@@ -678,7 +1211,7 @@ export async function deleteVoucherAction(input: z.input<typeof deleteVoucherSch
     }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
 
   if (!membership?.org_id) {
@@ -691,7 +1224,7 @@ export async function deleteVoucherAction(input: z.input<typeof deleteVoucherSch
   const { data: client } = await supabase
     .from("clients")
     .select("*")
-    .eq("id", parsed.data.clientId)
+    .eq("id", extractClientIdFromRouteSegment(parsed.data.clientId))
     .eq("org_id", membership.org_id)
     .maybeSingle()
 
@@ -722,10 +1255,16 @@ export async function deleteVoucherAction(input: z.input<typeof deleteVoucherSch
     .eq("id", voucher.fiscal_year_id ?? "")
     .maybeSingle()
 
-  if (fiscalYear?.is_closed) {
+  const deletePolicy = validateVoucherMutationPolicy({
+    operation: "delete",
+    isPosted: voucher.is_posted,
+    isFiscalYearClosed: fiscalYear?.is_closed,
+  })
+
+  if (!deletePolicy.ok) {
     return {
       success: false as const,
-      error: "You cannot delete a voucher from a closed fiscal year.",
+      error: deletePolicy.error,
     }
   }
 
@@ -734,12 +1273,6 @@ export async function deleteVoucherAction(input: z.input<typeof deleteVoucherSch
     .select("file_path")
     .eq("voucher_id", voucher.id)
 
-  if (attachments?.length) {
-    await supabase.storage
-      .from("voucher-documents")
-      .remove(attachments.map((attachment) => attachment.file_path))
-  }
-
   const { error } = await supabase.from("vouchers").delete().eq("id", voucher.id)
 
   if (error) {
@@ -747,6 +1280,13 @@ export async function deleteVoucherAction(input: z.input<typeof deleteVoucherSch
       success: false as const,
       error: error.message ?? "Unable to delete voucher.",
     }
+  }
+
+  if (attachments?.length) {
+    await supabase.storage
+      .from("voucher-documents")
+      .remove(attachments.map((attachment) => attachment.file_path))
+      .catch(() => undefined)
   }
 
   revalidateVoucherPaths(client.id, voucher.id)
@@ -766,7 +1306,7 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
     }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
 
   if (!membership?.org_id) {
@@ -779,7 +1319,7 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
   const { data: client } = await supabase
     .from("clients")
     .select("*")
-    .eq("id", parsed.data.clientId)
+    .eq("id", extractClientIdFromRouteSegment(parsed.data.clientId))
     .eq("org_id", membership.org_id)
     .maybeSingle()
 
@@ -796,6 +1336,21 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
     .eq("client_id", client.id)
     .in("id", parsed.data.voucherIds)
 
+  const bulkPolicy = validateVoucherMutationPolicy({
+    operation: "bulk-delete",
+    isPosted: false,
+    isFiscalYearClosed: false,
+    requestedCount: parsed.data.voucherIds.length,
+    matchedCount: vouchers?.length ?? 0,
+  })
+
+  if (!bulkPolicy.ok) {
+    return {
+      success: false as const,
+      error: bulkPolicy.error,
+    }
+  }
+
   const fiscalYearIds = Array.from(
     new Set((vouchers ?? []).map((voucher) => voucher.fiscal_year_id).filter(Boolean) as string[])
   )
@@ -809,8 +1364,15 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
     if ((fiscalYears ?? []).some((year) => year.is_closed)) {
       return {
         success: false as const,
-        error: "One or more selected vouchers belong to a closed fiscal year.",
+        error: "Closed fiscal-year vouchers are immutable.",
       }
+    }
+  }
+
+  if ((vouchers ?? []).some((voucher) => voucher.is_posted !== false)) {
+    return {
+      success: false as const,
+      error: "Posted vouchers cannot be deleted directly.",
     }
   }
 
@@ -819,12 +1381,6 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
     .select("file_path")
     .in("voucher_id", parsed.data.voucherIds)
 
-  if (attachments?.length) {
-    await supabase.storage
-      .from("voucher-documents")
-      .remove(attachments.map((attachment) => attachment.file_path))
-  }
-
   const { error } = await supabase.from("vouchers").delete().in("id", parsed.data.voucherIds)
 
   if (error) {
@@ -832,6 +1388,13 @@ export async function bulkDeleteVouchersAction(input: z.input<typeof bulkDeleteV
       success: false as const,
       error: error.message ?? "Unable to delete selected vouchers.",
     }
+  }
+
+  if (attachments?.length) {
+    await supabase.storage
+      .from("voucher-documents")
+      .remove(attachments.map((attachment) => attachment.file_path))
+      .catch(() => undefined)
   }
 
   revalidateVoucherPaths(client.id)
@@ -851,7 +1414,7 @@ export async function registerVoucherAttachmentsAction(input: RegisterVoucherAtt
     }
   }
 
-  const supabase = createClient()
+  const supabase = await createClient()
   const { membership } = await getCurrentOrganizationContext()
 
   if (!membership?.org_id) {
@@ -864,7 +1427,7 @@ export async function registerVoucherAttachmentsAction(input: RegisterVoucherAtt
   const { data: client } = await supabase
     .from("clients")
     .select("*")
-    .eq("id", parsed.data.clientId)
+    .eq("id", extractClientIdFromRouteSegment(parsed.data.clientId))
     .eq("org_id", membership.org_id)
     .maybeSingle()
 

@@ -4,8 +4,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin"
 
 export async function POST(
   request: Request,
-  { params }: { params: { memberId: string } }
+  { params }: { params: Promise<{ memberId: string }> }
 ) {
+  const { memberId } = await params
   const authHeader = request.headers.get("authorization")
   if (!authHeader?.startsWith("Bearer ")) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
@@ -36,7 +37,7 @@ export async function POST(
   const { data: targetMembership } = await supabaseAdmin
     .from("organization_members")
     .select("*")
-    .eq("id", params.memberId)
+    .eq("id", memberId)
     .eq("org_id", actorMembership.org_id)
     .maybeSingle()
 
@@ -51,7 +52,7 @@ export async function POST(
   const { error } = await supabaseAdmin
     .from("organization_members")
     .update({ is_active: false })
-    .eq("id", params.memberId)
+    .eq("id", memberId)
     .eq("org_id", actorMembership.org_id)
 
   if (error) {

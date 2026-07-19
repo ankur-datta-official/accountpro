@@ -1,22 +1,27 @@
 import { createClient } from "@supabase/supabase-js"
 
+import { requireSupabaseServerEnv, SupabaseConfigurationError } from "@/lib/supabase/env"
 import type { Database } from "@/lib/types"
 
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL is not set.")
+function assertServerOnlyAdminContext() {
+  if (typeof window !== "undefined") {
+    throw new SupabaseConfigurationError(
+      "missing_service_role_key",
+      "Supabase admin access is only available on the server."
+    )
+  }
 }
 
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set.")
-}
+export function createSupabaseAdminClient() {
+  assertServerOnlyAdminContext()
+  const supabaseEnv = requireSupabaseServerEnv()
 
-export const supabaseAdmin = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  {
+  return createClient<Database>(supabaseEnv.supabaseUrl, supabaseEnv.supabaseServiceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
     },
-  }
-)
+  })
+}
+
+export const supabaseAdmin: any = createSupabaseAdminClient()

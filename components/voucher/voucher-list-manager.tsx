@@ -3,7 +3,18 @@
 import Link from "next/link"
 import { useEffect, useMemo, useState, useTransition } from "react"
 import { format } from "date-fns"
-import { Download, Eye, FileSearch, Loader2, MoreHorizontal, Pencil, PlusCircle, Printer, Search } from "lucide-react"
+import {
+  Download,
+  Eye,
+  FileSearch,
+  Loader2,
+  MoreHorizontal,
+  Pencil,
+  PlusCircle,
+  Printer,
+  RotateCcw,
+  Search,
+} from "lucide-react"
 import { useRouter } from "next/navigation"
 import * as XLSX from "xlsx"
 import { toast } from "sonner"
@@ -54,6 +65,13 @@ function currency(value: number) {
   }).format(value)
 }
 
+function amount(value: number) {
+  return new Intl.NumberFormat("en-BD", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
 export function VoucherListManager({
   clientId,
   clientName,
@@ -73,7 +91,7 @@ export function VoucherListManager({
 }) {
   const router = useRouter()
   const [selectedVoucherIds, setSelectedVoucherIds] = useState<string[]>([])
-  const [accountHeadSearch, setAccountHeadSearch] = useState("")
+
   const [isBulkPending, startBulkTransition] = useTransition()
   const { flatAccounts } = useChartOfAccounts(clientId)
   const [filters, setFilters] = useState<VoucherFilters>({
@@ -105,7 +123,6 @@ export function VoucherListManager({
       page: 1,
     }))
     setSelectedVoucherIds([])
-    setAccountHeadSearch("")
   }, [defaultFrom, defaultTo, fiscalYearId])
 
   useEffect(() => {
@@ -130,6 +147,36 @@ export function VoucherListManager({
 
   const selectedCount = selectedVoucherIds.length
   const allSelectedOnPage = items.length > 0 && selectedCount === items.length
+  const isFiltered =
+    filters.from !== defaultFrom ||
+    filters.to !== defaultTo ||
+    filters.voucherType !== "all" ||
+    Boolean(filters.paymentModeId) ||
+    Boolean(filters.accountHeadId) ||
+    Boolean(filters.month) ||
+    Boolean(filters.search) ||
+    filters.sortBy !== "date" ||
+    filters.sortOrder !== "desc"
+  const activeFilterCount = [
+    filters.from !== defaultFrom || filters.to !== defaultTo,
+    filters.voucherType !== "all",
+    Boolean(filters.paymentModeId),
+    Boolean(filters.accountHeadId),
+    Boolean(filters.month),
+    Boolean(filters.search),
+    filters.sortBy !== "date" || filters.sortOrder !== "desc",
+  ].filter(Boolean).length
+  const selectedTotals = useMemo(() => {
+    const selectedItems = items.filter((item) => selectedVoucherIds.includes(item.id))
+
+    return selectedItems.reduce(
+      (totals, item) => ({
+        debit: totals.debit + item.debit,
+        credit: totals.credit + item.credit,
+      }),
+      { debit: 0, credit: 0 }
+    )
+  }, [items, selectedVoucherIds])
 
   const updateFilter = <Key extends keyof VoucherFilters>(key: Key, value: VoucherFilters[Key]) => {
     setFilters((current) => ({
@@ -137,6 +184,23 @@ export function VoucherListManager({
       [key]: value,
       page: key === "page" ? (value as number) : 1,
     }))
+  }
+
+  const resetFilters = () => {
+    setFilters({
+      fiscalYearId,
+      from: defaultFrom,
+      to: defaultTo,
+      voucherType: "all",
+      paymentModeId: undefined,
+      accountHeadId: undefined,
+      month: undefined,
+      search: "",
+      page: 1,
+      sortBy: "date",
+      sortOrder: "desc",
+    })
+    setSelectedVoucherIds([])
   }
 
   const handleExportSelected = () => {
@@ -203,42 +267,78 @@ export function VoucherListManager({
       <PageHeader
         eyebrow="Daily entry"
         title="Vouchers"
-        description={`Browse, filter, and manage voucher activity for ${clientName}. Use filters first, then select rows for export or bulk actions.`}
+        description={`Browse and manage voucher activity for ${clientName}.`}
         icon={PlusCircle}
         actions={
-          <Button asChild className="rounded-lg">
+          <Button asChild className="h-10 rounded-lg px-4">
             <Link href={`/clients/${clientId}/vouchers/new?fiscalYear=${fiscalYearId}`}>
               <PlusCircle className="mr-2 h-4 w-4" />
               Add New Voucher
             </Link>
           </Button>
         }
-      />
+      >
+        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
+          <span>{totalItems} vouchers</span>
+          <span className="text-slate-300">•</span>
+          <span>
+            {format(new Date(filters.from), "dd MMM yyyy")} to {format(new Date(filters.to), "dd MMM yyyy")}
+          </span>
+        </div>
+      </PageHeader>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-3">
         {[
-          { label: "Total Receipts", value: currency(stats.totalReceipts) },
-          { label: "Total Payments", value: currency(stats.totalPayments) },
-          { label: "Net Balance", value: currency(stats.netBalance) },
+          { label: "Receipts", value: currency(stats.totalReceipts) },
+          { label: "Payments", value: currency(stats.totalPayments) },
+          { label: "Net", value: currency(stats.netBalance) },
         ].map((stat) => (
           <MetricCard key={stat.label} label={stat.label} value={stat.value} />
         ))}
       </div>
 
-      <FilterPanel title="Find vouchers" description="Narrow the register by date, type, payment mode, account head, month, or description.">
-          <div className="grid gap-4 xl:grid-cols-6">
+      <FilterPanel
+        title="Find vouchers"
+        description="Filter the register by date, type, payment mode, account head, month, or description."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+              {activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"}
+            </Badge>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl border-slate-200"
+              disabled={!isFiltered}
+              onClick={resetFilters}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Reset Filters
+            </Button>
+          </div>
+        }
+      >
+        <div className="grid gap-3 xl:grid-cols-6">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">From date</p>
             <Input
               type="date"
               value={filters.from}
               onChange={(event) => updateFilter("from", event.target.value)}
               className="h-11 rounded-xl border-slate-200"
             />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">To date</p>
             <Input
               type="date"
               value={filters.to}
               onChange={(event) => updateFilter("to", event.target.value)}
               className="h-11 rounded-xl border-slate-200"
             />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Voucher type</p>
             <Select
               value={filters.voucherType}
               onValueChange={(value) => updateFilter("voucherType", value as VoucherFilters["voucherType"])}
@@ -255,6 +355,9 @@ export function VoucherListManager({
                 <SelectItem value="bf">B/F</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Payment mode</p>
             <Select
               value={filters.paymentModeId ?? "all"}
               onValueChange={(value) => updateFilter("paymentModeId", value === "all" ? undefined : value)}
@@ -271,6 +374,9 @@ export function VoucherListManager({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Account head</p>
             <Autocomplete
               options={accountOptions.map((account) => ({
                 id: account.id,
@@ -278,13 +384,15 @@ export function VoucherListManager({
                 label: account.label,
               }))}
               value={filters.accountHeadId}
-              onChange={(newValue, option) => {
+              onChange={(newValue) => {
                 updateFilter("accountHeadId", newValue || undefined)
-                setAccountHeadSearch(option?.label ?? "")
               }}
-              onInputChange={(value) => setAccountHeadSearch(value)}
+              onInputChange={() => undefined}
               placeholder="Search account head"
             />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Posting month</p>
             <Select
               value={filters.month ?? "all"}
               onValueChange={(value) => updateFilter("month", value === "all" ? undefined : value)}
@@ -302,8 +410,11 @@ export function VoucherListManager({
               </SelectContent>
             </Select>
           </div>
+        </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1fr_220px_160px]">
+        <div className="grid gap-3 xl:grid-cols-[1fr_220px_160px]">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Description search</p>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
@@ -313,6 +424,9 @@ export function VoucherListManager({
                 placeholder="Search in voucher description"
               />
             </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sort by</p>
             <Select
               value={filters.sortBy}
               onValueChange={(value) => updateFilter("sortBy", value as VoucherSortBy)}
@@ -326,6 +440,9 @@ export function VoucherListManager({
                 <SelectItem value="amount">Amount</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Order</p>
             <Select
               value={filters.sortOrder}
               onValueChange={(value) => updateFilter("sortOrder", value as VoucherFilters["sortOrder"])}
@@ -339,11 +456,15 @@ export function VoucherListManager({
               </SelectContent>
             </Select>
           </div>
+        </div>
       </FilterPanel>
 
       <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
         <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <CardTitle className="text-xl text-slate-950">Voucher Register</CardTitle>
+          <div className="space-y-1">
+            <CardTitle className="text-xl text-slate-950">Voucher Register</CardTitle>
+            <p className="text-sm text-slate-500">Posted entries for the selected filter range.</p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs">
               {totalItems} vouchers
@@ -373,9 +494,14 @@ export function VoucherListManager({
         <CardContent className="space-y-4">
           {selectedCount ? (
             <ActionBar>
-              <p className="text-sm font-medium text-slate-700">
-                {selectedCount} voucher{selectedCount === 1 ? "" : "s"} selected
-              </p>
+              <div>
+                <p className="text-sm font-medium text-slate-700">
+                  {selectedCount} voucher{selectedCount === 1 ? "" : "s"} selected
+                </p>
+                <p className="text-xs text-slate-500">
+                  Debit {currency(selectedTotals.debit)} and credit {currency(selectedTotals.credit)} in selection
+                </p>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -402,8 +528,8 @@ export function VoucherListManager({
           ) : null}
           {error ? <ErrorFallback error={error} onRetry={() => void mutate()} /> : null}
 
-          <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <Table>
+          <div className="overflow-hidden rounded-2xl border border-slate-200">
+            <Table className="table-fixed">
               <TableHeader className="bg-slate-50">
                 <TableRow className="border-slate-200 hover:bg-slate-50">
                   <TableHead className="w-10 px-4">
@@ -417,14 +543,14 @@ export function VoucherListManager({
                     />
                   </TableHead>
                   <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">Voucher</TableHead>
-                  <TableHead className="w-32 text-xs font-semibold uppercase tracking-wide text-slate-500">Date</TableHead>
-                  <TableHead className="w-32 text-xs font-semibold uppercase tracking-wide text-slate-500">Type</TableHead>
-                  <TableHead className="w-36 text-xs font-semibold uppercase tracking-wide text-slate-500">Mode</TableHead>
-                  <TableHead className="min-w-56 text-xs font-semibold uppercase tracking-wide text-slate-500">Account Head</TableHead>
-                  <TableHead className="w-32 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Debit</TableHead>
-                  <TableHead className="w-32 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Credit</TableHead>
-                  <TableHead className="min-w-48 text-xs font-semibold uppercase tracking-wide text-slate-500">Description</TableHead>
-                  <TableHead className="w-20 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</TableHead>
+                  <TableHead className="w-20 text-xs font-semibold uppercase tracking-wide text-slate-500">Date</TableHead>
+                  <TableHead className="w-24 text-xs font-semibold uppercase tracking-wide text-slate-500">Type</TableHead>
+                  <TableHead className="w-28 text-xs font-semibold uppercase tracking-wide text-slate-500">Mode</TableHead>
+                  <TableHead className="w-[22%] text-xs font-semibold uppercase tracking-wide text-slate-500">Account Head</TableHead>
+                  <TableHead className="w-24 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Debit</TableHead>
+                  <TableHead className="w-24 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Credit</TableHead>
+                  <TableHead className="w-[20%] text-xs font-semibold uppercase tracking-wide text-slate-500">Description</TableHead>
+                  <TableHead className="w-16 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -471,7 +597,7 @@ export function VoucherListManager({
                       </TableCell>
                       <TableCell className="py-4 align-middle">
                         <p className="font-semibold text-slate-950">#{item.voucherNo}</p>
-                        <p className="mt-1 text-xs text-slate-500">{item.monthLabel ?? "No month"}</p>
+                        <p className="mt-1 text-xs text-slate-500">{item.monthLabel ?? "No month assigned"}</p>
                       </TableCell>
                       <TableCell className="py-4 align-middle">
                         <p className="font-medium text-slate-900">{format(new Date(item.voucherDate), "dd MMM yyyy")}</p>
@@ -487,17 +613,17 @@ export function VoucherListManager({
                           {item.paymentModeName ?? "-"}
                         </span>
                       </TableCell>
-                      <TableCell className="max-w-[260px] py-4 align-middle">
-                        <p className="truncate font-medium text-slate-950">{item.accountHeadLabel}</p>
+                      <TableCell className="py-4 align-middle">
+                        <p className="line-clamp-2 break-words font-medium text-slate-950">{item.accountHeadLabel}</p>
                       </TableCell>
                       <TableCell className="py-4 text-right align-middle font-semibold text-slate-950">
-                        {item.debit.toFixed(2)}
+                        {amount(item.debit)}
                       </TableCell>
                       <TableCell className="py-4 text-right align-middle font-semibold text-slate-950">
-                        {item.credit.toFixed(2)}
+                        {amount(item.credit)}
                       </TableCell>
-                      <TableCell className="max-w-[260px] py-4 align-middle">
-                        <p className="truncate text-sm text-slate-600">{item.description || "-"}</p>
+                      <TableCell className="py-4 align-middle">
+                        <p className="line-clamp-2 break-words text-sm text-slate-600">{item.description || "-"}</p>
                       </TableCell>
                       <TableCell className="py-4 text-right align-middle" onClick={(event) => event.stopPropagation()}>
                         <DropdownMenu>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -18,6 +19,7 @@ export function DeactivateAccountHeadButton({
   disabled: boolean
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
 
   const handleDeactivate = async () => {
@@ -53,6 +55,7 @@ export function DeactivateAccountHeadButton({
     }
 
     toast.success("Account head archived.")
+    await queryClient.invalidateQueries({ queryKey: ["chart-of-accounts", clientId] })
     router.refresh()
   }
 
@@ -61,7 +64,7 @@ export function DeactivateAccountHeadButton({
       type="button"
       variant="ghost"
       size="sm"
-      className="h-8 px-2 text-destructive hover:text-destructive"
+      className="h-8 px-1.5 whitespace-nowrap text-destructive hover:text-destructive"
       disabled={disabled || loading}
       onClick={handleDeactivate}
     >

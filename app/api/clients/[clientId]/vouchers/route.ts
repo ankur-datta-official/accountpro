@@ -1,9 +1,10 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
 import { isAutoBalanceEntry } from "@/lib/accounting/vouchers"
-import type { Database, VoucherType } from "@/lib/types"
+import { supabaseAdmin } from "@/lib/supabase/admin"
+import { getAuthorizedClient } from "@/lib/api-auth"
+import type { VoucherType, Voucher, VoucherEntry, AccountHead, PaymentMode } from "@/lib/types"
 
 const vouchersQuerySchema = z.object({
   fiscalYearId: z.string().optional(),
@@ -37,50 +38,17 @@ type VoucherListItem = {
   updatedAt: string | null
 }
 
-function createServiceRoleClient() {
-  return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
+type VoucherQueryResult = {
+  data: Voucher[] | null
+  error: { message: string } | null
 }
 
-async function getAuthorizedClient(
-  accessToken: string,
-  clientId: string,
-  supabase: ReturnType<typeof createServiceRoleClient>
-) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser(accessToken)
+type VoucherEntriesResult = {
+  data: VoucherEntry[] | null
+}
 
-  if (!user) {
-    return { user: null, client: null }
-  }
-
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle()
-
-  const { data: client } = membership?.org_id
-    ? await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", clientId)
-        .eq("org_id", membership.org_id)
-        .maybeSingle()
-    : { data: null }
-
-  return { user, client }
+function createServiceRoleClient() {
+  return supabaseAdmin
 }
 
 function buildAccountHeadLabel(names: string[]) {
@@ -97,8 +65,9 @@ function buildAccountHeadLabel(names: string[]) {
 
 export async function GET(
   request: Request,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
+  const { clientId } = await params
   const authHeader = request.headers.get("authorization")
 
   if (!authHeader?.startsWith("Bearer ")) {
@@ -118,7 +87,7 @@ export async function GET(
 
   const accessToken = authHeader.replace("Bearer ", "")
   const supabase = createServiceRoleClient()
-  const { user, client } = await getAuthorizedClient(accessToken, params.clientId, supabase)
+  const { user, client } = await getAuthorizedClient(accessToken, clientId, supabase)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
@@ -129,7 +98,7 @@ export async function GET(
   }
 
   const filters = parsed.data
-  let vouchersQuery = supabase.from("vouchers").select("*").eq("client_id", client.id)
+  let vouchersQuery = supabase.from("vouchers").select("*").eq("client_id", client.id).or("is_posted.eq.true,is_posted.is.null")
 
   if (filters.fiscalYearId) {
     vouchersQuery = vouchersQuery.eq("fiscal_year_id", filters.fiscalYearId)
@@ -159,52 +128,62 @@ export async function GET(
     vouchersQuery = vouchersQuery.ilike("description", `%${filters.search}%`)
   }
 
-  const { data: vouchers, error } = await vouchersQuery.order("voucher_date", { ascending: false })
+  const { data: vouchers, error } = (await vouchersQuery.order("voucher_date", {
+    ascending: false,
+  })) as VoucherQueryResult
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
-  const voucherIds = (vouchers ?? []).map((voucher) => voucher.id)
-  const { data: entries } = voucherIds.length
-    ? await supabase.from("voucher_entries").select("*").in("voucher_id", voucherIds)
+  const voucherIds = (vouchers ?? [] as Voucher[]).map((voucher) => voucher.id)
+  const entriesResult: VoucherEntriesResult = voucherIds.length
+    ? await (supabase
+        .from("voucher_entries")
+        .select("*")
+        .in("voucher_id", voucherIds) as Promise<VoucherEntriesResult>)
     : { data: [] }
+  const entries = entriesResult.data;
 
   const matchingVoucherIds = filters.accountHeadId
     ? new Set(
-        (entries ?? [])
-          .filter((entry) => entry.account_head_id === filters.accountHeadId)
-          .map((entry) => entry.voucher_id)
+        (entries ?? [] as VoucherEntry[])
+          .filter((entry: VoucherEntry) => entry.account_head_id === filters.accountHeadId)
+          .map((entry: VoucherEntry) => entry.voucher_id)
       )
     : null
 
   const filteredVouchers = matchingVoucherIds
-    ? (vouchers ?? []).filter((voucher) => matchingVoucherIds.has(voucher.id))
-    : vouchers ?? []
+    ? (vouchers ?? [] as Voucher[]).filter((voucher: Voucher) => matchingVoucherIds.has(voucher.id))
+    : (vouchers ?? [] as Voucher[])
 
-  const filteredIds = new Set(filteredVouchers.map((voucher) => voucher.id))
-  const filteredEntries = (entries ?? []).filter((entry) => filteredIds.has(entry.voucher_id ?? ""))
+  const filteredIds = new Set(filteredVouchers.map((voucher: Voucher) => voucher.id))
+  const filteredEntries = (entries ?? [] as VoucherEntry[]).filter((entry: VoucherEntry) => filteredIds.has(entry.voucher_id ?? ""))
 
   const accountHeadIds = Array.from(
-    new Set(filteredEntries.map((entry) => entry.account_head_id).filter(Boolean) as string[])
+    new Set(filteredEntries.map((entry: VoucherEntry) => entry.account_head_id).filter(Boolean) as string[])
   )
   const paymentModeIds = Array.from(
-    new Set(filteredVouchers.map((voucher) => voucher.payment_mode_id).filter(Boolean) as string[])
+    new Set(filteredVouchers.map((voucher: Voucher) => voucher.payment_mode_id).filter(Boolean) as string[])
   )
 
-  const [{ data: accountHeads }, { data: paymentModes }] = await Promise.all([
-    accountHeadIds.length
-      ? supabase.from("account_heads").select("*").in("id", accountHeadIds)
-      : Promise.resolve({ data: [] }),
-    paymentModeIds.length
-      ? supabase.from("payment_modes").select("*").in("id", paymentModeIds)
-      : Promise.resolve({ data: [] }),
-  ])
+  const accountHeadsPromise = accountHeadIds.length
+    ? supabase.from("account_heads").select("*").in("id", accountHeadIds) as Promise<{ data: AccountHead[] | null }>
+    : Promise.resolve({ data: [] });
+  const paymentModesPromise = paymentModeIds.length
+    ? supabase.from("payment_modes").select("*").in("id", paymentModeIds) as Promise<{ data: PaymentMode[] | null }>
+    : Promise.resolve({ data: [] });
+  const [accountHeadsResult, paymentModesResult] = await Promise.all([
+    accountHeadsPromise,
+    paymentModesPromise,
+  ]);
+  const accountHeads = accountHeadsResult.data;
+  const paymentModes = paymentModesResult.data;
 
-  const accountHeadMap = new Map((accountHeads ?? []).map((head) => [head.id, head.name]))
-  const paymentModeMap = new Map((paymentModes ?? []).map((mode) => [mode.id, mode.name]))
+  const accountHeadMap = new Map((accountHeads ?? [] as AccountHead[]).map((head: AccountHead) => [head.id, head.name]))
+  const paymentModeMap = new Map((paymentModes ?? [] as PaymentMode[]).map((mode: PaymentMode) => [mode.id, mode.name]))
 
-  const entriesByVoucher = filteredEntries.reduce<Record<string, typeof filteredEntries>>((acc, entry) => {
+  const entriesByVoucher = filteredEntries.reduce<Record<string, VoucherEntry[]>>((acc: Record<string, VoucherEntry[]>, entry: VoucherEntry) => {
     const voucherId = entry.voucher_id ?? ""
 
     if (!acc[voucherId]) {
@@ -215,15 +194,15 @@ export async function GET(
     return acc
   }, {})
 
-  const items: VoucherListItem[] = filteredVouchers.map((voucher) => {
+  const items: VoucherListItem[] = filteredVouchers.map((voucher: Voucher) => {
     const voucherEntries = entriesByVoucher[voucher.id] ?? []
-    const visibleEntries = voucherEntries.filter((entry) => !isAutoBalanceEntry(entry.description))
+    const visibleEntries = voucherEntries.filter((entry: VoucherEntry) => !isAutoBalanceEntry(entry.description))
     const accountHeadNames = (visibleEntries.length ? visibleEntries : voucherEntries)
-      .map((entry) => accountHeadMap.get(entry.account_head_id ?? ""))
+      .map((entry: VoucherEntry) => accountHeadMap.get(entry.account_head_id ?? ""))
       .filter(Boolean) as string[]
 
-    const debit = voucherEntries.reduce((sum, entry) => sum + Number(entry.debit ?? 0), 0)
-    const credit = voucherEntries.reduce((sum, entry) => sum + Number(entry.credit ?? 0), 0)
+    const debit = voucherEntries.reduce((sum: number, entry: VoucherEntry) => sum + Number(entry.debit ?? 0), 0)
+    const credit = voucherEntries.reduce((sum: number, entry: VoucherEntry) => sum + Number(entry.credit ?? 0), 0)
 
     return {
       id: voucher.id,
