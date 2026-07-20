@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic"
 
 import { VoucherListManager } from "@/components/voucher/voucher-list-manager"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
+import { getCurrentDateInAppTimeZone } from "@/lib/dates/current-date"
 import { createClient } from "@/lib/supabase/server"
 import type { Database } from "@/lib/types"
 
@@ -50,7 +51,7 @@ export default async function VouchersPage({
       clientName={client.name}
       fiscalYearId={selectedFiscalYear.id}
       defaultFrom={selectedFiscalYear.start_date}
-      defaultTo={format(new Date(), "yyyy-MM-dd")}
+      defaultTo={getCurrentDateInAppTimeZone()}
       months={months}
       paymentModes={((paymentModes ?? []) as PaymentModeRecord[]).map((mode: PaymentModeRecord) => ({
         id: mode.id,

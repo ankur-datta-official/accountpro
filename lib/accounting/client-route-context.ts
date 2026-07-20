@@ -5,6 +5,7 @@ import {
   isUuid,
   matchesClientRouteSegment,
 } from "@/lib/routing/clients"
+import { getCurrentDateInAppTimeZone } from "@/lib/dates/current-date"
 import type { Database } from "@/lib/types/database"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 
@@ -19,7 +20,7 @@ export type ClientRouteContext = {
 }
 
 function getTodayDateOnly() {
-  return new Date().toISOString().slice(0, 10)
+  return getCurrentDateInAppTimeZone()
 }
 
 export function findFiscalYearForDate(
