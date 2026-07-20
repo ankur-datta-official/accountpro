@@ -23,8 +23,8 @@ export function slugifyClientName(value: string) {
   return slug || "organization"
 }
 
-export function extractClientIdFromRouteSegment(routeSegment: string) {
-  const normalizedSegment = routeSegment.trim().toLowerCase()
+export function extractClientIdFromRouteSegment(routeSegment: string | null | undefined) {
+  const normalizedSegment = routeSegment?.trim().toLowerCase() ?? ""
   if (isUuid(normalizedSegment)) {
     return normalizedSegment
   }
@@ -54,8 +54,8 @@ export function buildClientRouteSegment(client: ClientRouteInput) {
   return slugifyClientName(slugSource)
 }
 
-export function matchesClientRouteSegment(client: ClientRouteInput, routeSegment: string) {
-  const normalizedSegment = routeSegment.trim().toLowerCase()
+export function matchesClientRouteSegment(client: ClientRouteInput, routeSegment: string | null | undefined) {
+  const normalizedSegment = routeSegment?.trim().toLowerCase() ?? ""
   if (!normalizedSegment) return false
 
   if (isUuid(normalizedSegment)) {

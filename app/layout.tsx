@@ -20,8 +20,8 @@ const geistMono = localFont({
 })
 
 export const metadata: Metadata = {
-  title: "AccountPro",
-  description: "AccountPro",
+  title: "DKLedger",
+  description: "DKLedger",
 }
 
 export default function RootLayout({

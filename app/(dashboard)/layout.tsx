@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { DashboardShell } from "@/components/layout/dashboard-shell"
 import { buildClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
+import type { OrganizationMemberRole } from "@/lib/types"
 
 export default async function DashboardLayout({
   children,
@@ -25,12 +26,16 @@ export default async function DashboardLayout({
         .order("created_at", { ascending: false })
     : { data: [] }
 
-  const userName = user.user_metadata.full_name || user.email || "AccountPro User"
+  const userName = user.user_metadata.full_name || user.email || "DKLedger User"
+  const userEmail = user.email || ""
+  const userRole: OrganizationMemberRole = membership?.role ?? "viewer"
 
   return (
     <DashboardShell
       orgName={organization?.name ?? "Your Organization"}
       userName={userName}
+      userEmail={userEmail}
+      userRole={userRole}
       clients={(clients ?? []).map((client) => ({
         id: client.id,
         name: client.name,

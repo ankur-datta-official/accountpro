@@ -75,6 +75,8 @@ export default async function EditVoucherPage({
         voucherId={voucherRow.id}
         clientId={client.id}
         fiscalYearId={fiscalYearRow!.id}
+        fiscalYearStartDate={fiscalYearRow!.start_date}
+        fiscalYearEndDate={fiscalYearRow!.end_date}
         defaultVoucherNo={voucherRow.voucher_no}
         paymentModes={paymentModeRows.map((mode: PaymentModeRecord) => ({
           id: mode.id,

@@ -215,15 +215,14 @@ test("rejects cross-client account heads", () => {
   assert.match(result.error, /invalid or unavailable/i)
 })
 
-test("rejects posted voucher edits", () => {
+test("allows posted voucher edits in open fiscal years", () => {
   const result = validateVoucherMutationPolicy({
     operation: "update",
     isPosted: true,
     isFiscalYearClosed: false,
   })
 
-  assert.equal(result.ok, false)
-  assert.match(result.error, /cannot be edited directly/i)
+  assert.equal(result.ok, true)
 })
 
 test("rejects posted voucher deletes", () => {

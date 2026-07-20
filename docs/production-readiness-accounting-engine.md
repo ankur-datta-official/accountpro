@@ -1,4 +1,4 @@
-# AccountPro Accounting Engine Production Readiness
+# DKLedger Accounting Engine Production Readiness
 
 Reviewed on July 19, 2026 for branch `fix/accounting-integrity`.
 

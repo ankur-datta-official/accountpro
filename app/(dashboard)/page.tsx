@@ -183,7 +183,7 @@ export default async function DashboardPage() {
     })
   }
 
-  const userName = user.user_metadata.full_name || user.email || "AccountPro User"
+  const userName = user.user_metadata.full_name || user.email || "DKLedger User"
   const quickActionClients = (orgClients ?? []).map((client) => ({
     id: client.id,
     name: client.name,

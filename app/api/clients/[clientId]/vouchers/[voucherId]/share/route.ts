@@ -137,7 +137,7 @@ export async function GET(
     ...documentLines,
     "",
     "Regards,",
-    "AccountPro",
+    "DKLedger",
   ].join("\n")
 
   return NextResponse.json({

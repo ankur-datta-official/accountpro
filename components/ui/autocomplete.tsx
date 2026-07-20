@@ -2,12 +2,13 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
-import { Search, Check } from "lucide-react"
+import { Check, ChevronDown } from "lucide-react"
 
 interface AutocompleteOption {
   value: string
   label: string
   id: string
+  displayLabel?: string
 }
 
 interface AutocompleteProps {
@@ -33,15 +34,23 @@ export function Autocomplete({
   const [open, setOpen] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const listRef = React.useRef<HTMLDivElement>(null)
+  const selectedOption = React.useMemo(
+    () => options.find((option) => option.id === value),
+    [options, value]
+  )
 
-
+  React.useEffect(() => {
+    setInputValue(selectedOption?.displayLabel ?? selectedOption?.label ?? "")
+  }, [selectedOption])
 
   const filteredOptions = options.filter((option) =>
-    option.label.toLowerCase().includes(inputValue.toLowerCase())
+    [option.label, option.displayLabel ?? ""].some((candidate) =>
+      candidate.toLowerCase().includes(inputValue.toLowerCase())
+    )
   )
 
   const handleOptionSelect = (option: AutocompleteOption) => {
-    setInputValue(option.label)
+    setInputValue(option.displayLabel ?? option.label)
     onChange?.(option.id, option)
     setOpen(false)
   }
@@ -59,7 +68,6 @@ export function Autocomplete({
   return (
     <div className={cn("relative", className)}>
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           ref={inputRef}
           value={inputValue}
@@ -73,10 +81,11 @@ export function Autocomplete({
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 200)}
           onKeyDown={handleKeyDown}
-          className="flex h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-10 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           placeholder={placeholder}
           disabled={disabled}
         />
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
       </div>
       {open && filteredOptions.length > 0 && (
         <div

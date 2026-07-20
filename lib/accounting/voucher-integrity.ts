@@ -323,13 +323,17 @@ export function validateVoucherMutationPolicy({
     }
   }
 
+  if (operation === "update") {
+    return {
+      ok: true as const,
+    }
+  }
+
   if (isPosted !== false) {
     return {
       ok: false as const,
       error:
-        operation === "update"
-          ? "Posted vouchers cannot be edited directly. Create a reversal flow before changing posted history."
-          : "Posted vouchers cannot be deleted directly.",
+        "Posted vouchers cannot be deleted directly.",
     }
   }
 

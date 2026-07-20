@@ -14,8 +14,17 @@ const LoginForm = dynamic(
 
 type LoginPanelProps = {
   showRegisteredMessage?: boolean
+  showPasswordResetMessage?: boolean
 }
 
-export function LoginPanel({ showRegisteredMessage = false }: LoginPanelProps) {
-  return <LoginForm showRegisteredMessage={showRegisteredMessage} />
+export function LoginPanel({
+  showRegisteredMessage = false,
+  showPasswordResetMessage = false,
+}: LoginPanelProps) {
+  return (
+    <LoginForm
+      showRegisteredMessage={showRegisteredMessage}
+      showPasswordResetMessage={showPasswordResetMessage}
+    />
+  )
 }

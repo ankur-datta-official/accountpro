@@ -24,9 +24,13 @@ type LoginValues = z.infer<typeof loginSchema>
 
 type LoginFormProps = {
   showRegisteredMessage?: boolean
+  showPasswordResetMessage?: boolean
 }
 
-export function LoginForm({ showRegisteredMessage = false }: LoginFormProps) {
+export function LoginForm({
+  showRegisteredMessage = false,
+  showPasswordResetMessage = false,
+}: LoginFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const form = useForm<LoginValues>({
@@ -42,6 +46,12 @@ export function LoginForm({ showRegisteredMessage = false }: LoginFormProps) {
       toast.success("Account created. You can sign in now.")
     }
   }, [showRegisteredMessage])
+
+  useEffect(() => {
+    if (showPasswordResetMessage) {
+      toast.success("Password updated. Please sign in with your new password.")
+    }
+  }, [showPasswordResetMessage])
 
   const onSubmit = async (values: LoginValues) => {
     setIsSubmitting(true)
@@ -86,7 +96,7 @@ export function LoginForm({ showRegisteredMessage = false }: LoginFormProps) {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="password">Password</Label>
-            <Link href="#" className="text-sm font-medium text-slate-500 hover:text-slate-900">
+            <Link href="/forgot-password" className="text-sm font-medium text-slate-500 hover:text-slate-900">
               Forgot password
             </Link>
           </div>

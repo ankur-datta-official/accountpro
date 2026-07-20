@@ -112,6 +112,26 @@ test("no redirect loop on login route", () => {
   assert.equal(decision.action, "allow")
 })
 
+test("authenticated user can access reset-password route during recovery", () => {
+  const decision = getProxyDecision({
+    pathname: "/reset-password",
+    hasValidPublicAuthConfig: true,
+    isAuthenticated: true,
+  })
+
+  assert.equal(decision.action, "allow")
+})
+
+test("account route is treated as protected", () => {
+  const decision = getProxyDecision({
+    pathname: "/account",
+    hasValidPublicAuthConfig: true,
+    isAuthenticated: false,
+  })
+
+  assert.equal(decision.action, "redirect_login")
+})
+
 test("unauthenticated client-scoped API resolves to 401", () => {
   const result = getClientAuthorizationState({
     user: null,

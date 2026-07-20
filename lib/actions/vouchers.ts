@@ -859,7 +859,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
   if (existingVoucher.fiscal_year_id !== fiscalYear.id) {
     return {
       success: false as const,
-      error: "Draft vouchers cannot be moved to a different fiscal year.",
+      error: "Vouchers cannot be moved to a different fiscal year.",
     }
   }
 

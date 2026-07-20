@@ -136,7 +136,7 @@ export async function ensureActiveMembershipForUser({
   }
 
   const orgBaseName =
-    (fullName && fullName.trim()) || (email ? email.split("@")[0] : null) || "AccountPro Organization"
+    (fullName && fullName.trim()) || (email ? email.split("@")[0] : null) || "DKLedger Organization"
   const slug = await generateUniqueSlug(orgBaseName)
 
   const { data: organization, error: organizationError } = await supabaseAdmin
