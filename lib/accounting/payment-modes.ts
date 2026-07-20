@@ -488,6 +488,13 @@ export async function resolvePaymentModeAccountHead(
     paymentMode = repairedMode.paymentMode
   }
 
+  if (!paymentMode.account_head_id) {
+    return {
+      success: false as const,
+      error: "Payment mode is not linked to an account head.",
+    }
+  }
+
   const { data: accountHead, error } = await supabase
     .from("account_heads")
     .select("id, client_id, name, is_active, type, sub_group_id")
