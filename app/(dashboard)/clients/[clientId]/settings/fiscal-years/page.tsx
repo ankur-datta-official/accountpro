@@ -28,9 +28,10 @@ function getFiscalYearStatus(year: {
 export default async function FiscalYearsPage({
   params,
 }: {
-  params: { clientId: string }
+  params: Promise<{ clientId: string }>
 }) {
-  const { client, fiscalYears } = await getClientRouteContext({ clientId: params.clientId })
+  const resolvedParams = await params
+  const { client, fiscalYears } = await getClientRouteContext({ clientId: resolvedParams.clientId })
 
   if (!client) {
     notFound()

@@ -105,6 +105,54 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   "text/plain",
 ])
 
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+function normalizeDateOnly(value?: string | null) {
+  if (!value || !DATE_ONLY_PATTERN.test(value)) {
+    return null
+  }
+
+  const parsed = new Date(`${value}T00:00:00Z`)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+
+  return value
+}
+
+function clampVoucherDateToFiscalYear({
+  voucherDate,
+  fiscalYearStartDate,
+  fiscalYearEndDate,
+}: {
+  voucherDate: string
+  fiscalYearStartDate?: string
+  fiscalYearEndDate?: string
+}) {
+  const normalizedVoucherDate = normalizeDateOnly(voucherDate)
+  const normalizedStartDate = normalizeDateOnly(fiscalYearStartDate)
+  const normalizedEndDate = normalizeDateOnly(fiscalYearEndDate)
+
+  if (!normalizedVoucherDate) {
+    return normalizedStartDate ?? normalizedEndDate ?? format(new Date(), "yyyy-MM-dd")
+  }
+
+  if (!normalizedStartDate || !normalizedEndDate) {
+    return normalizedVoucherDate
+  }
+
+  if (normalizedVoucherDate < normalizedStartDate) {
+    return normalizedStartDate
+  }
+
+  if (normalizedVoucherDate > normalizedEndDate) {
+    return normalizedEndDate
+  }
+
+  return normalizedVoucherDate
+}
+
 const defaultLine = (voucherType?: string): VoucherFormValues["lines"][number] => ({
   accountsGroup: voucherType === "contra" ? "asset" : "",
   accountHeadId: "",
@@ -200,12 +248,16 @@ function buildAttachmentPath(clientId: string, voucherId: string, file: File) {
 function buildFormValues({
   clientId,
   fiscalYearId,
+  fiscalYearStartDate,
+  fiscalYearEndDate,
   defaultVoucherNo,
   paymentModes,
   values,
 }: {
   clientId: string
   fiscalYearId: string
+  fiscalYearStartDate?: string
+  fiscalYearEndDate?: string
   defaultVoucherNo: number
   paymentModes: PaymentModeOption[]
   values?: Partial<VoucherFormValues>
@@ -243,7 +295,11 @@ function buildFormValues({
     clientId,
     fiscalYearId,
     voucherNo: values?.voucherNo ?? defaultVoucherNo,
-    voucherDate: values?.voucherDate ?? format(new Date(), "yyyy-MM-dd"),
+    voucherDate: clampVoucherDateToFiscalYear({
+      voucherDate: values?.voucherDate ?? format(new Date(), "yyyy-MM-dd"),
+      fiscalYearStartDate,
+      fiscalYearEndDate,
+    }),
     voucherType: values?.voucherType ?? "payment",
     paymentModeId: selectedPaymentMode?.id ?? (paymentModeType === "cash" ? defaultCashMode?.id ?? "" : ""),
     paymentModeName,
@@ -260,6 +316,8 @@ export function VoucherEntryForm({
   voucherId,
   clientId,
   fiscalYearId,
+  fiscalYearStartDate,
+  fiscalYearEndDate,
   defaultVoucherNo,
   paymentModes,
   initialValues,
@@ -269,6 +327,8 @@ export function VoucherEntryForm({
   voucherId?: string
   clientId: string
   fiscalYearId: string
+  fiscalYearStartDate?: string
+  fiscalYearEndDate?: string
   defaultVoucherNo: number
   paymentModes: PaymentModeOption[]
   initialValues?: Partial<VoucherFormValues>
@@ -290,6 +350,8 @@ export function VoucherEntryForm({
     defaultValues: buildFormValues({
       clientId,
       fiscalYearId,
+      fiscalYearStartDate,
+      fiscalYearEndDate,
       defaultVoucherNo,
       paymentModes,
       values: initialValues,
@@ -384,6 +446,8 @@ export function VoucherEntryForm({
         buildFormValues({
           clientId,
           fiscalYearId,
+          fiscalYearStartDate,
+          fiscalYearEndDate,
           defaultVoucherNo,
           paymentModes,
           values: JSON.parse(existingDraft) as VoucherFormValues,
@@ -392,7 +456,19 @@ export function VoucherEntryForm({
     }
 
     setDraftRestored(true)
-  }, [clientId, defaultVoucherNo, draftKey, fiscalYearId, form, initialValues, paymentModes, draftRestored, shouldUseDraft])
+  }, [
+    clientId,
+    defaultVoucherNo,
+    draftKey,
+    draftRestored,
+    fiscalYearEndDate,
+    fiscalYearId,
+    fiscalYearStartDate,
+    form,
+    initialValues,
+    paymentModes,
+    shouldUseDraft,
+  ])
 
   // Auto-save draft
   useEffect(() => {
@@ -783,26 +859,6 @@ export function VoucherEntryForm({
               </Button>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-                <span className="inline-flex items-center gap-2 font-medium text-slate-700">
-                  <Scale className="h-4 w-4" />
-                  Debit {totalDebit.toFixed(2)}
-                </span>
-                <span className="inline-flex items-center gap-2 font-medium text-slate-700">
-                  <Scale className="h-4 w-4" />
-                  Credit {totalCredit.toFixed(2)}
-                </span>
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-2 font-medium",
-                    isBalanced ? "text-emerald-700" : "text-amber-700"
-                  )}
-                >
-                  {isBalanced ? <CircleCheckBig className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}
-                  {isBalanced ? "Balanced" : `Difference ${Math.abs(difference).toFixed(2)}`}
-                </span>
-              </div>
-
               {fields.map((field, index) => {
                 const line = values.lines[index] ?? defaultLine()
                 return (

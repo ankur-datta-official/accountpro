@@ -7,7 +7,7 @@ export default function RegisterPage() {
   return (
     <div>
       <AuthFormHeader
-        title="Create your AccountPro workspace"
+        title="Create your DKLedger workspace"
         description="Set up your organization and invite your team later from the dashboard."
       />
 

@@ -21,14 +21,12 @@ import {
   ScrollText,
   Search,
   Settings,
-  Settings2,
   Users,
-  WalletCards,
+  UserCircle2,
 } from "lucide-react"
 
 import { GlobalSearch } from "@/components/layout/GlobalSearch"
-import { LogoutButton } from "@/components/layout/logout-button"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { UserAccountMenu } from "@/components/layout/user-account-menu"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -42,7 +40,6 @@ import {
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -64,6 +61,7 @@ import {
   buildLegacyClientRouteSegment,
   extractClientIdFromRouteSegment,
 } from "@/lib/routing/clients"
+import type { OrganizationMemberRole } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type SidebarClient = {
@@ -88,6 +86,7 @@ const workspaceItems: NavItem[] = [
 ]
 
 const adminItems: NavItem[] = [
+  { href: "/account", label: "My Account", icon: UserCircle2, exact: true },
   { href: "/team", label: "Team", icon: Users, exact: true },
   { href: "/settings", label: "Organization Settings", icon: Settings, exact: true },
 ]
@@ -127,23 +126,18 @@ const financialStatementItems = (clientId: string): NavItem[] => [
   { href: `/clients/${clientId}/salary-certificates`, label: "Salary Certificates", icon: FileBadge2 },
 ]
 
-const clientSettingsItems = (clientId: string): NavItem[] => [
-  { href: `/clients/${clientId}/settings`, label: "Settings", icon: Settings2, exact: true },
-  { href: `/clients/${clientId}/settings/fiscal-years`, label: "Fiscal Years", icon: FileSpreadsheet },
-  { href: `/clients/${clientId}/settings/payment-modes`, label: "Payment Modes", icon: WalletCards },
-]
+const clientSettingsItem = (clientId: string): NavItem => ({
+  href: `/clients/${clientId}/settings`,
+  label: "Organization Settings",
+  icon: Settings,
+  aliases: [
+    `/clients/${clientId}/settings/fiscal-years`,
+    `/clients/${clientId}/settings/payment-modes`,
+  ],
+})
 
 const activeNavButtonClass =
   "!bg-slate-950 !text-white shadow-sm hover:!bg-slate-900 hover:!text-white focus-visible:!ring-slate-300 [&_svg]:!text-white"
-
-function getInitials(name: string) {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("")
-}
 
 function getCurrentClientId(pathname: string) {
   const match = pathname.match(/^\/clients\/([^/]+)/)
@@ -165,6 +159,7 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
   if (pathname === "/clients/new") return "Add New Organization"
   if (pathname === "/team") return "Team"
   if (pathname === "/settings") return "Organization Settings"
+  if (pathname === "/account") return "My Account"
 
   if (currentClient) {
     const clientPath = buildClientPath(currentClient)
@@ -206,7 +201,7 @@ function getPageTitle(pathname: string, currentClient?: SidebarClient | null) {
     return route?.[1] ?? "Organization Dashboard"
   }
 
-  return "AccountPro"
+  return "DKLedger"
 }
 
 function NavSection({
@@ -470,13 +465,11 @@ function ClientSwitcher({
 }
 function AppSidebar({
   orgName,
-  userName,
   clients,
   currentClient,
   pathname,
 }: {
   orgName: string
-  userName: string
   clients: SidebarClient[]
   currentClient?: SidebarClient | null
   pathname: string
@@ -486,10 +479,10 @@ function AppSidebar({
       <SidebarHeader className="gap-4 border-b border-slate-200 px-3 py-4">
         <Link href="/" className="flex items-center gap-3 rounded-lg px-2 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-sm font-semibold text-white">
-            AP
+            DK
           </div>
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="truncate text-sm font-semibold text-slate-950">AccountPro</p>
+            <p className="truncate text-sm font-semibold text-slate-950">DKLedger</p>
             <p className="truncate text-xs text-slate-500">{orgName}</p>
           </div>
         </Link>
@@ -506,12 +499,27 @@ function AppSidebar({
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  <CollapsibleNavGroup
-                    label="Organization Settings"
-                    icon={Settings2}
-                    items={clientSettingsItems(currentClient.routeSegment)}
-                    pathname={pathname}
-                  />
+                  {(() => {
+                    const item = clientSettingsItem(currentClient.routeSegment)
+                    const Icon = item.icon
+                    const active = isItemActive(pathname, item)
+
+                    return (
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={active}
+                          tooltip={item.label}
+                          className={cn("h-9 rounded-lg transition-colors", active && activeNavButtonClass)}
+                        >
+                          <Link href={item.href} prefetch aria-current={active ? "page" : undefined}>
+                            <Icon className="h-4 w-4" />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })()}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -533,22 +541,6 @@ function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-slate-200 p-3">
-        <div className="flex items-center gap-3 rounded-lg bg-slate-50 p-2 group-data-[collapsible=icon]:justify-center">
-          <Avatar className="h-8 w-8 border border-slate-200">
-            <AvatarFallback className="bg-white text-slate-700">
-              {getInitials(userName || "A")}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="truncate text-sm font-medium text-slate-900">{userName}</p>
-            <p className="truncate text-xs text-slate-500">Signed in</p>
-          </div>
-        </div>
-        <div className="group-data-[collapsible=icon]:hidden">
-          <LogoutButton />
-        </div>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )
@@ -558,11 +550,15 @@ export function DashboardShell({
   children,
   orgName,
   userName,
+  userEmail,
+  userRole,
   clients,
 }: Readonly<{
   children: React.ReactNode
   orgName: string
   userName: string
+  userEmail: string
+  userRole: OrganizationMemberRole
   clients: SidebarClient[]
 }>) {
   const pathname = usePathname()
@@ -578,7 +574,6 @@ export function DashboardShell({
     <SidebarProvider>
       <AppSidebar
         orgName={orgName}
-        userName={userName}
         clients={clients}
         currentClient={currentClient}
         pathname={pathname}
@@ -596,13 +591,7 @@ export function DashboardShell({
 
             <div className="flex shrink-0 items-center gap-3">
               <GlobalSearch />
-              <div className="hidden items-center gap-3 md:flex">
-                <Avatar className="h-9 w-9 border border-slate-200">
-                  <AvatarFallback className="bg-slate-100 text-slate-700">
-                    {getInitials(userName || "A")}
-                  </AvatarFallback>
-                </Avatar>
-              </div>
+              <UserAccountMenu userName={userName} userEmail={userEmail} userRole={userRole} orgName={orgName} />
             </div>
           </div>
         </header>

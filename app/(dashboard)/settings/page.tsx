@@ -191,25 +191,19 @@ export default function SettingsPage() {
       return
     }
 
-    const verify = await supabase.auth.signInWithPassword({
-      email: session.user.email,
-      password: currentPassword,
-    })
-
-    if (verify.error) {
-      setUpdatingPassword(false)
-      toast.error("Current password is incorrect.")
-      return
-    }
-
     const updated = await supabase.auth.updateUser({
+      current_password: currentPassword,
       password: newPassword,
     })
 
     setUpdatingPassword(false)
 
     if (updated.error) {
-      toast.error(updated.error.message)
+      toast.error(
+        /password/i.test(updated.error.message)
+          ? updated.error.message
+          : "Unable to update password right now."
+      )
       return
     }
 
@@ -320,7 +314,7 @@ export default function SettingsPage() {
             </div>
             <div className="space-y-2">
               <Label>Slug</Label>
-              <Input value={`accountpro.app/${overview.organization.slug}`} disabled />
+              <Input value={`dkledger.com/${overview.organization.slug}`} disabled />
             </div>
           </div>
 

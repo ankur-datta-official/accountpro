@@ -94,13 +94,96 @@ export function normalizePaymentModeName(name: string) {
 
 export type PaymentModeAccountHead = Pick<
   Database["public"]["Tables"]["account_heads"]["Row"],
-  "id" | "client_id" | "name" | "is_active" | "type"
+  "id" | "client_id" | "name" | "is_active" | "type" | "sub_group_id"
 >
 
 export type PaymentModeRecord = Pick<
   Database["public"]["Tables"]["payment_modes"]["Row"],
   "id" | "client_id" | "name" | "type" | "is_active" | "account_head_id"
 >
+
+async function inferAccountHeadGroupType(
+  supabase: SupabaseClient,
+  {
+    clientId,
+    subGroupId,
+  }: {
+    clientId: string
+    subGroupId: string | null
+  }
+) {
+  if (!subGroupId) {
+    return null
+  }
+
+  const { data: subGroup } = await supabase
+    .from("account_sub_groups")
+    .select("semi_sub_id")
+    .eq("client_id", clientId)
+    .eq("id", subGroupId)
+    .maybeSingle()
+
+  if (!subGroup?.semi_sub_id) {
+    return null
+  }
+
+  const { data: semiSubGroup } = await supabase
+    .from("account_semi_sub_groups")
+    .select("group_id")
+    .eq("client_id", clientId)
+    .eq("id", subGroup.semi_sub_id)
+    .maybeSingle()
+
+  if (!semiSubGroup?.group_id) {
+    return null
+  }
+
+  const { data: group } = await supabase
+    .from("account_groups")
+    .select("type")
+    .eq("client_id", clientId)
+    .eq("id", semiSubGroup.group_id)
+    .maybeSingle()
+
+  return group?.type ?? null
+}
+
+async function repairLegacyPaymentModeAccountHeadType(
+  supabase: SupabaseClient,
+  {
+    clientId,
+    accountHead,
+  }: {
+    clientId: string
+    accountHead: PaymentModeAccountHead | null
+  }
+) {
+  if (!accountHead || accountHead.type) {
+    return accountHead
+  }
+
+  const inferredType = await inferAccountHeadGroupType(supabase, {
+    clientId,
+    subGroupId: accountHead.sub_group_id ?? null,
+  })
+
+  if (!inferredType) {
+    return accountHead
+  }
+
+  const { data: updatedHead } = await supabase
+    .from("account_heads")
+    .update({ type: inferredType })
+    .eq("id", accountHead.id)
+    .eq("client_id", clientId)
+    .select("id, client_id, name, is_active, type, sub_group_id")
+    .single()
+
+  return (updatedHead as PaymentModeAccountHead | null) ?? {
+    ...accountHead,
+    type: inferredType,
+  }
+}
 
 export function validatePaymentModeAccountMapping({
   clientId,
@@ -217,7 +300,7 @@ export async function syncPaymentModeAccountLink({
 }) {
   const { data: accountHeads, error } = await supabase
     .from("account_heads")
-    .select("id, client_id, name, is_active, type")
+    .select("id, client_id, name, is_active, type, sub_group_id")
     .eq("client_id", clientId)
 
   if (error) {
@@ -270,6 +353,114 @@ export async function syncPaymentModeAccountLink({
   }
 }
 
+async function findPreferredPaymentModeAccountHead({
+  supabase,
+  clientId,
+  paymentModeName,
+}: {
+  supabase: SupabaseClient
+  clientId: string
+  paymentModeName: string
+}) {
+  const { data: assetGroup } = await supabase
+    .from("account_groups")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("name", "Current Assets")
+    .maybeSingle()
+
+  if (!assetGroup?.id) {
+    return null
+  }
+
+  const { data: semiSubGroup } = await supabase
+    .from("account_semi_sub_groups")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("group_id", assetGroup.id)
+    .eq("name", "Cash & Bank Balance")
+    .maybeSingle()
+
+  if (!semiSubGroup?.id) {
+    return null
+  }
+
+  const { data: subGroup } = await supabase
+    .from("account_sub_groups")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("semi_sub_id", semiSubGroup.id)
+    .eq("name", "Cash & Bank Balance")
+    .maybeSingle()
+
+  if (!subGroup?.id) {
+    return null
+  }
+
+  const { data: accountHead } = await supabase
+    .from("account_heads")
+    .select("id, client_id, name, is_active, type, sub_group_id")
+    .eq("client_id", clientId)
+    .eq("sub_group_id", subGroup.id)
+    .eq("name", paymentModeName)
+    .maybeSingle()
+
+  return repairLegacyPaymentModeAccountHeadType(supabase, {
+    clientId,
+    accountHead: (accountHead as PaymentModeAccountHead | null) ?? null,
+  })
+}
+
+async function repairPaymentModeAccountLink({
+  supabase,
+  clientId,
+  paymentMode,
+}: {
+  supabase: SupabaseClient
+  clientId: string
+  paymentMode: Database["public"]["Tables"]["payment_modes"]["Row"]
+}) {
+  await createPaymentModeAccountHeadForClient(clientId, paymentMode.name, supabase)
+
+  const preferredAccountHead = await findPreferredPaymentModeAccountHead({
+    supabase,
+    clientId,
+    paymentModeName: paymentMode.name,
+  })
+
+  const validation = validatePaymentModeAccountMapping({
+    clientId,
+    accountHead: preferredAccountHead,
+  })
+
+  if (!validation.ok || !preferredAccountHead) {
+    return {
+      success: false as const,
+      error: "The selected payment mode is not linked to an active same-client cash or bank asset account.",
+    }
+  }
+
+  const { data: updatedMode, error } = await supabase
+    .from("payment_modes")
+    .update({ account_head_id: preferredAccountHead.id })
+    .eq("id", paymentMode.id)
+    .eq("client_id", clientId)
+    .select("*")
+    .single()
+
+  if (error || !updatedMode) {
+    return {
+      success: false as const,
+      error: error?.message ?? "Unable to save the payment-mode account mapping.",
+    }
+  }
+
+  return {
+    success: true as const,
+    paymentMode: updatedMode,
+  }
+}
+
 export async function resolvePaymentModeAccountHead(
   supabase: SupabaseClient,
   {
@@ -281,15 +472,25 @@ export async function resolvePaymentModeAccountHead(
   }
 ) {
   if (!paymentMode.account_head_id) {
-    return {
-      success: false as const,
-      error: "The selected payment mode is not mapped to an account head.",
+    const repairedMode = await repairPaymentModeAccountLink({
+      supabase,
+      clientId,
+      paymentMode,
+    })
+
+    if (!repairedMode.success) {
+      return {
+        success: false as const,
+        error: repairedMode.error,
+      }
     }
+
+    paymentMode = repairedMode.paymentMode
   }
 
   const { data: accountHead, error } = await supabase
     .from("account_heads")
-    .select("id, client_id, name, is_active, type")
+    .select("id, client_id, name, is_active, type, sub_group_id")
     .eq("id", paymentMode.account_head_id)
     .maybeSingle()
 
@@ -299,6 +500,11 @@ export async function resolvePaymentModeAccountHead(
       error: error.message ?? "Unable to load the mapped payment account.",
     }
   }
+
+  const normalizedAccountHead = await repairLegacyPaymentModeAccountHeadType(supabase, {
+    clientId,
+    accountHead: (accountHead as PaymentModeAccountHead | null) ?? null,
+  })
 
   const resolved = resolveMappedPaymentModeAccount({
     clientId,
@@ -310,10 +516,23 @@ export async function resolvePaymentModeAccountHead(
       is_active: paymentMode.is_active,
       account_head_id: paymentMode.account_head_id,
     },
-    accountHeads: accountHead ? [accountHead as PaymentModeAccountHead] : [],
+    accountHeads: normalizedAccountHead ? [normalizedAccountHead] : [],
   })
 
   if (!resolved.ok) {
+    const repairedMode = await repairPaymentModeAccountLink({
+      supabase,
+      clientId,
+      paymentMode,
+    })
+
+    if (repairedMode.success && repairedMode.paymentMode.account_head_id !== paymentMode.account_head_id) {
+      return resolvePaymentModeAccountHead(supabase, {
+        clientId,
+        paymentMode: repairedMode.paymentMode,
+      })
+    }
+
     return {
       success: false as const,
       error: resolved.error,
@@ -338,7 +557,7 @@ export async function validateExplicitPaymentModeAccountHead(
 ) {
   const { data: accountHead, error } = await supabase
     .from("account_heads")
-    .select("id, client_id, name, is_active, type")
+    .select("id, client_id, name, is_active, type, sub_group_id")
     .eq("id", accountHeadId)
     .maybeSingle()
 
@@ -351,7 +570,10 @@ export async function validateExplicitPaymentModeAccountHead(
 
   const validation = validatePaymentModeAccountMapping({
     clientId,
-    accountHead: (accountHead as PaymentModeAccountHead | null) ?? null,
+    accountHead: await repairLegacyPaymentModeAccountHeadType(supabase, {
+      clientId,
+      accountHead: (accountHead as PaymentModeAccountHead | null) ?? null,
+    }),
   })
 
   if (!validation.ok) {
@@ -363,7 +585,10 @@ export async function validateExplicitPaymentModeAccountHead(
 
   return {
     success: true as const,
-    accountHead: accountHead as PaymentModeAccountHead,
+    accountHead: (await repairLegacyPaymentModeAccountHeadType(supabase, {
+      clientId,
+      accountHead: (accountHead as PaymentModeAccountHead | null) ?? null,
+    })) as PaymentModeAccountHead,
   }
 }
 
@@ -412,6 +637,20 @@ export async function resolveOrCreatePaymentMode(
       return { success: false, error: "Selected payment mode could not be resolved." }
     }
 
+    if (!paymentMode.account_head_id) {
+      const linkedMode = await repairPaymentModeAccountLink({
+        supabase,
+        clientId,
+        paymentMode,
+      })
+
+      if (!linkedMode.success) {
+        return linkedMode
+      }
+
+      return { success: true, paymentMode: linkedMode.paymentMode }
+    }
+
     return { success: true, paymentMode }
   }
 
@@ -432,6 +671,20 @@ export async function resolveOrCreatePaymentMode(
   )
 
   if (matchedMode) {
+    if (!matchedMode.account_head_id) {
+      const linkedMode = await repairPaymentModeAccountLink({
+        supabase,
+        clientId,
+        paymentMode: matchedMode,
+      })
+
+      if (!linkedMode.success) {
+        return linkedMode
+      }
+
+      return { success: true, paymentMode: linkedMode.paymentMode }
+    }
+
     return { success: true, paymentMode: matchedMode }
   }
 

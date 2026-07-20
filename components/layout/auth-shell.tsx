@@ -14,10 +14,10 @@ export function AuthShell({
           <div className="flex flex-col justify-center rounded-[2rem] border border-slate-200/80 bg-white/70 p-8 shadow-sm backdrop-blur md:p-12">
             <div className="mb-10 flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-lg font-semibold text-white">
-                AP
+                DK
               </div>
               <div>
-                <p className="text-lg font-semibold text-slate-950">AccountPro</p>
+                <p className="text-lg font-semibold text-slate-950">DKLedger</p>
                 <p className="text-sm text-slate-500">Accounting workspace for modern teams</p>
               </div>
             </div>
@@ -27,7 +27,7 @@ export function AuthShell({
                 Keep every client, voucher, and team workflow in one place.
               </p>
               <p className="max-w-xl text-base leading-7 text-slate-600">
-                AccountPro helps accounting firms organize client operations, collaborate with
+                DKLedger helps accounting firms organize client operations, collaborate with
                 their team, and stay on top of monthly bookkeeping with a clear dashboard-first
                 experience.
               </p>
@@ -52,7 +52,7 @@ export function AuthShell({
           <Card className="border-slate-200/80 bg-white/95 p-6 shadow-xl shadow-slate-200/60 md:p-10">
             <div className="mb-8 flex items-center justify-between">
               <Link href="/" className="text-sm font-medium text-slate-500 transition hover:text-slate-900">
-                AccountPro
+                DKLedger
               </Link>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
                 Secure access

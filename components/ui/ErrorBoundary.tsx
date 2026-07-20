@@ -66,7 +66,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("AccountPro UI error boundary caught an error", error, errorInfo)
+    console.error("DKLedger UI error boundary caught an error", error, errorInfo)
   }
 
   handleRetry = () => {

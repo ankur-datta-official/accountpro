@@ -1,6 +1,6 @@
-# AccountPro
+# DKLedger
 
-AccountPro is a Next.js 14 bookkeeping workspace for managing clients, vouchers, ledgers, trial balance, balance sheet, profit and loss, bank statements, and Excel imports on top of Supabase.
+DKLedger is a Next.js 14 bookkeeping workspace for managing clients, vouchers, ledgers, trial balance, balance sheet, profit and loss, bank statements, and Excel imports on top of Supabase.
 
 ## Stack
 

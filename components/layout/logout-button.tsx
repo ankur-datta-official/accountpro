@@ -5,9 +5,14 @@ import { LogOut } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
 
-export function LogoutButton() {
+type LogoutButtonProps = {
+  className?: string
+}
+
+export function LogoutButton({ className }: LogoutButtonProps) {
   const router = useRouter()
 
   const handleLogout = async () => {
@@ -27,7 +32,7 @@ export function LogoutButton() {
     <Button
       type="button"
       variant="ghost"
-      className="w-full justify-start text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+      className={cn("w-full justify-start text-slate-600 hover:bg-slate-100 hover:text-slate-900", className)}
       onClick={handleLogout}
     >
       <LogOut className="mr-2 h-4 w-4" />

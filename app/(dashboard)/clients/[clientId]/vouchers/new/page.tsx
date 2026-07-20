@@ -1,7 +1,7 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
 import { VoucherEntryForm } from "@/components/voucher/voucher-entry-form"
-import { getClientRouteContext } from "@/lib/accounting/client-route-context"
+import { findFiscalYearForDate, getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { createClient } from "@/lib/supabase/server"
 import type { Database } from "@/lib/types"
 
@@ -17,7 +17,7 @@ export default async function NewVoucherPage({
   const resolvedParams = await params
   const resolvedSearchParams = await searchParams
   const supabase = await createClient()
-  const { client, selectedFiscalYear } = await getClientRouteContext({
+  const { client, fiscalYears, selectedFiscalYear } = await getClientRouteContext({
     clientId: resolvedParams.clientId,
     fiscalYearId: resolvedSearchParams.fiscalYear,
   })
@@ -30,11 +30,21 @@ export default async function NewVoucherPage({
     notFound()
   }
 
+  const currentFiscalYear = findFiscalYearForDate(fiscalYears)
+  const effectiveFiscalYear =
+    currentFiscalYear && currentFiscalYear.id !== selectedFiscalYear.id
+      ? currentFiscalYear
+      : selectedFiscalYear
+
+  if (effectiveFiscalYear.id !== selectedFiscalYear.id) {
+    redirect(`/clients/${resolvedParams.clientId}/vouchers/new?fiscalYear=${effectiveFiscalYear.id}`)
+  }
+
   const { data: vouchers } = await supabase
     .from("vouchers")
     .select("voucher_no")
     .eq("client_id", client.id)
-    .eq("fiscal_year_id", selectedFiscalYear.id)
+    .eq("fiscal_year_id", effectiveFiscalYear.id)
     .order("voucher_no", { ascending: false })
     .limit(1)
 
@@ -49,7 +59,9 @@ export default async function NewVoucherPage({
     <div className="space-y-6">
       <VoucherEntryForm
         clientId={client.id}
-        fiscalYearId={selectedFiscalYear.id}
+        fiscalYearId={effectiveFiscalYear.id}
+        fiscalYearStartDate={effectiveFiscalYear.start_date}
+        fiscalYearEndDate={effectiveFiscalYear.end_date}
         defaultVoucherNo={Number(vouchers?.[0]?.voucher_no ?? 0) + 1}
         paymentModes={((paymentModes ?? []) as PaymentModeRecord[]).map((mode: PaymentModeRecord) => ({
         id: mode.id,

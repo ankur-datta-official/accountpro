@@ -1,5 +1,6 @@
 "use client"
 
+import type { WheelEvent } from "react"
 import type { UseFormRegisterReturn } from "react-hook-form"
 
 import { PlusCircle, Trash2 } from "lucide-react"
@@ -11,6 +12,7 @@ import {
 } from "@/lib/accounting/voucher-entry-rules"
 import type { ChartFlatAccount } from "@/lib/hooks/useChartOfAccounts"
 import { Button } from "@/components/ui/button"
+import { Autocomplete } from "@/components/ui/autocomplete"
 import { Input } from "@/components/ui/input"
 
 export type VoucherLineFormValues = {
@@ -58,6 +60,10 @@ export function VoucherLineRow({
   if (!line) {
     return null
   }
+
+  const preventWheelValueChange = (event: WheelEvent<HTMLInputElement>) => {
+    event.currentTarget.blur()
+  }
   
   const isContraVoucher = voucherType === "contra"
   
@@ -74,15 +80,12 @@ export function VoucherLineRow({
     filteredAccounts = accounts.filter((account) => account.groupType === line.accountsGroup)
   }
   
-  const groupedAccounts = filteredAccounts.reduce<Record<string, ChartFlatAccount[]>>((acc, account) => {
-    const key = account.subGroupName ?? "Other"
-    if (!acc[key]) {
-      acc[key] = []
-    }
-
-    acc[key].push(account)
-    return acc
-  }, {})
+  const accountOptions = filteredAccounts.map((account) => ({
+    id: account.id,
+    value: account.id,
+    label: account.label,
+    displayLabel: account.name,
+  }))
   const debitLocked = isDebitLockedForAccountsGroup(line.accountsGroup)
   const creditLocked = isCreditLockedForAccountsGroup(line.accountsGroup)
   return (
@@ -119,7 +122,7 @@ export function VoucherLineRow({
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[0.9fr_0.9fr_0.7fr_0.7fr]">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[0.95fr_0.95fr_0.7fr_0.7fr_1.15fr]">
         <label className="flex flex-col gap-2">
           <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Accounts Group</span>
           <select
@@ -153,25 +156,14 @@ export function VoucherLineRow({
 
         <label className="flex flex-col gap-2">
           <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Accounts Head</span>
-          <select
+          <Autocomplete
             disabled={disabled}
-            className="h-11 rounded-lg border border-slate-200 px-3 text-sm outline-none transition focus:border-slate-400"
-            aria-label="Accounts Head"
-            title="Accounts Head"
+            className="w-full"
+            placeholder="Accounts Head"
+            options={accountOptions}
             value={line.accountHeadId}
-            onChange={(event) => setValue(`lines.${index}.accountHeadId`, event.target.value)}
-          >
-            <option value="">Accounts Head</option>
-            {Object.entries(groupedAccounts).map(([subGroupName, heads]) => (
-              <optgroup key={subGroupName} label={subGroupName}>
-                {heads.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+            onChange={(accountId) => setValue(`lines.${index}.accountHeadId`, accountId)}
+          />
         </label>
 
         <label className="flex flex-col gap-2">
@@ -191,6 +183,7 @@ export function VoucherLineRow({
                 event.target.select()
               }
             }}
+            onWheel={preventWheelValueChange}
           />
         </label>
 
@@ -211,24 +204,25 @@ export function VoucherLineRow({
                 event.target.select()
               }
             }}
+            onWheel={preventWheelValueChange}
+          />
+        </label>
+
+        <label className="flex flex-col gap-2 md:col-span-2 xl:col-span-1">
+          <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Line Note</span>
+          <Input
+            placeholder="Add context for this line if needed"
+            disabled={disabled}
+            {...register(`lines.${index}.description`)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                onAddLine()
+              }
+            }}
           />
         </label>
       </div>
-
-      <label className="mt-4 flex flex-col gap-2">
-        <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Line Note</span>
-        <Input
-          placeholder="Add context for this line if needed"
-          disabled={disabled}
-          {...register(`lines.${index}.description`)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault()
-              onAddLine()
-            }
-          }}
-        />
-      </label>
     </div>
   )
 }

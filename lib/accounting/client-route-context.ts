@@ -18,6 +18,25 @@ export type ClientRouteContext = {
   selectedFiscalYear: FiscalYear | null
 }
 
+function getTodayDateOnly() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+export function findFiscalYearForDate(
+  fiscalYears: FiscalYear[],
+  targetDate = getTodayDateOnly()
+) {
+  return (
+    fiscalYears.find((year) => {
+      if (!year.start_date || !year.end_date) {
+        return false
+      }
+
+      return year.start_date <= targetDate && targetDate <= year.end_date
+    }) ?? null
+  )
+}
+
 const getCachedClientRouteContext = cache(async function getCachedClientRouteContext(
   clientId: string,
   fiscalYearId: string
@@ -59,8 +78,10 @@ const getCachedClientRouteContext = cache(async function getCachedClientRouteCon
     .order("start_date", { ascending: false })
 
   const fiscalYearList: FiscalYear[] = fiscalYears ?? []
+  const currentFiscalYear = findFiscalYearForDate(fiscalYearList)
   const selectedFiscalYear =
     fiscalYearList.find((year: FiscalYear) => year.id === fiscalYearId) ??
+    currentFiscalYear ??
     fiscalYearList.find((year: FiscalYear) => year.is_active) ??
     fiscalYearList[0] ??
     null

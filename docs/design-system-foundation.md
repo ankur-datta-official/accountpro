@@ -1,8 +1,8 @@
-# AccountPro Design System Foundation
+# DKLedger Design System Foundation
 
 ## 1. Product Design Principles
 
-AccountPro should feel calm, professional, trustworthy, beginner friendly, and consistent enough for long accounting sessions.
+DKLedger should feel calm, professional, trustworthy, beginner friendly, and consistent enough for long accounting sessions.
 
 The foundation rules for this system are:
 
@@ -15,7 +15,7 @@ The foundation rules for this system are:
 
 ## 2. Brand Palette
 
-AccountPro uses a Calm Navy + Teal enterprise accounting palette.
+DKLedger uses a Calm Navy + Teal enterprise accounting palette.
 
 ### Brand and action
 

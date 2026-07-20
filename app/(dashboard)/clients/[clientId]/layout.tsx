@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import { FiscalYearProvider } from "@/components/clients/fiscal-year-context"
-import { getClientRouteContext } from "@/lib/accounting/client-route-context"
+import { findFiscalYearForDate, getClientRouteContext } from "@/lib/accounting/client-route-context"
 
 export default async function ClientLayout({
   children,
@@ -17,7 +17,10 @@ export default async function ClientLayout({
   }
 
   const initialFiscalYearId =
-    fiscalYears.find((year) => year.is_active)?.id ?? fiscalYears[0]?.id ?? null
+    findFiscalYearForDate(fiscalYears)?.id ??
+    fiscalYears.find((year) => year.is_active)?.id ??
+    fiscalYears[0]?.id ??
+    null
 
   return (
     <FiscalYearProvider

@@ -6,15 +6,12 @@ import {
   type SupabasePublicEnv,
 } from "@/lib/supabase/env"
 
-const PUBLIC_AUTH_ROUTES = new Set([
+const GUEST_ONLY_AUTH_ROUTES = new Set([
   "/login",
   "/register",
-  "/accept-invitation",
   "/forgot-password",
-  "/reset-password",
 ])
-const PUBLIC_AUTH_ROUTE_PREFIXES = ["/api/auth/"]
-const PROTECTED_ROUTE_PREFIXES = ["/clients", "/team", "/settings"]
+const PROTECTED_ROUTE_PREFIXES = ["/clients", "/team", "/settings", "/account"]
 const CONFIGURATION_ERROR_HEADER = "x-accountpro-auth-config-error"
 
 function isProtectedRoute(pathname: string) {
@@ -27,14 +24,8 @@ function isProtectedRoute(pathname: string) {
   )
 }
 
-function isPublicAuthRoute(pathname: string) {
-  if (PUBLIC_AUTH_ROUTES.has(pathname)) {
-    return true
-  }
-
-  return PUBLIC_AUTH_ROUTE_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(prefix)
-  )
+function isGuestOnlyAuthRoute(pathname: string) {
+  return GUEST_ONLY_AUTH_ROUTES.has(pathname)
 }
 
 function isApiRoute(pathname: string) {
@@ -47,7 +38,7 @@ export function getProxyDecision(input: {
   isAuthenticated: boolean
 }) {
   const { pathname, hasValidPublicAuthConfig, isAuthenticated } = input
-  const isPublic = isPublicAuthRoute(pathname)
+  const isGuestOnly = isGuestOnlyAuthRoute(pathname)
   const isProtected = isProtectedRoute(pathname)
 
   if (!hasValidPublicAuthConfig) {
@@ -68,7 +59,7 @@ export function getProxyDecision(input: {
     }
   }
 
-  if (isPublic && isAuthenticated) {
+  if (isGuestOnly && isAuthenticated) {
     return {
       action: "redirect_home" as const,
     }

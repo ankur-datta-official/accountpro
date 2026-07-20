@@ -139,7 +139,7 @@ export const VoucherPrintView = forwardRef<
             <div className="flex items-stretch justify-between">
               <div className="flex-1 px-6 py-5">
                 <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">
-                  AccountPro
+                  DKLedger
                 </p>
                 <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-950">{companyName}</h1>
                 <div className="mt-4 h-1 w-28 rounded-full bg-slate-900" />
