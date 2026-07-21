@@ -282,9 +282,7 @@ export function LedgerBookManager({
 
     if (!search) {
       return sections
-        .filter((section) => section.rows.length > 0 || section.openingBalanceLabel !== "0.00 Dr")
         .sort((left, right) => right.rows.length - left.rows.length || left.accountName.localeCompare(right.accountName))
-        .slice(0, 6)
     }
 
     const scored = sections
@@ -313,7 +311,6 @@ export function LedgerBookManager({
 
         return left.section.accountName.localeCompare(right.section.accountName)
       })
-      .slice(0, 6)
       .map((item) => item.section)
 
     return scored
@@ -347,19 +344,16 @@ export function LedgerBookManager({
     })
   }, [dataset?.sections, deferredSearch, sortBy])
 
-  const activeSections = useMemo(
-    () => filteredSections.filter((section) => section.rows.length > 0 || section.openingBalanceLabel !== "0.00 Dr"),
-    [filteredSections]
-  )
+  const visibleSections = filteredSections
 
   const totals = useMemo(() => {
     return {
-      accounts: activeSections.length,
-      rows: activeSections.reduce((sum, section) => sum + section.rows.length, 0),
-      debit: activeSections.reduce((sum, section) => sum + section.totalDebit, 0),
-      credit: activeSections.reduce((sum, section) => sum + section.totalCredit, 0),
+      accounts: visibleSections.length,
+      rows: visibleSections.reduce((sum, section) => sum + section.rows.length, 0),
+      debit: visibleSections.reduce((sum, section) => sum + section.totalDebit, 0),
+      credit: visibleSections.reduce((sum, section) => sum + section.totalCredit, 0),
     }
-  }, [activeSections])
+  }, [visibleSections])
 
   useEffect(() => {
     setHighlightedSuggestionIndex(0)
@@ -387,10 +381,10 @@ export function LedgerBookManager({
   }
 
   const handleExport = () => {
-    if (!activeSections.length) return
+    if (!visibleSections.length) return
 
     exportLedgerBook(
-      activeSections.map((section) => ({
+      visibleSections.map((section) => ({
         accountName: section.accountName,
         groupName: section.groupName,
         period: section.periodLabel,
@@ -429,7 +423,7 @@ export function LedgerBookManager({
               variant="outline"
               className="h-10 rounded-lg border-slate-200"
               onClick={() => void handlePrint()}
-              disabled={!activeSections.length}
+              disabled={!visibleSections.length}
             >
               <Printer className="mr-2 h-4 w-4" />
               Print
@@ -439,7 +433,7 @@ export function LedgerBookManager({
               variant="outline"
               className="h-10 rounded-lg border-slate-200"
               onClick={handleExport}
-              disabled={!activeSections.length}
+              disabled={!visibleSections.length}
             >
               <Download className="mr-2 h-4 w-4" />
               Export
@@ -666,20 +660,20 @@ export function LedgerBookManager({
               <div>
                 <p className="font-semibold text-slate-950">Scrollable ledger list</p>
                 <p className="text-sm text-slate-500">
-                  {activeSections.length === 1
+                  {visibleSections.length === 1
                     ? `Showing 1 account for ${periodLabel}`
-                    : `Showing ${activeSections.length} accounts for ${periodLabel}`}
+                    : `Showing ${visibleSections.length} accounts for ${periodLabel}`}
                 </p>
               </div>
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Scroll down for account tables
+                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Scroll down for all account tables
               </div>
             </CardContent>
           </Card>
 
-          {activeSections.length > 0 ? (
+          {visibleSections.length > 0 ? (
             <div className="space-y-6">
-              {activeSections.map((section) => (
+              {visibleSections.map((section) => (
                 <LedgerSection
                   key={section.accountHeadId}
                   section={section}
@@ -696,7 +690,7 @@ export function LedgerBookManager({
                   description={
                     accountSearch
                       ? "Try clearing your search or adjusting the date filters."
-                      : "There are no ledger balances or posted rows for the selected fiscal year and date range."
+                      : "There are no account heads available for the selected fiscal year and date range."
                   }
                 />
               </CardContent>
@@ -720,7 +714,7 @@ export function LedgerBookManager({
           ref={printRef}
           companyName={clientName}
           fiscalYearLabel={selectedFiscalYear?.label ?? ""}
-          sections={activeSections}
+          sections={visibleSections}
         />
       </div>
     </div>

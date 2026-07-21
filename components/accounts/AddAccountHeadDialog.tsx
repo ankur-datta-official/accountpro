@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Loader2, PencilLine, PlusCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -93,20 +94,29 @@ export function AddAccountHeadDialog({
   head?: AccountHead
 }) {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createGroupInline, setCreateGroupInline] = useState(false)
   const [createSemiInline, setCreateSemiInline] = useState(false)
   const [createSubInline, setCreateSubInline] = useState(false)
   const { tree } = useChartOfAccounts(clientId)
+  const resolvedDefaultSubGroupId = head?.sub_group_id ?? defaultSubGroupId
+  const resolvedDefaultSemiSubGroupId =
+    subGroups.find((subGroup) => subGroup.id === resolvedDefaultSubGroupId)?.semi_sub_id ??
+    defaultSemiSubGroupId
+  const resolvedDefaultGroupId =
+    semiSubGroups.find((semiSubGroup) => semiSubGroup.id === resolvedDefaultSemiSubGroupId)?.group_id ??
+    defaultGroupId
+  const resolvedDefaultParentAccountHeadId = head?.parent_id ?? defaultParentAccountHeadId ?? undefined
 
   const form = useForm<AccountHeadFormValues>({
     resolver: zodResolver(addAccountHeadSchema),
     defaultValues: {
-      accountGroupId: defaultGroupId,
-      semiSubGroupId: defaultSemiSubGroupId,
-      subGroupId: defaultSubGroupId,
-      parentAccountHeadId: defaultParentAccountHeadId ?? undefined,
+      accountGroupId: resolvedDefaultGroupId,
+      semiSubGroupId: resolvedDefaultSemiSubGroupId,
+      subGroupId: resolvedDefaultSubGroupId,
+      parentAccountHeadId: resolvedDefaultParentAccountHeadId,
       nodeType: "posting",
       accountHeadName: head?.name ?? "",
       openingBalance: Number(head?.opening_balance ?? 0),
@@ -123,10 +133,10 @@ export function AddAccountHeadDialog({
       setCreateSemiInline(false)
       setCreateSubInline(false)
       form.reset({
-        accountGroupId: defaultGroupId,
-        semiSubGroupId: defaultSemiSubGroupId,
-        subGroupId: defaultSubGroupId,
-        parentAccountHeadId: defaultParentAccountHeadId ?? undefined,
+        accountGroupId: resolvedDefaultGroupId,
+        semiSubGroupId: resolvedDefaultSemiSubGroupId,
+        subGroupId: resolvedDefaultSubGroupId,
+        parentAccountHeadId: resolvedDefaultParentAccountHeadId,
         nodeType: "posting",
         accountHeadName: head?.name ?? "",
         openingBalance: Number(head?.opening_balance ?? 0),
@@ -137,13 +147,13 @@ export function AddAccountHeadDialog({
       })
     }
   }, [
-    defaultGroupId,
-    defaultParentAccountHeadId,
-    defaultSemiSubGroupId,
-    defaultSubGroupId,
     form,
     head,
     open,
+    resolvedDefaultGroupId,
+    resolvedDefaultParentAccountHeadId,
+    resolvedDefaultSemiSubGroupId,
+    resolvedDefaultSubGroupId,
   ])
 
   const selectedGroupId = form.watch("accountGroupId")
@@ -232,7 +242,7 @@ export function AddAccountHeadDialog({
       accountGroupId: createGroupInline ? undefined : values.accountGroupId,
       semiSubGroupId: createSemiInline ? undefined : values.semiSubGroupId,
       subGroupId: createSubInline ? undefined : values.subGroupId,
-      parentAccountHeadId: head ? undefined : values.parentAccountHeadId || null,
+      parentAccountHeadId: values.parentAccountHeadId || null,
       nodeType: "posting",
       accountHeadName: values.accountHeadName,
       openingBalance: values.openingBalance ?? 0,
@@ -267,6 +277,7 @@ export function AddAccountHeadDialog({
     }
 
     toast.success(head ? "Account head updated." : "Account head created.")
+    await queryClient.invalidateQueries({ queryKey: ["chart-of-accounts", clientId] })
     setOpen(false)
     router.refresh()
   }
@@ -294,152 +305,155 @@ export function AddAccountHeadDialog({
 
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={form.handleSubmit(onSubmit)}>
           <div className="flex-1 space-y-4 overflow-y-auto px-6 pb-4">
-            {!head ? (
-              <>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Main Account Group</Label>
-                    <button
-                      type="button"
-                      className="text-sm font-medium text-slate-500 hover:text-slate-900"
-                      onClick={() => {
-                        setCreateGroupInline((value) => !value)
-                        form.setValue("accountGroupId", undefined)
-                      }}
-                    >
-                      {createGroupInline ? "Use existing group" : "Create new group"}
-                    </button>
-                  </div>
-                  {createGroupInline ? (
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Input placeholder="e.g. General & Administrative Expenses" {...form.register("newGroupName")} />
+            <>
+              {!head ? (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Main Account Group</Label>
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-slate-500 hover:text-slate-900"
+                        onClick={() => {
+                          setCreateGroupInline((value) => !value)
+                          form.setValue("accountGroupId", undefined)
+                        }}
+                      >
+                        {createGroupInline ? "Use existing group" : "Create new group"}
+                      </button>
+                    </div>
+                    {createGroupInline ? (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Input placeholder="e.g. General & Administrative Expenses" {...form.register("newGroupName")} />
+                        <Select
+                          value={form.watch("newGroupType")}
+                          onValueChange={(value) =>
+                            form.setValue("newGroupType", value as AccountHeadFormValues["newGroupType"])
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Group type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="expense">Expenses</SelectItem>
+                            <SelectItem value="income">Income</SelectItem>
+                            <SelectItem value="asset">Assets</SelectItem>
+                            <SelectItem value="liability">Liabilities</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
                       <Select
-                        value={form.watch("newGroupType")}
-                        onValueChange={(value) =>
-                          form.setValue("newGroupType", value as AccountHeadFormValues["newGroupType"])
-                        }
+                        value={form.watch("accountGroupId")}
+                        onValueChange={(value) => {
+                          form.setValue("accountGroupId", value)
+                          form.setValue("semiSubGroupId", undefined)
+                          form.setValue("subGroupId", undefined)
+                          form.setValue("parentAccountHeadId", undefined)
+                        }}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Group type" />
+                          <SelectValue placeholder="Choose the top-level group" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="expense">Expenses</SelectItem>
-                          <SelectItem value="income">Income</SelectItem>
-                          <SelectItem value="asset">Assets</SelectItem>
-                          <SelectItem value="liability">Liabilities</SelectItem>
+                          {groups.map((group) => (
+                            <SelectItem key={group.id} value={group.id}>
+                              {group.name}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
-                    </div>
-                  ) : (
-                    <Select
-                      value={form.watch("accountGroupId")}
-                      onValueChange={(value) => {
-                        form.setValue("accountGroupId", value)
-                        form.setValue("semiSubGroupId", undefined)
-                        form.setValue("subGroupId", undefined)
-                        form.setValue("parentAccountHeadId", undefined)
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose the top-level group" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {groups.map((group) => (
-                          <SelectItem key={group.id} value={group.id}>
-                            {group.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Category</Label>
-                    <button
-                      type="button"
-                      className="text-sm font-medium text-slate-500 hover:text-slate-900"
-                      onClick={() => {
-                        setCreateSemiInline((value) => !value)
-                        form.setValue("semiSubGroupId", undefined)
-                      }}
-                    >
-                      {createSemiInline ? "Use existing category" : "Create new category"}
-                    </button>
+                    )}
                   </div>
-                  {createSemiInline ? (
-                    <Input placeholder="e.g. Office Expenses" {...form.register("newSemiSubGroupName")} />
-                  ) : (
-                    <Select
-                      value={form.watch("semiSubGroupId")}
-                      onValueChange={(value) => {
-                        form.setValue("semiSubGroupId", value)
-                        form.setValue("subGroupId", undefined)
-                        form.setValue("parentAccountHeadId", undefined)
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose the next category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {filteredSemiSubGroups.map((semiSubGroup) => (
-                          <SelectItem key={semiSubGroup.id} value={semiSubGroup.id}>
-                            {semiSubGroup.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Sub-Category</Label>
-                    <button
-                      type="button"
-                      className="text-sm font-medium text-slate-500 hover:text-slate-900"
-                      onClick={() => {
-                        setCreateSubInline((value) => !value)
-                        form.setValue("subGroupId", undefined)
-                      }}
-                    >
-                      {createSubInline ? "Use existing sub-category" : "Create new sub-category"}
-                    </button>
-                  </div>
-                  {createSubInline ? (
-                    <Input placeholder="e.g. Electricity Bills" {...form.register("newSubGroupName")} />
-                  ) : shouldAutoUseDuplicateSubGroup && duplicateNamedSubGroup ? (
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <p className="text-sm font-medium text-slate-900">{duplicateNamedSubGroup.name}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        This sub-category is already the same as the selected category, so it has been selected automatically.
-                      </p>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Category</Label>
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-slate-500 hover:text-slate-900"
+                        onClick={() => {
+                          setCreateSemiInline((value) => !value)
+                          form.setValue("semiSubGroupId", undefined)
+                        }}
+                      >
+                        {createSemiInline ? "Use existing category" : "Create new category"}
+                      </button>
                     </div>
-                  ) : (
-                    <Select
-                      value={form.watch("subGroupId")}
-                      onValueChange={(value) => {
-                        form.setValue("subGroupId", value)
-                        form.setValue("parentAccountHeadId", undefined)
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose the section where this belongs" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {filteredSubGroups.map((subGroup) => (
-                          <SelectItem key={subGroup.id} value={subGroup.id}>
-                            {subGroup.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
+                    {createSemiInline ? (
+                      <Input placeholder="e.g. Office Expenses" {...form.register("newSemiSubGroupName")} />
+                    ) : (
+                      <Select
+                        value={form.watch("semiSubGroupId")}
+                        onValueChange={(value) => {
+                          form.setValue("semiSubGroupId", value)
+                          form.setValue("subGroupId", undefined)
+                          form.setValue("parentAccountHeadId", undefined)
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose the next category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {filteredSemiSubGroups.map((semiSubGroup) => (
+                            <SelectItem key={semiSubGroup.id} value={semiSubGroup.id}>
+                              {semiSubGroup.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Sub-Category</Label>
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-slate-500 hover:text-slate-900"
+                        onClick={() => {
+                          setCreateSubInline((value) => !value)
+                          form.setValue("subGroupId", undefined)
+                        }}
+                      >
+                        {createSubInline ? "Use existing sub-category" : "Create new sub-category"}
+                      </button>
+                    </div>
+                    {createSubInline ? (
+                      <Input placeholder="e.g. Electricity Bills" {...form.register("newSubGroupName")} />
+                    ) : shouldAutoUseDuplicateSubGroup && duplicateNamedSubGroup ? (
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <p className="text-sm font-medium text-slate-900">{duplicateNamedSubGroup.name}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          This sub-category is already the same as the selected category, so it has been selected automatically.
+                        </p>
+                      </div>
+                    ) : (
+                      <Select
+                        value={form.watch("subGroupId")}
+                        onValueChange={(value) => {
+                          form.setValue("subGroupId", value)
+                          form.setValue("parentAccountHeadId", undefined)
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose the section where this belongs" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {filteredSubGroups.map((subGroup) => (
+                            <SelectItem key={subGroup.id} value={subGroup.id}>
+                              {subGroup.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </>
+              ) : null}
 
             <div className="space-y-2">
-              {selectedSubGroupId && parentOptions.length > 0 ? (
+              {selectedSubGroupId && (parentOptions.length > 0 || head?.parent_id) ? (
                 <div className="space-y-2">
                   <Label>Parent Account Head (Optional)</Label>
                   <Select
@@ -464,40 +478,39 @@ export function AddAccountHeadDialog({
               ) : null}
             </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="accountHeadName">Account Head Name</Label>
-                  <Input
-                    id="accountHeadName"
-                    {...form.register("accountHeadName")}
-                    placeholder="e.g. Electricity Bill"
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="accountHeadName">Account Head Name</Label>
+                <Input
+                  id="accountHeadName"
+                  {...form.register("accountHeadName")}
+                  placeholder="e.g. Electricity Bill"
+                />
+              </div>
 
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="openingBalance">Opening Balance</Label>
-                    <Input id="openingBalance" type="number" step="0.01" {...form.register("openingBalance")} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Balance Type</Label>
-                    <Select
-                      value={form.watch("balanceType")}
-                      onValueChange={(value) =>
-                        form.setValue("balanceType", value as AccountHeadFormValues["balanceType"])
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select balance type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="debit">Debit</SelectItem>
-                        <SelectItem value="credit">Credit</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="openingBalance">Opening Balance</Label>
+                  <Input id="openingBalance" type="number" step="0.01" {...form.register("openingBalance")} />
                 </div>
-              </>
-            ) : null}
+                <div className="space-y-2">
+                  <Label>Balance Type</Label>
+                  <Select
+                    value={form.watch("balanceType")}
+                    onValueChange={(value) =>
+                      form.setValue("balanceType", value as AccountHeadFormValues["balanceType"])
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select balance type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="debit">Debit</SelectItem>
+                      <SelectItem value="credit">Credit</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </>
           </div>
 
           <DialogFooter className="shrink-0 gap-3 border-t border-slate-200 bg-white px-6 py-4">

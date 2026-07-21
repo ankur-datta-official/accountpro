@@ -3,12 +3,18 @@
 import { useMemo, useState } from "react"
 import { Search } from "lucide-react"
 
-import { useChartOfAccounts, type ChartGroupFilter } from "@/lib/hooks/useChartOfAccounts"
+import {
+  useChartOfAccounts,
+  type ChartFlatAccount,
+  type ChartGroupFilter,
+  type ChartTreeGroup,
+  type ChartTreeHead,
+} from "@/lib/hooks/useChartOfAccounts"
 import { AddAccountHeadDialog } from "@/components/accounts/AddAccountHeadDialog"
 import { AccountTable } from "@/components/accounts/AccountTable"
 import { AccountTree } from "@/components/accounts/AccountTree"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Autocomplete } from "@/components/ui/autocomplete"
 import {
   Select,
   SelectContent,
@@ -18,10 +24,75 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 
+type AccountSearchOption = {
+  id: string
+  label: string
+  value: string
+  displayLabel: string
+}
+
+function buildSearchLabel(account: ChartFlatAccount) {
+  return `${account.name} - ${account.path.join(" > ")}`
+}
+
+function treeContainsSelectedHead(heads: ChartTreeHead[], selectedAccountId: string): boolean {
+  return heads.some(
+    (head) =>
+      head.id === selectedAccountId || treeContainsSelectedHead(head.children, selectedAccountId)
+  )
+}
+
+function filterTreeBySearch(
+  tree: ChartTreeGroup[],
+  groupFilter: ChartGroupFilter,
+  normalizedSearch: string,
+  selectedAccountId: string | null
+): ChartTreeGroup[] {
+  return tree
+    .filter((group) => groupFilter === "all" || group.type === groupFilter)
+    .map((group) => ({
+      ...group,
+      semiSubGroups: group.semiSubGroups
+        .map((semiSubGroup) => ({
+          ...semiSubGroup,
+          subGroups: semiSubGroup.subGroups
+            .map((subGroup) => ({
+              ...subGroup,
+              heads: subGroup.heads.filter((head) => {
+                if (selectedAccountId) {
+                  return treeContainsSelectedHead([head], selectedAccountId)
+                }
+
+                return (
+                  head.name.toLowerCase().includes(normalizedSearch) ||
+                  head.path.some((segment) => segment.toLowerCase().includes(normalizedSearch))
+                )
+              }),
+            }))
+            .filter(
+              (subGroup) =>
+                subGroup.heads.length > 0 ||
+                (!selectedAccountId && subGroup.name.toLowerCase().includes(normalizedSearch))
+            ),
+        }))
+        .filter(
+          (semiSubGroup) =>
+            semiSubGroup.subGroups.length > 0 ||
+            (!selectedAccountId && semiSubGroup.name.toLowerCase().includes(normalizedSearch))
+        ),
+    }))
+    .filter(
+      (group) =>
+        group.semiSubGroups.length > 0 ||
+        (!selectedAccountId && group.name.toLowerCase().includes(normalizedSearch))
+    )
+}
+
 export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
   const [view, setView] = useState<"tree" | "table">("tree")
   const [groupFilter, setGroupFilter] = useState<ChartGroupFilter>("all")
   const [search, setSearch] = useState("")
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
 
   const {
     tree,
@@ -34,54 +105,40 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
   } = useChartOfAccounts(clientId)
 
   const normalizedSearch = search.trim().toLowerCase()
+  const searchOptions = useMemo<AccountSearchOption[]>(
+    () =>
+      flatAccounts.map((account) => ({
+        id: account.id,
+        value: account.id,
+        label: buildSearchLabel(account),
+        displayLabel: account.name,
+      })),
+    [flatAccounts]
+  )
 
   const filteredTree = useMemo(() => {
-    return tree
-      .filter((group) => groupFilter === "all" || group.type === groupFilter)
-      .map((group) => ({
-        ...group,
-        semiSubGroups: group.semiSubGroups
-          .map((semiSubGroup) => ({
-            ...semiSubGroup,
-            subGroups: semiSubGroup.subGroups
-              .map((subGroup) => ({
-                ...subGroup,
-                heads: subGroup.heads.filter((head) =>
-                  head.name.toLowerCase().includes(normalizedSearch)
-                ),
-              }))
-              .filter(
-                (subGroup) =>
-                  subGroup.heads.length > 0 ||
-                  subGroup.name.toLowerCase().includes(normalizedSearch)
-              ),
-          }))
-          .filter(
-            (semiSubGroup) =>
-              semiSubGroup.subGroups.length > 0 ||
-              semiSubGroup.name.toLowerCase().includes(normalizedSearch)
-          ),
-      }))
-      .filter(
-        (group) =>
-          group.semiSubGroups.length > 0 ||
-          group.name.toLowerCase().includes(normalizedSearch)
-      )
-  }, [groupFilter, normalizedSearch, tree])
+    if (!normalizedSearch && !selectedAccountId) {
+      return tree.filter((group) => groupFilter === "all" || group.type === groupFilter)
+    }
+
+    return filterTreeBySearch(tree, groupFilter, normalizedSearch, selectedAccountId)
+  }, [groupFilter, normalizedSearch, selectedAccountId, tree])
 
   const filteredFlatAccounts = useMemo(
     () =>
       flatAccounts.filter((account) => {
         const matchesGroup = groupFilter === "all" || account.groupType === groupFilter
-        const matchesSearch =
-          !normalizedSearch ||
-          account.name.toLowerCase().includes(normalizedSearch) ||
-          account.subGroupName.toLowerCase().includes(normalizedSearch) ||
-          account.semiSubGroupName.toLowerCase().includes(normalizedSearch) ||
-          account.groupName.toLowerCase().includes(normalizedSearch)
+        const matchesSearch = selectedAccountId
+          ? account.id === selectedAccountId
+          : !normalizedSearch ||
+            account.name.toLowerCase().includes(normalizedSearch) ||
+            account.subGroupName.toLowerCase().includes(normalizedSearch) ||
+            account.semiSubGroupName.toLowerCase().includes(normalizedSearch) ||
+            account.groupName.toLowerCase().includes(normalizedSearch) ||
+            account.path.some((segment) => segment.toLowerCase().includes(normalizedSearch))
         return matchesGroup && matchesSearch
       }),
-    [flatAccounts, groupFilter, normalizedSearch]
+    [flatAccounts, groupFilter, normalizedSearch, selectedAccountId]
   )
 
   if (isLoading) {
@@ -122,10 +179,19 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
         <div className="grid gap-4 lg:grid-cols-[0.8fr_0.35fr_0.35fr]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="h-11 rounded-xl border-slate-200 pl-10"
+            <Autocomplete
+              options={searchOptions}
+              value={selectedAccountId ?? undefined}
+              onInputChange={(value) => {
+                setSearch(value)
+                setSelectedAccountId(null)
+              }}
+              onChange={(value) => {
+                setSelectedAccountId(value || null)
+                const selectedOption = searchOptions.find((option) => option.id === value)
+                setSearch(selectedOption?.displayLabel ?? "")
+              }}
+              inputClassName="pl-10"
               placeholder="Search by account name, category, or sub-category"
             />
           </div>

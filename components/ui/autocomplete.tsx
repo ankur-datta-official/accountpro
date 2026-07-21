@@ -18,6 +18,7 @@ interface AutocompleteProps {
   onInputChange?: (value: string) => void
   placeholder?: string
   className?: string
+  inputClassName?: string
   disabled?: boolean
 }
 
@@ -28,6 +29,7 @@ export function Autocomplete({
   onInputChange,
   placeholder = "Search...",
   className,
+  inputClassName,
   disabled = false,
 }: AutocompleteProps) {
   const [inputValue, setInputValue] = React.useState("")
@@ -81,7 +83,10 @@ export function Autocomplete({
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 200)}
           onKeyDown={handleKeyDown}
-          className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-10 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className={cn(
+            "flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 pr-10 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+            inputClassName
+          )}
           placeholder={placeholder}
           disabled={disabled}
         />
