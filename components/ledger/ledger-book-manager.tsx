@@ -526,7 +526,7 @@ export function LedgerBookManager({
               />
 
               {isSuggestionOpen && searchSuggestions.length > 0 ? (
-                <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                <div className="absolute left-0 top-[calc(100%+0.5rem)] z-20 w-full min-w-[min(32rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
                   <div className="border-b border-slate-100 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500">
                     Matching account heads
                   </div>
@@ -544,16 +544,16 @@ export function LedgerBookManager({
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => applySuggestion(suggestion.accountName)}
                       >
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p
-                            className={`truncate text-sm font-medium ${
+                            className={`break-words pr-2 text-sm font-medium leading-5 ${
                               index === highlightedSuggestionIndex ? "text-white" : "text-slate-950"
                             }`}
                           >
                             {suggestion.accountName}
                           </p>
                           <p
-                            className={`truncate text-xs ${
+                            className={`mt-1 break-words pr-2 text-xs leading-5 ${
                               index === highlightedSuggestionIndex ? "text-slate-300" : "text-slate-500"
                             }`}
                           >
