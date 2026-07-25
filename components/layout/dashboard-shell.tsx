@@ -61,6 +61,7 @@ import {
   buildLegacyClientRouteSegment,
   extractClientIdFromRouteSegment,
 } from "@/lib/routing/clients"
+import { AppLogo } from "@/components/branding/app-logo"
 import type { OrganizationMemberRole } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -478,13 +479,15 @@ function AppSidebar({
     <Sidebar collapsible="icon" className="border-r border-slate-200 bg-white print:hidden">
       <SidebarHeader className="gap-4 border-b border-slate-200 px-3 py-4">
         <Link href="/" className="flex items-center gap-3 rounded-lg px-2 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-sm font-semibold text-white">
-            DK
-          </div>
-          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <p className="truncate text-sm font-semibold text-slate-950">DKLedger</p>
-            <p className="truncate text-xs text-slate-500">{orgName}</p>
-          </div>
+          <AppLogo
+            className="min-w-0"
+            contentClassName="group-data-[collapsible=icon]:hidden"
+            iconClassName="h-10 w-10 rounded-xl"
+            titleClassName="text-base"
+            subtitleClassName="normal-case tracking-normal text-slate-500"
+            subtitle={orgName}
+            compact
+          />
         </Link>
         <ClientSwitcher clients={clients} currentClient={currentClient} />
       </SidebarHeader>

@@ -75,21 +75,23 @@ export default async function ClientDashboardPage({
       <section className="space-y-4">
         <div className="rounded-[1.9rem] border border-border bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(247,249,252,0.92))] p-5 shadow-surface sm:p-6">
           <div className="flex flex-col gap-4">
-            <div>
-              <h2 className="type-section-title text-text-primary">Financial Overview</h2>
-              <p className="mt-1 text-sm text-text-secondary">Key financial snapshot for</p>
-            </div>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <h2 className="type-section-title text-text-primary">Financial Overview</h2>
+                <p className="mt-1 text-sm text-text-secondary">Key financial snapshot for</p>
+              </div>
 
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              {dashboard.selectedPeriod ? (
-                <DashboardPeriodSelector
-                  value={dashboard.selectedPeriod.key}
-                  from={dashboard.selectedPeriod.customRange?.from ?? dashboard.selectedPeriod.startDate}
-                  to={dashboard.selectedPeriod.customRange?.to ?? dashboard.selectedPeriod.endDate}
-                  maxDate={dashboard.selectedPeriod.maxDate}
-                />
-              ) : null}
-              <DashboardComparisonSelector value={dashboard.comparison.key} options={dashboard.comparison.options} />
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-end">
+                {dashboard.selectedPeriod ? (
+                  <DashboardPeriodSelector
+                    value={dashboard.selectedPeriod.key}
+                    from={dashboard.selectedPeriod.customRange?.from ?? dashboard.selectedPeriod.startDate}
+                    to={dashboard.selectedPeriod.customRange?.to ?? dashboard.selectedPeriod.endDate}
+                    maxDate={dashboard.selectedPeriod.maxDate}
+                  />
+                ) : null}
+                <DashboardComparisonSelector value={dashboard.comparison.key} options={dashboard.comparison.options} />
+              </div>
             </div>
           </div>
 

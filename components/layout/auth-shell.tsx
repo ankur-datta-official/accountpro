@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { AppLogo } from "@/components/branding/app-logo"
 import { Card } from "@/components/ui/card"
 
 export function AuthShell({
@@ -12,15 +13,13 @@ export function AuthShell({
       <div className="mx-auto flex min-h-screen max-w-7xl items-center px-6 py-12 lg:px-10">
         <div className="grid w-full gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="flex flex-col justify-center rounded-[2rem] border border-slate-200/80 bg-white/70 p-8 shadow-sm backdrop-blur md:p-12">
-            <div className="mb-10 flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-lg font-semibold text-white">
-                DK
-              </div>
-              <div>
-                <p className="text-lg font-semibold text-slate-950">DKLedger</p>
-                <p className="text-sm text-slate-500">Accounting workspace for modern teams</p>
-              </div>
-            </div>
+            <AppLogo
+              className="mb-10"
+              iconClassName="h-14 w-14 rounded-[1.25rem]"
+              titleClassName="text-xl"
+              subtitle="Accounting workspace for modern teams"
+              subtitleClassName="tracking-[0.16em]"
+            />
 
             <div className="space-y-5">
               <p className="max-w-lg text-4xl font-semibold tracking-tight text-slate-950">
@@ -51,8 +50,13 @@ export function AuthShell({
 
           <Card className="border-slate-200/80 bg-white/95 p-6 shadow-xl shadow-slate-200/60 md:p-10">
             <div className="mb-8 flex items-center justify-between">
-              <Link href="/" className="text-sm font-medium text-slate-500 transition hover:text-slate-900">
-                DKLedger
+              <Link href="/" className="transition">
+                <AppLogo
+                  iconClassName="h-9 w-9 rounded-xl"
+                  titleClassName="text-sm"
+                  showSubtitle={false}
+                  compact
+                />
               </Link>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
                 Secure access

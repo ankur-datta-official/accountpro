@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { cn } from "@/lib/utils"
 import { Check, ChevronDown } from "lucide-react"
+
+import { cn } from "@/lib/utils"
 
 interface AutocompleteOption {
   value: string
@@ -21,6 +22,7 @@ interface AutocompleteProps {
   className?: string
   inputClassName?: string
   menuClassName?: string
+  optionVariant?: "default" | "hierarchy"
   disabled?: boolean
 }
 
@@ -56,7 +58,25 @@ function buildSecondaryLabel(option: AutocompleteOption) {
     return option.path[0]
   }
 
-  return option.path.slice(0, -1).join(" · ")
+  return option.path.slice(0, -1).join(" / ")
+}
+
+function buildHierarchySegments(option: AutocompleteOption) {
+  const path = option.path ?? []
+
+  if (!path.length) {
+    return {
+      primarySegments: [] as string[],
+      parentSegments: [] as string[],
+      fallbackLabel: option.label,
+    }
+  }
+
+  return {
+    primarySegments: path.slice(0, Math.min(3, Math.max(path.length - 1, 0))),
+    parentSegments: path.slice(3, -1),
+    fallbackLabel: path.slice(0, -1).join(" / "),
+  }
 }
 
 export function Autocomplete({
@@ -68,6 +88,7 @@ export function Autocomplete({
   className,
   inputClassName,
   menuClassName,
+  optionVariant = "default",
   disabled = false,
 }: AutocompleteProps) {
   const [inputValue, setInputValue] = React.useState("")
@@ -148,28 +169,54 @@ export function Autocomplete({
           )}
         >
           <ul className="w-full">
-            {filteredOptions.map((option) => (
-              <li
-                key={option.id}
-                onClick={() => handleOptionSelect(option)}
-                className={cn(
-                  "relative flex cursor-pointer select-none items-start gap-2 px-3 py-2.5 outline-none transition hover:bg-slate-50",
-                  option.id === value && "bg-slate-50"
-                )}
-              >
-                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-                  {option.id === value && <Check className="h-4 w-4" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-slate-950">
-                    {option.displayLabel ?? option.label}
-                  </p>
-                  <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">
-                    {buildSecondaryLabel(option)}
-                  </p>
-                </div>
-              </li>
-            ))}
+            {filteredOptions.map((option) => {
+              const hierarchy = buildHierarchySegments(option)
+
+              return (
+                <li
+                  key={option.id}
+                  onClick={() => handleOptionSelect(option)}
+                  className={cn(
+                    "relative flex cursor-pointer select-none items-start gap-2 px-3 py-2.5 outline-none transition hover:bg-slate-50",
+                    option.id === value && "bg-slate-50"
+                  )}
+                >
+                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+                    {option.id === value && <Check className="h-4 w-4" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-slate-950">
+                      {option.displayLabel ?? option.label}
+                    </p>
+                    {optionVariant === "hierarchy" ? (
+                      <div className="mt-1.5 space-y-1.5">
+                        {hierarchy.primarySegments.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {hierarchy.primarySegments.map((segment, segmentIndex) => (
+                              <span
+                                key={`${option.id}-${segment}-${segmentIndex}`}
+                                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium leading-4 text-slate-600"
+                              >
+                                {segment}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <p className="line-clamp-2 break-words text-xs leading-5 text-slate-500">
+                          {hierarchy.parentSegments.length > 0
+                            ? hierarchy.parentSegments.join(" / ")
+                            : hierarchy.fallbackLabel}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">
+                        {buildSecondaryLabel(option)}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}

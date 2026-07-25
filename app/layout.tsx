@@ -21,7 +21,12 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: "DKLedger",
-  description: "DKLedger",
+  description: "DKLedger keeps accounts, vouchers, ledgers, and reporting in one smart workspace.",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/apple-icon",
+  },
 }
 
 export default function RootLayout({

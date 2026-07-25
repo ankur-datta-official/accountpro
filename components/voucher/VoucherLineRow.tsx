@@ -162,6 +162,7 @@ export function VoucherLineRow({
             className="w-full"
             placeholder="Accounts Head"
             menuClassName="min-w-[min(34rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]"
+            optionVariant="hierarchy"
             options={accountOptions}
             value={line.accountHeadId}
             onChange={(accountId) => setValue(`lines.${index}.accountHeadId`, accountId)}

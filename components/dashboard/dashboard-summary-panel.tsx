@@ -42,22 +42,22 @@ export function DashboardSummaryPanel({
         <CardTitle className="type-section-title text-text-primary">{title}</CardTitle>
         {subtitle ? <p className="text-sm text-text-secondary">{subtitle}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-2.5">
         {metrics.map((metric) => (
           <div
             key={metric.key}
-            className="flex items-start justify-between gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-surface-page"
+            className="flex items-start justify-between gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-page"
           >
             <div className="min-w-0">
               <p className="text-sm font-medium text-text-secondary">{metric.label}</p>
-              <p className="mt-1 text-xs text-text-muted">{metric.periodLabel}</p>
+              <p className="mt-0.5 text-xs leading-4 text-text-muted">{metric.periodLabel}</p>
             </div>
             <div className="text-right">
               <p className={cn("financial-number text-sm font-semibold", metricToneClass(metric))}>
                 {metric.formattedValue}
               </p>
               {metric.state !== "ready" ? (
-                <p className="mt-1 text-xs text-text-muted">
+                <p className="mt-0.5 text-xs leading-4 text-text-muted">
                   {metric.state === "configurationRequired" ? "Configuration required" : "Unavailable"}
                 </p>
               ) : null}
@@ -101,23 +101,23 @@ export function ExpensesSummaryPanel({
         <CardTitle className="type-section-title text-text-primary">{title}</CardTitle>
         {subtitle ? <p className="text-sm text-text-secondary">{subtitle}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex items-start justify-between gap-4 rounded-2xl bg-surface-page px-4 py-4">
+      <CardContent className="space-y-3">
+        <div className="flex items-start justify-between gap-3 rounded-2xl bg-surface-page px-4 py-3">
           <div>
             <p className="text-sm font-medium text-text-secondary">{totalExpenses.label}</p>
-            <p className="mt-1 text-xs text-text-muted">{totalExpenses.periodLabel}</p>
+            <p className="mt-0.5 text-xs leading-4 text-text-muted">{totalExpenses.periodLabel}</p>
           </div>
           <p className="financial-number text-sm font-semibold text-warning-fg">{totalExpenses.formattedValue}</p>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {categories.length ? (
             categories.map((category) => (
-              <div key={category.label} className="flex items-start justify-between gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-surface-page">
+              <div key={category.label} className="flex items-start justify-between gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-page">
                 <p className="min-w-0 text-sm text-text-primary">{category.label}</p>
                 <div className="text-right">
                   <p className="financial-number text-sm font-semibold text-text-primary">{category.formattedAmount}</p>
-                  <p className="text-xs text-text-muted">{category.formattedShare}</p>
+                  <p className="text-xs leading-4 text-text-muted">{category.formattedShare}</p>
                 </div>
               </div>
             ))
