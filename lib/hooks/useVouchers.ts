@@ -23,6 +23,7 @@ export type VoucherFilters = {
 export type VoucherListItem = {
   id: string
   voucherNo: number
+  voucherTypeSerial: number
   voucherDate: string
   voucherType: VoucherType
   paymentModeName: string | null

@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/EmptyState"
 import { Input } from "@/components/ui/input"
 import { LoadingTable } from "@/components/ui/LoadingTable"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -34,6 +35,10 @@ function getTrialBalanceRowKey(groupName: string, accountHeadId: string, account
   return `${groupName}-${accountHeadId}-${accountHeadName}-${index}`
 }
 
+function getTrialBalanceGroupKey(accountGroupName: string, semiSubGroupName: string) {
+  return `${accountGroupName}::${semiSubGroupName}`
+}
+
 export function TrialBalanceManager({
   clientId,
   clientName,
@@ -52,6 +57,7 @@ export function TrialBalanceManager({
   const printRef = useRef<HTMLDivElement>(null)
   const [fromDate, setFromDate] = useState(defaultFrom)
   const [asOfDate, setAsOfDate] = useState(defaultTo)
+  const [selectedAccountGroup, setSelectedAccountGroup] = useState("all")
 
   const { data, isLoading } = useTrialBalance({
     clientId,
@@ -60,17 +66,49 @@ export function TrialBalanceManager({
     asOfDate,
   })
 
-  const groupedRows = (() => {
-    const map = new Map<string, typeof data.accounts>()
+  const accountGroupOptions = Array.from(
+    new Set(data.accounts.map((account) => account.groupName).filter(Boolean))
+  ).sort((left, right) => left.localeCompare(right))
 
-    for (const account of data.accounts) {
-      const key = account.semiSubGroupName ?? "Other"
-      const list = map.get(key) ?? []
+  const filteredAccounts =
+    selectedAccountGroup === "all"
+      ? data.accounts
+      : data.accounts.filter((account) => account.groupName === selectedAccountGroup)
+
+  const filteredTotalDebit = filteredAccounts.reduce((sum, row) => sum + row.debit, 0)
+  const filteredTotalCredit = filteredAccounts.reduce((sum, row) => sum + row.credit, 0)
+  const filteredDifference = Number(Math.abs(filteredTotalDebit - filteredTotalCredit).toFixed(2))
+  const filteredIsBalanced = filteredDifference === 0
+  const selectedAccountGroupLabel = selectedAccountGroup === "all" ? "All Account Groups" : selectedAccountGroup
+
+  const groupedRows = (() => {
+    const map = new Map<
+      string,
+      { accountGroupName: string; semiSubGroupName: string; rows: typeof filteredAccounts }
+    >()
+
+    for (const account of filteredAccounts) {
+      const accountGroupName = account.groupName ?? "Other"
+      const semiSubGroupName = account.semiSubGroupName ?? "Other"
+      const key = getTrialBalanceGroupKey(accountGroupName, semiSubGroupName)
+      const current = map.get(key)
+      const list = current?.rows ?? []
       list.push(account)
-      map.set(key, list)
+      map.set(key, {
+        accountGroupName,
+        semiSubGroupName,
+        rows: list,
+      })
     }
 
-    return Array.from(map.entries())
+    return Array.from(map.values()).sort((left, right) => {
+      const groupComparison = left.accountGroupName.localeCompare(right.accountGroupName)
+      if (groupComparison !== 0) {
+        return groupComparison
+      }
+
+      return left.semiSubGroupName.localeCompare(right.semiSubGroupName)
+    })
   })()
 
   const periodLabel = `${format(new Date(fromDate), "dd MMM yyyy")} - ${format(new Date(asOfDate), "dd MMM yyyy")}`
@@ -95,7 +133,7 @@ export function TrialBalanceManager({
             variant="outline"
             className="rounded-xl border-slate-200"
             onClick={() => void handlePrint()}
-            disabled={isLoading}
+            disabled={isLoading || filteredAccounts.length === 0}
           >
             <Printer className="mr-2 h-4 w-4" />
             Print
@@ -109,14 +147,14 @@ export function TrialBalanceManager({
                 clientName,
                 fiscalYearLabel,
                 periodLabel,
-                rows: data.accounts,
-                totalDebit: data.totalDebit,
-                totalCredit: data.totalCredit,
-                difference: data.difference,
-                isBalanced: data.isBalanced,
+                rows: filteredAccounts,
+                totalDebit: filteredTotalDebit,
+                totalCredit: filteredTotalCredit,
+                difference: filteredDifference,
+                isBalanced: filteredIsBalanced,
               })
             }
-            disabled={isLoading}
+            disabled={isLoading || filteredAccounts.length === 0}
           >
             <Download className="mr-2 h-4 w-4" />
             Export to Excel
@@ -130,15 +168,15 @@ export function TrialBalanceManager({
           <Badge
             variant="secondary"
             className={`rounded-full px-3 py-1 text-xs ${
-              data.isBalanced
+              filteredIsBalanced
                 ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
                 : "bg-red-100 text-red-700 hover:bg-red-100"
             }`}
           >
-            {data.isBalanced ? "Balanced" : `Unbalanced - Diff: ৳${amount(data.difference)}`}
+            {filteredIsBalanced ? "Balanced" : `Unbalanced - Diff: ৳${amount(filteredDifference)}`}
           </Badge>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
+        <CardContent className="grid gap-4 md:grid-cols-3">
           <div>
             <p className="mb-2 text-sm font-medium text-slate-700">From Date</p>
             <Input
@@ -157,17 +195,35 @@ export function TrialBalanceManager({
               className="h-11 rounded-xl border-slate-200"
             />
           </div>
+          <div>
+            <p className="mb-2 text-sm font-medium text-slate-700">Account Group</p>
+            <Select value={selectedAccountGroup} onValueChange={setSelectedAccountGroup}>
+              <SelectTrigger className="h-11 rounded-xl border-slate-200">
+                <SelectValue placeholder="Select account group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Account Groups</SelectItem>
+                {accountGroupOptions.map((groupName) => (
+                  <SelectItem key={groupName} value={groupName}>
+                    {groupName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
 
       <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl text-slate-950">Trial Balance Statement</CardTitle>
+          <p className="text-sm text-slate-500">Current view: {selectedAccountGroupLabel}</p>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Account Group</TableHead>
                 <TableHead>Semi-Sub Accounts Group</TableHead>
                 <TableHead>Account Head</TableHead>
                 <TableHead className="text-right">Debit</TableHead>
@@ -178,22 +234,23 @@ export function TrialBalanceManager({
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="p-0">
+                  <TableCell colSpan={6} className="p-0">
                     <LoadingTable
-                      columns={["Semi-Sub Accounts Group", "Account Head", "Debit", "Credit", "Balance"]}
+                      columns={["Account Group", "Semi-Sub Accounts Group", "Account Head", "Debit", "Credit", "Balance"]}
                       rows={10}
                     />
                   </TableCell>
                 </TableRow>
               ) : groupedRows.length ? (
-                groupedRows.map(([groupName, rows]) => {
+                groupedRows.map(({ accountGroupName, semiSubGroupName, rows }) => {
                   const subTotalDebit = rows.reduce((sum, row) => sum + row.debit, 0)
                   const subTotalCredit = rows.reduce((sum, row) => sum + row.credit, 0)
 
                   return (
-                    <Fragment key={groupName}>
+                    <Fragment key={getTrialBalanceGroupKey(accountGroupName, semiSubGroupName)}>
                       <TableRow className="bg-slate-100 font-semibold">
-                        <TableCell>{groupName}</TableCell>
+                        <TableCell>{accountGroupName}</TableCell>
+                        <TableCell>{semiSubGroupName}</TableCell>
                         <TableCell />
                         <TableCell className="text-right" />
                         <TableCell className="text-right" />
@@ -201,8 +258,14 @@ export function TrialBalanceManager({
                       </TableRow>
                       {rows.map((row, index) => (
                         <TableRow
-                          key={getTrialBalanceRowKey(groupName, row.accountHeadId, row.accountHeadName, index)}
+                          key={getTrialBalanceRowKey(
+                            getTrialBalanceGroupKey(accountGroupName, semiSubGroupName),
+                            row.accountHeadId,
+                            row.accountHeadName,
+                            index
+                          )}
                         >
+                          <TableCell />
                           <TableCell />
                           <TableCell>{row.accountHeadName}</TableCell>
                           <TableCell className="text-right">{amount(row.debit)}</TableCell>
@@ -211,6 +274,7 @@ export function TrialBalanceManager({
                         </TableRow>
                       ))}
                       <TableRow className="bg-slate-50 font-semibold">
+                        <TableCell />
                         <TableCell />
                         <TableCell>Subtotal</TableCell>
                         <TableCell className="text-right">{amount(subTotalDebit)}</TableCell>
@@ -222,11 +286,11 @@ export function TrialBalanceManager({
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-12">
+                  <TableCell colSpan={6} className="py-12">
                     <EmptyState
                       icon={FileSpreadsheet}
                       title="No trial balance data found"
-                      description="There are no trial balance rows for the selected period."
+                      description="There are no trial balance rows for the selected period and account group."
                     />
                   </TableCell>
                 </TableRow>
@@ -235,9 +299,10 @@ export function TrialBalanceManager({
             <tfoot>
               <TableRow className="bg-slate-100 font-semibold">
                 <TableCell />
+                <TableCell />
                 <TableCell className="text-right">Grand Total</TableCell>
-                <TableCell className="text-right">{amount(data.totalDebit)}</TableCell>
-                <TableCell className="text-right text-blue-700">{amount(data.totalCredit)}</TableCell>
+                <TableCell className="text-right">{amount(filteredTotalDebit)}</TableCell>
+                <TableCell className="text-right text-blue-700">{amount(filteredTotalCredit)}</TableCell>
                 <TableCell className="text-right">-</TableCell>
               </TableRow>
             </tfoot>
@@ -251,11 +316,12 @@ export function TrialBalanceManager({
           companyName={clientName}
           fiscalYearLabel={fiscalYearLabel}
           periodLabel={periodLabel}
-          rows={data.accounts}
-          totalDebit={data.totalDebit}
-          totalCredit={data.totalCredit}
-          isBalanced={data.isBalanced}
-          difference={data.difference}
+          selectedAccountGroupLabel={selectedAccountGroupLabel}
+          rows={filteredAccounts}
+          totalDebit={filteredTotalDebit}
+          totalCredit={filteredTotalCredit}
+          isBalanced={filteredIsBalanced}
+          difference={filteredDifference}
         />
       </div>
     </div>

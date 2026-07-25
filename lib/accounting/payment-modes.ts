@@ -362,53 +362,74 @@ async function findPreferredPaymentModeAccountHead({
   clientId: string
   paymentModeName: string
 }) {
-  const { data: assetGroup } = await supabase
-    .from("account_groups")
-    .select("id")
-    .eq("client_id", clientId)
-    .eq("name", "Current Assets")
-    .maybeSingle()
+  const preferredLocations = [
+    {
+      groupName: "Assets",
+      semiSubGroupName: "Current Assets",
+      subGroupName: "Cash & Cash Equivalents",
+    },
+    {
+      groupName: "Current Assets",
+      semiSubGroupName: "Cash & Bank Balance",
+      subGroupName: "Cash & Bank Balance",
+    },
+  ]
 
-  if (!assetGroup?.id) {
-    return null
+  for (const location of preferredLocations) {
+    const { data: assetGroup } = await supabase
+      .from("account_groups")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("name", location.groupName)
+      .maybeSingle()
+
+    if (!assetGroup?.id) {
+      continue
+    }
+
+    const { data: semiSubGroup } = await supabase
+      .from("account_semi_sub_groups")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("group_id", assetGroup.id)
+      .eq("name", location.semiSubGroupName)
+      .maybeSingle()
+
+    if (!semiSubGroup?.id) {
+      continue
+    }
+
+    const { data: subGroup } = await supabase
+      .from("account_sub_groups")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("semi_sub_id", semiSubGroup.id)
+      .eq("name", location.subGroupName)
+      .maybeSingle()
+
+    if (!subGroup?.id) {
+      continue
+    }
+
+    const { data: accountHead } = await supabase
+      .from("account_heads")
+      .select("id, client_id, name, is_active, type, sub_group_id")
+      .eq("client_id", clientId)
+      .eq("sub_group_id", subGroup.id)
+      .eq("name", paymentModeName)
+      .maybeSingle()
+
+    const repairedHead = await repairLegacyPaymentModeAccountHeadType(supabase, {
+      clientId,
+      accountHead: (accountHead as PaymentModeAccountHead | null) ?? null,
+    })
+
+    if (repairedHead) {
+      return repairedHead
+    }
   }
 
-  const { data: semiSubGroup } = await supabase
-    .from("account_semi_sub_groups")
-    .select("id")
-    .eq("client_id", clientId)
-    .eq("group_id", assetGroup.id)
-    .eq("name", "Cash & Bank Balance")
-    .maybeSingle()
-
-  if (!semiSubGroup?.id) {
-    return null
-  }
-
-  const { data: subGroup } = await supabase
-    .from("account_sub_groups")
-    .select("id")
-    .eq("client_id", clientId)
-    .eq("semi_sub_id", semiSubGroup.id)
-    .eq("name", "Cash & Bank Balance")
-    .maybeSingle()
-
-  if (!subGroup?.id) {
-    return null
-  }
-
-  const { data: accountHead } = await supabase
-    .from("account_heads")
-    .select("id, client_id, name, is_active, type, sub_group_id")
-    .eq("client_id", clientId)
-    .eq("sub_group_id", subGroup.id)
-    .eq("name", paymentModeName)
-    .maybeSingle()
-
-  return repairLegacyPaymentModeAccountHeadType(supabase, {
-    clientId,
-    accountHead: (accountHead as PaymentModeAccountHead | null) ?? null,
-  })
+  return null
 }
 
 async function repairPaymentModeAccountLink({

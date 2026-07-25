@@ -53,13 +53,12 @@ export default async function EditVoucherPage({
     notFound()
   }
 
-  const editableEntries = entryRows.filter((entry: VoucherEntryRecord) => !isAutoBalanceEntry(entry.description))
-  const formEntries = (editableEntries.length ? editableEntries : entryRows).map((entry: VoucherEntryRecord) => ({
+  const formEntries = entryRows.map((entry: VoucherEntryRecord) => ({
     accountsGroup: (entry.accounts_group ?? "expense") as "expense" | "income" | "asset" | "liability",
     accountHeadId: entry.account_head_id ?? "",
     debitAmount: Number(entry.debit ?? 0),
     creditAmount: Number(entry.credit ?? 0),
-    description: entry.description ?? "",
+    description: isAutoBalanceEntry(entry.description) ? "" : entry.description ?? "",
   }))
 
   return (

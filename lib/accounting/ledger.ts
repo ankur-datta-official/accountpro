@@ -4,6 +4,7 @@ export type LedgerEntryInput = {
   id: string
   date: string
   voucherNo: number
+  voucherTypeSerial: number
   voucherType: VoucherType
   paymentMode: string | null
   description: string | null

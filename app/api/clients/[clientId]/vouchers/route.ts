@@ -24,6 +24,7 @@ const vouchersQuerySchema = z.object({
 type VoucherListItem = {
   id: string
   voucherNo: number
+  voucherTypeSerial: number
   voucherDate: string
   voucherType: VoucherType
   paymentModeName: string | null
@@ -157,6 +158,37 @@ export async function GET(
     ? (vouchers ?? [] as Voucher[]).filter((voucher: Voucher) => matchingVoucherIds.has(voucher.id))
     : (vouchers ?? [] as Voucher[])
 
+  const voucherTypeSerialMap = new Map<string, number>()
+  const voucherTypeSerialById = new Map<string, number>()
+  const serializedVouchers = [...filteredVouchers].sort((left: Voucher, right: Voucher) => {
+    const leftTime = new Date(left.voucher_date).getTime()
+    const rightTime = new Date(right.voucher_date).getTime()
+
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime
+    }
+
+    const leftCreated = new Date(left.created_at ?? left.voucher_date).getTime()
+    const rightCreated = new Date(right.created_at ?? right.voucher_date).getTime()
+
+    if (leftCreated !== rightCreated) {
+      return leftCreated - rightCreated
+    }
+
+    if (left.voucher_no !== right.voucher_no) {
+      return left.voucher_no - right.voucher_no
+    }
+
+    return left.id.localeCompare(right.id)
+  })
+
+  for (const voucher of serializedVouchers) {
+    const currentCount = voucherTypeSerialMap.get(voucher.voucher_type) ?? 0
+    const nextCount = currentCount + 1
+    voucherTypeSerialMap.set(voucher.voucher_type, nextCount)
+    voucherTypeSerialById.set(voucher.id, nextCount)
+  }
+
   const filteredIds = new Set(filteredVouchers.map((voucher: Voucher) => voucher.id))
   const filteredEntries = (entries ?? [] as VoucherEntry[]).filter((entry: VoucherEntry) => filteredIds.has(entry.voucher_id ?? ""))
 
@@ -207,6 +239,7 @@ export async function GET(
     return {
       id: voucher.id,
       voucherNo: voucher.voucher_no,
+      voucherTypeSerial: voucherTypeSerialById.get(voucher.id) ?? 1,
       voucherDate: voucher.voucher_date,
       voucherType: voucher.voucher_type,
       paymentModeName: paymentModeMap.get(voucher.payment_mode_id ?? "") ?? null,

@@ -11,6 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { MetricCard, PageHeader } from "@/components/ui/page-shell"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getClientTypeLabel } from "@/lib/accounting/clients"
+import {
+  buildVoucherTypeSerialMap,
+  formatVoucherDisplayNumber,
+  type VoucherSerialSource,
+} from "@/lib/accounting/vouchers"
 import { buildClientPath, buildClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 
@@ -66,7 +71,7 @@ export default async function DashboardPage() {
     clientIds.length
       ? supabase
           .from("vouchers")
-          .select("*")
+          .select("id,client_id,fiscal_year_id,voucher_date,voucher_no,voucher_type,description,created_at")
           .in("client_id", clientIds)
           .order("voucher_date", { ascending: false })
           .limit(20)
@@ -75,6 +80,9 @@ export default async function DashboardPage() {
   ])
 
   const recentVoucherIds = (recentVouchers ?? []).map((voucher) => voucher.id)
+  const recentVoucherSerialById = buildVoucherTypeSerialMap(
+    ((recentVouchers ?? []) as VoucherSerialSource[])
+  )
   const { data: recentEntries } = recentVoucherIds.length
     ? await supabase.from("voucher_entries").select("*").in("voucher_id", recentVoucherIds)
     : { data: [] }
@@ -249,7 +257,10 @@ export default async function DashboardPage() {
                         )}
                         className="font-medium text-slate-900 hover:underline"
                       >
-                        #{voucher.voucher_no}
+                        {formatVoucherDisplayNumber(
+                          voucher.voucher_type,
+                          recentVoucherSerialById.get(voucher.id) ?? voucher.voucher_no
+                        )}
                       </Link>
                     </TableCell>
                     <TableCell>{voucher.voucher_date}</TableCell>

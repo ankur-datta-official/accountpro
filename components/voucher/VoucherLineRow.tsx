@@ -85,6 +85,7 @@ export function VoucherLineRow({
     value: account.id,
     label: account.label,
     displayLabel: account.name,
+    path: account.path,
   }))
   const debitLocked = isDebitLockedForAccountsGroup(line.accountsGroup)
   const creditLocked = isCreditLockedForAccountsGroup(line.accountsGroup)
@@ -160,6 +161,7 @@ export function VoucherLineRow({
             disabled={disabled}
             className="w-full"
             placeholder="Accounts Head"
+            menuClassName="min-w-[min(34rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]"
             options={accountOptions}
             value={line.accountHeadId}
             onChange={(accountId) => setValue(`lines.${index}.accountHeadId`, accountId)}

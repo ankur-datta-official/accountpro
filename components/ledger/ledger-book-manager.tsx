@@ -14,6 +14,7 @@ import {
 import { useReactToPrint } from "react-to-print"
 
 import { LedgerPrint, type PrintableLedgerSection } from "@/components/ledger/LedgerPrint"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/EmptyState"
@@ -36,6 +37,12 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { signedBalanceToLabel } from "@/lib/accounting/ledger"
+import {
+  formatVoucherDisplayNumber,
+  getVoucherRegisterRowClass,
+  getVoucherTypeBadgeClass,
+  getVoucherTypeLabel,
+} from "@/lib/accounting/vouchers"
 import { useLedgerDataset } from "@/lib/hooks/useLedgerDataset"
 import { exportLedgerBook } from "@/lib/utils/export"
 
@@ -143,12 +150,21 @@ function LedgerSection({
               </TableRow>
 
               {section.rows.map((entry) => (
-                <TableRow key={entry.id} className="border-slate-100 hover:bg-slate-50/60">
+                <TableRow
+                  key={entry.id}
+                  className={`border-slate-100 transition-colors ${getVoucherRegisterRowClass(entry.voucherType)}`}
+                >
                   <TableCell className="py-3 text-slate-900">
                     {format(new Date(entry.date), "dd MMM yyyy")}
                   </TableCell>
-                  <TableCell className="py-3 font-medium text-slate-950">#{entry.voucherNo}</TableCell>
-                  <TableCell className="py-3 uppercase text-slate-600">{entry.voucherType}</TableCell>
+                  <TableCell className="py-3 font-medium text-slate-950">
+                    {formatVoucherDisplayNumber(entry.voucherType, entry.voucherTypeSerial)}
+                  </TableCell>
+                  <TableCell className="py-3">
+                    <Badge className={`rounded-full ${getVoucherTypeBadgeClass(entry.voucherType)}`}>
+                      {getVoucherTypeLabel(entry.voucherType)}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="py-3 text-slate-600">{entry.paymentMode ?? "-"}</TableCell>
                   <TableCell className="max-w-[340px] py-3 text-sm text-slate-700">
                     <p className="truncate">{entry.description ?? "-"}</p>
@@ -275,27 +291,36 @@ export function LedgerBookManager({
     fiscalYears[0]
 
   const periodLabel = `${format(new Date(fromDate), "dd MMM yyyy")} - ${format(new Date(toDate), "dd MMM yyyy")}`
+  const accountSummaries = dataset?.accounts ?? []
+  const sections = dataset?.sections ?? []
+  const sectionById = useMemo(
+    () => new Map(sections.map((section) => [section.accountHeadId, section])),
+    [sections]
+  )
 
   const searchSuggestions = useMemo(() => {
     const search = accountSearch.trim().toLowerCase()
-    const sections = dataset?.sections ?? []
+    const searchableAccounts = accountSummaries
 
     if (!search) {
-      return sections
-        .sort((left, right) => right.rows.length - left.rows.length || left.accountName.localeCompare(right.accountName))
+      return [...searchableAccounts].sort(
+        (left, right) => right.rowCount - left.rowCount || left.accountName.localeCompare(right.accountName)
+      )
     }
 
-    const scored = sections
-      .map((section) => {
-        const accountName = section.accountName.toLowerCase()
-        const groupName = section.groupName.toLowerCase()
+    const scored = searchableAccounts
+      .map((account) => {
+        const accountName = account.accountName.toLowerCase()
+        const groupName = account.groupName.toLowerCase()
+        const hierarchyLabel = account.hierarchyLabel.toLowerCase()
         const exactStarts = accountName.startsWith(search) ? 3 : 0
         const accountMatch = accountName.includes(search) ? 2 : 0
         const groupMatch = groupName.includes(search) ? 1 : 0
-        const score = exactStarts + accountMatch + groupMatch
+        const hierarchyMatch = hierarchyLabel.includes(search) ? 1 : 0
+        const score = exactStarts + accountMatch + groupMatch + hierarchyMatch
 
         return {
-          section,
+          account,
           score,
         }
       })
@@ -305,31 +330,35 @@ export function LedgerBookManager({
           return right.score - left.score
         }
 
-        if (right.section.rows.length !== left.section.rows.length) {
-          return right.section.rows.length - left.section.rows.length
+        if (right.account.rowCount !== left.account.rowCount) {
+          return right.account.rowCount - left.account.rowCount
         }
 
-        return left.section.accountName.localeCompare(right.section.accountName)
+        return left.account.accountName.localeCompare(right.account.accountName)
       })
-      .map((item) => item.section)
+      .map((item) => item.account)
 
     return scored
-  }, [accountSearch, dataset?.sections])
+  }, [accountSearch, accountSummaries])
 
   const filteredSections = useMemo<PrintableLedgerSection[]>(() => {
-    const sections = dataset?.sections ?? []
     const search = deferredSearch.trim().toLowerCase()
+    const showAllAccounts = search.length > 0
 
-    const scoped = sections.filter((section) => {
-      if (!search) {
-        return true
-      }
+    const scoped = accountSummaries
+      .filter((account) => {
+        if (!showAllAccounts) {
+          return account.rowCount > 0
+        }
 
-      return (
-        section.accountName.toLowerCase().includes(search) ||
-        section.groupName.toLowerCase().includes(search)
-      )
-    })
+        return (
+          account.accountName.toLowerCase().includes(search) ||
+          account.groupName.toLowerCase().includes(search) ||
+          account.hierarchyLabel.toLowerCase().includes(search)
+        )
+      })
+      .map((account) => sectionById.get(account.accountHeadId))
+      .filter((section): section is PrintableLedgerSection => Boolean(section))
 
     return [...scoped].sort((left, right) => {
       if (sortBy === "name") {
@@ -342,7 +371,7 @@ export function LedgerBookManager({
 
       return right.rows.length - left.rows.length || left.accountName.localeCompare(right.accountName)
     })
-  }, [dataset?.sections, deferredSearch, sortBy])
+  }, [accountSummaries, deferredSearch, sectionById, sortBy])
 
   const visibleSections = filteredSections
 
@@ -391,7 +420,7 @@ export function LedgerBookManager({
         openingBalance: section.openingBalanceLabel,
         rows: section.rows.map((entry) => ({
           date: entry.date,
-          voucherNo: entry.voucherNo,
+          voucherNo: formatVoucherDisplayNumber(entry.voucherType, entry.voucherTypeSerial),
           voucherType: entry.voucherType.toUpperCase(),
           paymentMode: entry.paymentMode ?? "",
           description: entry.description ?? "",
@@ -557,7 +586,7 @@ export function LedgerBookManager({
                               index === highlightedSuggestionIndex ? "text-slate-300" : "text-slate-500"
                             }`}
                           >
-                            {suggestion.groupName} | {suggestion.rows.length} rows
+                            {suggestion.hierarchyLabel} | {suggestion.rowCount} rows
                           </p>
                         </div>
                         <ArrowRight
@@ -665,8 +694,10 @@ export function LedgerBookManager({
                     : `Showing ${visibleSections.length} accounts for ${periodLabel}`}
                 </p>
               </div>
-                <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                Scroll down for all account tables
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                {accountSearch.trim()
+                  ? "Search can open any account head, including blank ones"
+                  : "Default view shows only account heads with ledger rows"}
               </div>
             </CardContent>
           </Card>
@@ -690,7 +721,7 @@ export function LedgerBookManager({
                   description={
                     accountSearch
                       ? "Try clearing your search or adjusting the date filters."
-                      : "There are no account heads available for the selected fiscal year and date range."
+                      : "No account heads with posted ledger rows were found for the selected fiscal year and date range."
                   }
                 />
               </CardContent>

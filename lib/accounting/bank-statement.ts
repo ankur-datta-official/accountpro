@@ -1,12 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 import { resolveMappedPaymentModeAccount, type PaymentModeAccountHead } from "@/lib/accounting/payment-modes"
+import { buildVoucherTypeSerialMap, isAutoBalanceEntry } from "@/lib/accounting/vouchers"
 import type { Database } from "@/lib/types"
 
 export type BankStatementRow = {
   id: string
   date: string
   voucherNo: number
+  voucherTypeSerial: number
   accountHead: string
   description: string
   debit: number
@@ -25,7 +27,7 @@ export type BankStatementResult = {
 
 type VoucherRow = Pick<
   Database["public"]["Tables"]["vouchers"]["Row"],
-  "id" | "voucher_date" | "voucher_no" | "description"
+  "id" | "client_id" | "fiscal_year_id" | "voucher_date" | "voucher_no" | "voucher_type" | "created_at" | "description"
 >
 
 type VoucherEntryRow = Pick<
@@ -126,9 +128,10 @@ export function buildBankStatementResult({
       })
       .filter((item): item is [string, VoucherRow] => Boolean(item))
   )
+  const voucherTypeSerialById = buildVoucherTypeSerialMap([...voucherMap.values()])
 
   const selectedEntries = entries
-    .filter((entry) => entry.account_head_id === accountHead.id)
+    .filter((entry) => entry.account_head_id === accountHead.id && !isAutoBalanceEntry(entry.description))
     .map((entry) => {
       const voucher = voucherMap.get(entry.voucher_id ?? "")
       if (!voucher) {
@@ -139,6 +142,7 @@ export function buildBankStatementResult({
         id: entry.id,
         date: voucher.voucher_date,
         voucherNo: voucher.voucher_no,
+        voucherTypeSerial: voucherTypeSerialById.get(voucher.id) ?? voucher.voucher_no,
         accountHead: accountHead.name,
         description: entry.description || voucher.description || "",
         debit: Number(entry.debit ?? 0),

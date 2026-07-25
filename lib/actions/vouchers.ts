@@ -5,7 +5,10 @@ import { z } from "zod"
 
 import { getMonthLabel } from "@/lib/accounting/fiscal-year"
 import { resolveOrCreatePaymentMode, resolvePaymentModeAccountHead } from "@/lib/accounting/payment-modes"
+import { openingBalanceToSignedAmount } from "@/lib/accounting/ledger"
 import {
+  getVoucherLineSignedDelta,
+  validateNonNegativeProjectedBalance,
   runAtomicVoucherOperation,
   validateVoucherAccountHeads,
   validateVoucherDateInFiscalYear,
@@ -16,7 +19,6 @@ import {
   getVoucherLineAmountRuleError,
   normalizeVoucherLineAmounts,
 } from "@/lib/accounting/voucher-entry-rules"
-import { AUTO_BALANCE_ENTRY_PREFIX } from "@/lib/accounting/vouchers"
 import { extractClientIdFromRouteSegment, isUuid, matchesClientRouteSegment } from "@/lib/routing/clients"
 import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 import type { Database, PaymentModeType } from "@/lib/types"
@@ -91,6 +93,7 @@ type AccountHeadRow = Database["public"]["Tables"]["account_heads"]["Row"]
 type VoucherRow = Database["public"]["Tables"]["vouchers"]["Row"]
 type VoucherEntryRow = Database["public"]["Tables"]["voucher_entries"]["Row"]
 type FiscalYearRow = Database["public"]["Tables"]["fiscal_years"]["Row"]
+type PaymentModeRow = Database["public"]["Tables"]["payment_modes"]["Row"]
 
 type VoucherReversalSeed = Pick<
   VoucherRow,
@@ -185,14 +188,6 @@ async function getValidatedVoucherContext(clientId: string, fiscalYearId: string
       userId: user?.id ?? null,
     } satisfies ValidatedContext,
   }
-}
-
-function getEntryTotals(lines: CreateVoucherInput["lines"]) {
-  const totalDebit = lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0)
-  const totalCredit = lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0)
-  const difference = Number((totalDebit - totalCredit).toFixed(2))
-
-  return { totalDebit, totalCredit, difference }
 }
 
 function validateVoucherLineRules(lines: CreateVoucherInput["lines"]) {
@@ -293,23 +288,16 @@ async function getVoucherNumber(
   return duplicateVoucher ? nextVoucherNo : requestedVoucherNo
 }
 
-async function buildVoucherEntries(
-  supabase: ServerSupabase,
+function buildVoucherEntries(
   {
-    clientId,
     voucherId,
-    paymentMode,
     lines,
-    requiresAutoBalance,
   }: {
-    clientId: string
     voucherId: string
-    paymentMode?: Database["public"]["Tables"]["payment_modes"]["Row"]
     lines: CreateVoucherInput["lines"]
-    requiresAutoBalance: boolean
   }
 ) {
-  const voucherEntries: Database["public"]["Tables"]["voucher_entries"]["Insert"][] = lines.map(
+  return lines.map(
     (line) => ({
       voucher_id: voucherId,
       account_head_id: line.accountHeadId,
@@ -319,15 +307,25 @@ async function buildVoucherEntries(
       description: line.description || null,
     })
   )
+}
 
-  if (!requiresAutoBalance) {
-    return { success: true as const, entries: voucherEntries }
-  }
-
-  if (!paymentMode) {
+async function validateExplicitPaymentModeLine({
+  supabase,
+  clientId,
+  voucherType,
+  paymentMode,
+  lines,
+}: {
+  supabase: ServerSupabase
+  clientId: string
+  voucherType: CreateVoucherInput["voucherType"]
+  paymentMode: PaymentModeRow | null
+  lines: CreateVoucherInput["lines"]
+}) {
+  if (!paymentMode || (voucherType !== "payment" && voucherType !== "received")) {
     return {
-      success: false as const,
-      error: "Payment mode is required for unbalanced payment or received vouchers.",
+      success: true as const,
+      paymentModeHeadId: null,
     }
   }
 
@@ -344,26 +342,185 @@ async function buildVoucherEntries(
   }
 
   const paymentModeHead = resolvedPaymentModeHead.accountHead
+  const paymentModeNetMovement = lines
+    .filter((line) => line.accountHeadId === paymentModeHead.id)
+    .reduce((sum, line) => sum + getVoucherLineSignedDelta(line), 0)
 
-  if (lines.some((line) => line.accountHeadId === paymentModeHead.id)) {
+  if (paymentModeNetMovement === 0) {
     return {
       success: false as const,
-      error: "Add the payment-mode account explicitly or let the system balance it, but do not do both.",
+      error: `${paymentModeHead.name} must be added as an explicit voucher line for the selected payment mode.`,
     }
   }
 
-  const { difference } = getEntryTotals(lines)
+  if (voucherType === "payment" && paymentModeNetMovement >= 0) {
+    return {
+      success: false as const,
+      error: `Payment vouchers must credit ${paymentModeHead.name} for the selected payment mode.`,
+    }
+  }
 
-  voucherEntries.push({
-    voucher_id: voucherId,
-    account_head_id: paymentModeHead.id,
-    accounts_group: "asset",
-    debit: difference < 0 ? Math.abs(difference) : 0,
-    credit: difference > 0 ? Math.abs(difference) : 0,
-    description: `${AUTO_BALANCE_ENTRY_PREFIX}${paymentMode.name}`,
-  })
+  if (voucherType === "received" && paymentModeNetMovement <= 0) {
+    return {
+      success: false as const,
+      error: `Received vouchers must debit ${paymentModeHead.name} for the selected payment mode.`,
+    }
+  }
 
-  return { success: true as const, entries: voucherEntries }
+  return {
+    success: true as const,
+    paymentModeHeadId: paymentModeHead.id,
+  }
+}
+
+async function validateVoucherDoesNotOverdrawLinkedAccounts({
+  supabase,
+  clientId,
+  voucherDate,
+  lines,
+  excludeVoucherId,
+}: {
+  supabase: ServerSupabase
+  clientId: string
+  voucherDate: string
+  lines: CreateVoucherInput["lines"]
+  excludeVoucherId?: string
+}) {
+  const signedMovementByHead = new Map<string, number>()
+
+  for (const line of lines) {
+    const nextMovement = (signedMovementByHead.get(line.accountHeadId) ?? 0) + getVoucherLineSignedDelta(line)
+    signedMovementByHead.set(line.accountHeadId, Number(nextMovement.toFixed(2)))
+  }
+
+  const potentiallyReducingHeadIds = Array.from(signedMovementByHead.entries())
+    .filter(([, signedMovement]) => signedMovement < 0)
+    .map(([accountHeadId]) => accountHeadId)
+
+  if (!potentiallyReducingHeadIds.length) {
+    return {
+      success: true as const,
+    }
+  }
+
+  const { data: linkedPaymentModes, error: paymentModesError } = await supabase
+    .from("payment_modes")
+    .select("id, name, account_head_id")
+    .eq("client_id", clientId)
+    .in("account_head_id", potentiallyReducingHeadIds)
+
+  if (paymentModesError) {
+    return {
+      success: false as const,
+      error: paymentModesError.message ?? "Unable to validate payment account balances.",
+    }
+  }
+
+  const guardedHeadIds = Array.from(
+    new Set((linkedPaymentModes ?? []).map((mode) => mode.account_head_id).filter(Boolean) as string[])
+  )
+
+  if (!guardedHeadIds.length) {
+    return {
+      success: true as const,
+    }
+  }
+
+  const { data: accountHeads, error: accountHeadsError } = await supabase
+    .from("account_heads")
+    .select("id, client_id, name, opening_balance, balance_type, type")
+    .eq("client_id", clientId)
+    .in("id", guardedHeadIds)
+
+  if (accountHeadsError) {
+    return {
+      success: false as const,
+      error: accountHeadsError.message ?? "Unable to load payment account balances.",
+    }
+  }
+
+  let entryQuery = supabase
+    .from("voucher_entries")
+    .select("account_head_id, debit, credit, vouchers!inner(id, client_id, voucher_date)")
+    .in("account_head_id", guardedHeadIds)
+    .eq("vouchers.client_id", clientId)
+    .lte("vouchers.voucher_date", voucherDate)
+
+  if (excludeVoucherId) {
+    entryQuery = entryQuery.neq("voucher_id", excludeVoucherId)
+  }
+
+  const { data: historicalEntries, error: entriesError } = await entryQuery
+
+  if (entriesError) {
+    return {
+      success: false as const,
+      error: entriesError.message ?? "Unable to calculate the current payment account balances.",
+    }
+  }
+
+  const historicalBalanceByHead = new Map<string, number>()
+
+  for (const accountHead of (accountHeads ?? []) as Array<
+    Pick<AccountHeadRow, "id" | "name" | "client_id" | "opening_balance" | "balance_type" | "type">
+  >) {
+    historicalBalanceByHead.set(
+      accountHead.id,
+      openingBalanceToSignedAmount({
+        openingBalance: Number(accountHead.opening_balance ?? 0),
+        balanceType: accountHead.balance_type ?? "debit",
+        groupType: accountHead.type ?? "asset",
+      })
+    )
+  }
+
+  for (const entry of (historicalEntries ?? []) as Array<
+    Pick<VoucherEntryRow, "account_head_id" | "debit" | "credit">
+  >) {
+    const accountHeadId = entry.account_head_id
+
+    if (!accountHeadId || !historicalBalanceByHead.has(accountHeadId)) {
+      continue
+    }
+
+    const nextBalance =
+      (historicalBalanceByHead.get(accountHeadId) ?? 0) + Number(entry.debit ?? 0) - Number(entry.credit ?? 0)
+    historicalBalanceByHead.set(accountHeadId, Number(nextBalance.toFixed(2)))
+  }
+
+  const paymentModeNameByHead = new Map<string, string>(
+    ((linkedPaymentModes ?? []) as Array<Pick<PaymentModeRow, "name" | "account_head_id">>)
+      .filter((mode) => Boolean(mode.account_head_id))
+      .map((mode) => [mode.account_head_id as string, mode.name])
+  )
+
+  for (const accountHead of (accountHeads ?? []) as Array<
+    Pick<AccountHeadRow, "id" | "name" | "opening_balance" | "balance_type" | "type">
+  >) {
+    const signedMovement = signedMovementByHead.get(accountHead.id) ?? 0
+
+    if (signedMovement >= 0) {
+      continue
+    }
+
+    const currentBalance = historicalBalanceByHead.get(accountHead.id) ?? 0
+    const nonNegativeValidation = validateNonNegativeProjectedBalance({
+      accountName: paymentModeNameByHead.get(accountHead.id) ?? accountHead.name,
+      currentBalance,
+      signedMovement,
+    })
+
+    if (!nonNegativeValidation.ok) {
+      return {
+        success: false as const,
+        error: nonNegativeValidation.error,
+      }
+    }
+  }
+
+  return {
+    success: true as const,
+  }
 }
 
 function revalidateVoucherPaths(clientId: string, voucherId?: string) {
@@ -716,6 +873,29 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     return paymentModeResult
   }
 
+  const explicitPaymentModeLineValidation = await validateExplicitPaymentModeLine({
+    supabase,
+    clientId: client.id,
+    voucherType: values.voucherType,
+    paymentMode: paymentModeResult?.paymentMode ?? null,
+    lines: values.lines,
+  })
+
+  if (!explicitPaymentModeLineValidation.success) {
+    return explicitPaymentModeLineValidation
+  }
+
+  const nonNegativeBalanceValidation = await validateVoucherDoesNotOverdrawLinkedAccounts({
+    supabase,
+    clientId: client.id,
+    voucherDate: values.voucherDate,
+    lines: values.lines,
+  })
+
+  if (!nonNegativeBalanceValidation.success) {
+    return nonNegativeBalanceValidation
+  }
+
   const voucherNo = await getVoucherNumber(supabase, {
     clientId: client.id,
     fiscalYearId: fiscalYear.id,
@@ -755,22 +935,14 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     }
   }
 
-  const entryResult = await buildVoucherEntries(supabase, {
-    clientId: client.id,
+  const voucherEntries = buildVoucherEntries({
     voucherId: insertedVoucher.id,
-    paymentMode: lineValidation.requiresAutoBalance ? paymentModeResult?.paymentMode : undefined,
     lines: values.lines,
-    requiresAutoBalance: lineValidation.requiresAutoBalance,
   })
-
-  if (!entryResult.success) {
-    await supabase.from("vouchers").delete().eq("id", insertedVoucher.id)
-    return entryResult
-  }
 
   const createEntriesResult = await runAtomicVoucherOperation({
     perform: async () => {
-      const { error: entryError } = await supabase.from("voucher_entries").insert(entryResult.entries)
+      const { error: entryError } = await supabase.from("voucher_entries").insert(voucherEntries)
 
       if (entryError) {
         throw new Error(entryError.message ?? "Unable to create voucher entries.")
@@ -921,6 +1093,30 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     return paymentModeResult
   }
 
+  const explicitPaymentModeLineValidation = await validateExplicitPaymentModeLine({
+    supabase,
+    clientId: client.id,
+    voucherType: values.voucherType,
+    paymentMode: paymentModeResult?.paymentMode ?? null,
+    lines: values.lines,
+  })
+
+  if (!explicitPaymentModeLineValidation.success) {
+    return explicitPaymentModeLineValidation
+  }
+
+  const nonNegativeBalanceValidation = await validateVoucherDoesNotOverdrawLinkedAccounts({
+    supabase,
+    clientId: client.id,
+    voucherDate: values.voucherDate,
+    lines: values.lines,
+    excludeVoucherId: existingVoucher.id,
+  })
+
+  if (!nonNegativeBalanceValidation.success) {
+    return nonNegativeBalanceValidation
+  }
+
   const voucherNo = await getVoucherNumber(supabase, {
     clientId: client.id,
     fiscalYearId: fiscalYear.id,
@@ -930,17 +1126,10 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
   const monthLabel = getMonthLabel(new Date(values.voucherDate))
 
   // Build new entries based on the LATEST data provided
-  const entryResult = await buildVoucherEntries(supabase, {
-    clientId: client.id,
+  const voucherEntries = buildVoucherEntries({
     voucherId: existingVoucher.id,
-    paymentMode: lineValidation.requiresAutoBalance ? paymentModeResult?.paymentMode : undefined,
     lines: values.lines,
-    requiresAutoBalance: lineValidation.requiresAutoBalance,
   })
-
-  if (!entryResult.success) {
-    return entryResult
-  }
 
   const { data: existingEntries, error: existingEntriesError } = await supabase
     .from("voucher_entries")
@@ -1018,7 +1207,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
         throw new Error(deleteEntriesError.message ?? "Unable to refresh voucher entries.")
       }
 
-      const { error: entryError } = await supabase.from("voucher_entries").insert(entryResult.entries)
+      const { error: entryError } = await supabase.from("voucher_entries").insert(voucherEntries)
 
       if (entryError) {
         throw new Error(entryError.message ?? "Unable to update voucher entries.")

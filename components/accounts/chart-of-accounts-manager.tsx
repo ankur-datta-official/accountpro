@@ -29,6 +29,7 @@ type AccountSearchOption = {
   label: string
   value: string
   displayLabel: string
+  path: string[]
 }
 
 function buildSearchLabel(account: ChartFlatAccount) {
@@ -112,6 +113,7 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
         value: account.id,
         label: buildSearchLabel(account),
         displayLabel: account.name,
+        path: account.path,
       })),
     [flatAccounts]
   )
@@ -191,6 +193,7 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
                 const selectedOption = searchOptions.find((option) => option.id === value)
                 setSearch(selectedOption?.displayLabel ?? "")
               }}
+              menuClassName="min-w-[min(34rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]"
               inputClassName="pl-10"
               placeholder="Search by account name, category, or sub-category"
             />

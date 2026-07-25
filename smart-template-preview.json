@@ -1,0 +1,170 @@
+{
+  "groups": 4,
+  "semis": 15,
+  "subs": 34,
+  "headPaths": 318,
+  "income": {
+    "name": "Income",
+    "type": "income",
+    "semiSubGroups": [
+      {
+        "name": "Operating Income",
+        "subGroups": [
+          {
+            "name": "Operating Income",
+            "headPaths": [
+              [
+                "Sales Revenue"
+              ],
+              [
+                "Export Revenue"
+              ],
+              [
+                "Service Revenue"
+              ],
+              [
+                "Contract Revenue"
+              ],
+              [
+                "Commission Income"
+              ],
+              [
+                "Consultancy Income"
+              ],
+              [
+                "Training Income"
+              ],
+              [
+                "Subscription Income"
+              ],
+              [
+                "Rental Income (Operating)"
+              ],
+              [
+                "Project Revenue"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Other Operating Income",
+        "subGroups": [
+          {
+            "name": "Other Operating Income",
+            "headPaths": [
+              [
+                "Scrap Sales"
+              ],
+              [
+                "Sale of By-products"
+              ],
+              [
+                "Reimbursement Income"
+              ],
+              [
+                "Late Payment Charges"
+              ],
+              [
+                "Recovery Income"
+              ],
+              [
+                "Membership Fees Income"
+              ],
+              [
+                "Miscellaneous Operating Income"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Financial Income",
+        "subGroups": [
+          {
+            "name": "Financial Income",
+            "headPaths": [
+              [
+                "Interest Income"
+              ],
+              [
+                "Bank Interest Income"
+              ],
+              [
+                "Fixed Deposit Interest"
+              ],
+              [
+                "Dividend Income"
+              ],
+              [
+                "Foreign Exchange Gain"
+              ],
+              [
+                "Investment Income"
+              ],
+              [
+                "Unrealized Gain on Investments"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Non-Operating Income",
+        "subGroups": [
+          {
+            "name": "Non-Operating Income",
+            "headPaths": [
+              [
+                "Gain on Disposal of Assets"
+              ],
+              [
+                "Insurance Claim Income"
+              ],
+              [
+                "Donation Income"
+              ],
+              [
+                "Grant Income"
+              ],
+              [
+                "Bad Debt Recovered"
+              ],
+              [
+                "Prior Year Income"
+              ],
+              [
+                "Sundry Income"
+              ],
+              [
+                "Miscellaneous Income"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Other Comprehensive Income",
+        "subGroups": [
+          {
+            "name": "Other Comprehensive Income",
+            "headPaths": [
+              [
+                "Revaluation Surplus"
+              ],
+              [
+                "Foreign Currency Translation Gain"
+              ],
+              [
+                "Fair Value Gain on Investments"
+              ],
+              [
+                "Actuarial Gain"
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

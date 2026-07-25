@@ -7,6 +7,7 @@ import {
   type LedgerEntryInput,
 } from "@/lib/accounting/ledger"
 import { resolveAccountHierarchy } from "@/lib/accounting/chart-hierarchy"
+import { buildVoucherTypeSerialMap, isAutoBalanceEntry } from "@/lib/accounting/vouchers"
 import type {
   AccountGroupType,
   AccountHeadBalanceType,
@@ -35,6 +36,7 @@ export type LedgerDatasetSection = {
     id: string
     date: string
     voucherNo: number
+    voucherTypeSerial: number
     voucherType: VoucherType
     paymentMode: string | null
     description: string | null
@@ -161,10 +163,11 @@ export async function buildLedgerDataset(
   const voucherRows = (vouchers ?? []) as Array<
     Pick<
       Database["public"]["Tables"]["vouchers"]["Row"],
-      "id" | "voucher_date" | "voucher_no" | "voucher_type" | "payment_mode_id" | "description"
+      "id" | "client_id" | "fiscal_year_id" | "voucher_date" | "voucher_no" | "voucher_type" | "payment_mode_id" | "description" | "created_at"
     >
   >
   const voucherIds = voucherRows.map((voucher) => voucher.id)
+  const voucherTypeSerialById = buildVoucherTypeSerialMap(voucherRows)
   const paymentModeIds = Array.from(
     new Set(voucherRows.map((voucher) => voucher.payment_mode_id).filter(Boolean) as string[])
   )
@@ -215,7 +218,7 @@ export async function buildLedgerDataset(
   for (const entry of (voucherEntries ?? []) as Database["public"]["Tables"]["voucher_entries"]["Row"][]) {
     const accountHeadId = entry.account_head_id
 
-    if (!accountHeadId) {
+    if (!accountHeadId || isAutoBalanceEntry(entry.description)) {
       continue
     }
 
@@ -230,6 +233,7 @@ export async function buildLedgerDataset(
       id: entry.id,
       date: voucher.voucher_date,
       voucherNo: voucher.voucher_no,
+      voucherTypeSerial: voucherTypeSerialById.get(voucher.id) ?? voucher.voucher_no,
       voucherType: voucher.voucher_type as VoucherType,
       paymentMode: paymentModeMap.get(voucher.payment_mode_id ?? "") ?? null,
       description: entry.description || voucher.description,

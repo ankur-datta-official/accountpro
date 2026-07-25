@@ -4,6 +4,7 @@ import { forwardRef } from "react"
 import { format } from "date-fns"
 
 import type { LedgerDatasetSection } from "@/lib/accounting/ledger-dataset"
+import { formatVoucherDisplayNumber } from "@/lib/accounting/vouchers"
 import { signedBalanceToLabel } from "@/lib/accounting/ledger"
 
 export type PrintableLedgerSection = LedgerDatasetSection
@@ -82,7 +83,9 @@ export const LedgerPrint = forwardRef<
               {section.rows.map((row) => (
                 <tr key={row.id} className="border-b border-slate-200">
                   <td className="px-2 py-1.5">{format(new Date(row.date), "dd MMM yyyy")}</td>
-                  <td className="px-2 py-1.5">{row.voucherNo}</td>
+                  <td className="px-2 py-1.5">
+                    {formatVoucherDisplayNumber(row.voucherType, row.voucherTypeSerial)}
+                  </td>
                   <td className="px-2 py-1.5 uppercase">{row.voucherType}</td>
                   <td className="px-2 py-1.5">{row.paymentMode ?? "-"}</td>
                   <td className="px-2 py-1.5">{row.description ?? "-"}</td>

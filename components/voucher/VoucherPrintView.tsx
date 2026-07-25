@@ -52,7 +52,7 @@ export const VoucherPrintView = forwardRef<
   {
     companyName: string
     voucherType: string
-    voucherNo: number
+    voucherDisplayNo: string
     voucherDate: string
     paymentModeName: string | null
     showDescription?: boolean
@@ -69,7 +69,7 @@ export const VoucherPrintView = forwardRef<
     {
       companyName,
       voucherType,
-      voucherNo,
+      voucherDisplayNo,
       voucherDate,
       paymentModeName,
       showDescription = true,
@@ -131,48 +131,59 @@ export const VoucherPrintView = forwardRef<
             .voucher-print-table tfoot {
               display: table-row-group;
             }
+
+            .voucher-print-header,
+            .voucher-print-meta,
+            .voucher-print-summary {
+              box-shadow: none !important;
+            }
           }
         `}</style>
 
-        <div className="voucher-print-root mx-auto min-h-[297mm] w-[210mm] max-w-full bg-white p-[14mm] shadow-sm">
-          <header className="voucher-print-avoid-break mb-5 overflow-hidden rounded-sm border border-slate-900">
-            <div className="flex items-stretch justify-between">
-              <div className="flex-1 px-6 py-5">
-                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-slate-500">
+        <div className="voucher-print-root mx-auto min-h-[297mm] w-[210mm] max-w-full bg-white p-[12mm] shadow-sm">
+          <header className="voucher-print-header voucher-print-avoid-break mb-4 overflow-hidden rounded-sm border-2 border-slate-900">
+            <div className="grid grid-cols-[1.7fr_0.8fr]">
+              <div className="border-r border-slate-900 px-6 py-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-slate-600">
                   DKLedger
                 </p>
                 <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-950">{companyName}</h1>
-                <div className="mt-4 h-1 w-28 rounded-full bg-slate-900" />
+                <div className="mt-3 h-[3px] w-32 rounded-full bg-slate-900" />
               </div>
-              <div className="flex min-w-56 flex-col justify-center bg-slate-950 px-6 py-5 text-right text-white">
-                <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-300">
+              <div className="flex min-h-[112px] flex-col justify-center bg-white px-6 py-4 text-left">
+                <p className="text-[12px] font-bold uppercase tracking-[0.26em] text-slate-600">
                   {voucherTypeLabel}
                 </p>
-                <p className="mt-2 text-3xl font-extrabold uppercase tracking-wide">Voucher</p>
+                <div className="mt-3 space-y-2.5">
+                  <div className="flex items-baseline justify-between gap-4 border-b border-slate-200 pb-1.5">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                      Voucher No
+                    </p>
+                    <p className="text-[18px] font-bold leading-none text-slate-950">#{voucherDisplayNo}</p>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Date</p>
+                    <p className="text-[18px] font-bold leading-none uppercase text-slate-950">
+                      {format(new Date(voucherDate), "dd MMM yyyy")}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </header>
 
-          <section className="voucher-print-avoid-break mb-4 rounded-sm border border-slate-300 bg-slate-50 px-4 py-3 text-sm">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-              <p className="min-w-0 flex-1">
-                <span className="font-bold text-slate-700">Accounts head:</span>{" "}
-                <span className="font-semibold text-slate-950">{accountHeadSummary}</span>
+          <section className="voucher-print-meta voucher-print-avoid-break mb-4 rounded-sm border border-slate-900 bg-white text-sm">
+            <div className="flex items-baseline justify-between gap-6 px-5 py-4">
+              <p className="shrink-0 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                Accounts head
               </p>
-              <p className="shrink-0">
-                <span className="font-bold text-slate-700">Voucher No:</span>{" "}
-                <span className="font-semibold text-slate-950">#{voucherNo}</span>
-              </p>
-              <p className="shrink-0">
-                <span className="font-bold text-slate-700">Voucher Date:</span>{" "}
-                <span className="font-semibold text-slate-950">
-                  {format(new Date(voucherDate), "dd MMM yyyy")}
-                </span>
+              <p className="text-right text-[18px] font-bold leading-7 tracking-[0.01em] text-slate-950">
+                {accountHeadSummary}
               </p>
             </div>
           </section>
 
-          <table className="voucher-print-table w-full border-collapse text-sm">
+          <table className="voucher-print-table w-full border-collapse text-[13px]">
             <thead>
               <tr className="bg-slate-100 text-slate-950">
                 <th className="w-12 border border-slate-900 px-3 py-2 text-center text-[11px] uppercase tracking-[0.14em]">
@@ -192,17 +203,17 @@ export const VoucherPrintView = forwardRef<
             <tbody>
               {lines.map((line, index) => (
                 <tr key={line.id} className="voucher-print-row align-top">
-                  <td className="border border-slate-300 px-3 py-2 text-center">{index + 1}</td>
-                  <td className="border border-slate-300 px-3 py-2">
-                    <p className="font-semibold text-slate-950">{line.accountHeadName}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-700">
+                  <td className="border border-slate-500 px-3 py-2 text-center">{index + 1}</td>
+                  <td className="border border-slate-500 px-3 py-3">
+                    <p className="text-[15px] font-bold leading-6 text-slate-950">{line.accountHeadName}</p>
+                    <p className="mt-1 text-[12px] leading-5 text-slate-700">
                       {line.description || (showDescription ? description : "") || "-"}
                     </p>
                   </td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-semibold">
+                  <td className="border border-slate-500 px-3 py-2 text-right font-semibold">
                     {line.debit ? formatMoney(line.debit) : ""}
                   </td>
-                  <td className="border border-slate-300 px-3 py-2 text-right font-semibold">
+                  <td className="border border-slate-500 px-3 py-2 text-right font-semibold">
                     {line.credit ? formatMoney(line.credit) : ""}
                   </td>
                 </tr>
@@ -210,8 +221,8 @@ export const VoucherPrintView = forwardRef<
 
               {showSupportingDocuments && (
                 <tr className="voucher-print-row align-top">
-                  <td className="border border-slate-300 px-3 py-2 text-center">{lines.length + 1}</td>
-                  <td className="border border-slate-300 px-3 py-2">
+                  <td className="border border-slate-500 px-3 py-2 text-center">{lines.length + 1}</td>
+                  <td className="border border-slate-500 px-3 py-2">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <p className="font-semibold text-slate-950">Supporting documents</p>
@@ -235,8 +246,8 @@ export const VoucherPrintView = forwardRef<
                       </span>
                     </div>
                   </td>
-                  <td className="border border-slate-300 px-3 py-2" />
-                  <td className="border border-slate-300 px-3 py-2" />
+                  <td className="border border-slate-500 px-3 py-2" />
+                  <td className="border border-slate-500 px-3 py-2" />
                 </tr>
               )}
             </tbody>
@@ -256,33 +267,41 @@ export const VoucherPrintView = forwardRef<
             </tfoot>
           </table>
 
-          <section className="voucher-print-avoid-break mt-5 rounded-sm border border-slate-900 text-sm">
-            <div className="grid grid-cols-[1fr_2fr] border-b border-slate-900">
-              <div className="border-r border-slate-900 px-4 py-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                  Payment Mode
-                </p>
-                <p className="mt-1 font-semibold text-slate-950">{paymentModeName || "-"}</p>
+          <section className="voucher-print-summary voucher-print-avoid-break mt-5 rounded-sm border-2 border-slate-900 text-sm">
+            <div className="grid grid-cols-1 border-b border-slate-900 md:grid-cols-[1fr_2fr]">
+              <div className="border-b border-slate-900 px-4 py-3 md:border-b-0 md:border-r">
+                <div className="flex items-baseline justify-between gap-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                    Payment Mode
+                  </p>
+                  <p className="text-[15px] font-semibold text-slate-950">{paymentModeName || "-"}</p>
+                </div>
               </div>
               <div className="px-4 py-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                  Amount In Words
-                </p>
-                <p className="mt-1 font-semibold text-slate-950">{amountInWords}</p>
+                <div className="flex items-baseline justify-between gap-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+                    Amount In Words
+                  </p>
+                  <p className="text-right text-[15px] font-semibold leading-6 text-slate-950">
+                    {amountInWords}
+                  </p>
+                </div>
               </div>
             </div>
 
             {showDescription && (
               <div className="border-b border-slate-900 px-4 py-3">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Narration</p>
-                <p className="mt-1 min-h-8 text-slate-950">{description || "-"}</p>
+                <p className="mt-1 min-h-8 leading-6 text-slate-950">{description || "-"}</p>
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-10 px-6 pb-6 pt-14 text-center">
+            <div className="grid grid-cols-3 gap-8 px-6 pb-6 pt-16 text-center">
               {["Prepared by", "Checked by", "Approved by"].map((label) => (
                 <div key={label}>
-                  <div className="border-t border-slate-700 pt-2 font-medium">{label}</div>
+                  <div className="border-t border-slate-900 pt-2 font-semibold tracking-[0.01em] text-slate-900">
+                    {label}
+                  </div>
                 </div>
               ))}
             </div>

@@ -32,6 +32,7 @@ import {
   updateVoucherAction,
   type CreateVoucherInput,
 } from "@/lib/actions/vouchers"
+import { formatVoucherDisplayNumber } from "@/lib/accounting/vouchers"
 import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client"
 import type { PaymentModeType } from "@/lib/types"
@@ -251,6 +252,7 @@ function buildFormValues({
   fiscalYearStartDate,
   fiscalYearEndDate,
   defaultVoucherNo,
+  defaultVoucherNoByType,
   paymentModes,
   values,
 }: {
@@ -259,6 +261,7 @@ function buildFormValues({
   fiscalYearStartDate?: string
   fiscalYearEndDate?: string
   defaultVoucherNo: number
+  defaultVoucherNoByType?: Partial<Record<VoucherFormValues["voucherType"], number>>
   paymentModes: PaymentModeOption[]
   values?: Partial<VoucherFormValues>
 }): VoucherFormValues {
@@ -277,6 +280,7 @@ function buildFormValues({
     (normalizedDraftPaymentModeName || defaultCashMode?.name || "Cash")
 
   const voucherType = values?.voucherType ?? "payment"
+  const resolvedDefaultVoucherNo = values?.voucherNo ?? defaultVoucherNoByType?.[voucherType] ?? defaultVoucherNo
 
   const validatedLines = values?.lines?.length 
     ? values.lines.map(line => line 
@@ -294,7 +298,7 @@ function buildFormValues({
   return {
     clientId,
     fiscalYearId,
-    voucherNo: values?.voucherNo ?? defaultVoucherNo,
+    voucherNo: resolvedDefaultVoucherNo,
     voucherDate: clampVoucherDateToFiscalYear({
       voucherDate: values?.voucherDate ?? format(new Date(), "yyyy-MM-dd"),
       fiscalYearStartDate,
@@ -304,9 +308,9 @@ function buildFormValues({
     paymentModeId: selectedPaymentMode?.id ?? (paymentModeType === "cash" ? defaultCashMode?.id ?? "" : ""),
     paymentModeName,
     paymentModeType,
-    showDescription: values?.showDescription ?? true,
+    showDescription: values?.showDescription ?? Boolean(values?.description?.trim()),
     description: values?.description ?? "",
-    showSupportingDocuments: values?.showSupportingDocuments ?? true,
+    showSupportingDocuments: values?.showSupportingDocuments ?? false,
     lines: validatedLines,
   }
 }
@@ -319,6 +323,7 @@ export function VoucherEntryForm({
   fiscalYearStartDate,
   fiscalYearEndDate,
   defaultVoucherNo,
+  defaultVoucherNoByType,
   paymentModes,
   initialValues,
   disabled = false,
@@ -330,6 +335,7 @@ export function VoucherEntryForm({
   fiscalYearStartDate?: string
   fiscalYearEndDate?: string
   defaultVoucherNo: number
+  defaultVoucherNoByType?: Partial<Record<VoucherFormValues["voucherType"], number>>
   paymentModes: PaymentModeOption[]
   initialValues?: Partial<VoucherFormValues>
   disabled?: boolean
@@ -353,6 +359,7 @@ export function VoucherEntryForm({
       fiscalYearStartDate,
       fiscalYearEndDate,
       defaultVoucherNo,
+      defaultVoucherNoByType,
       paymentModes,
       values: initialValues,
     }),
@@ -364,6 +371,7 @@ export function VoucherEntryForm({
   })
 
   const values = form.watch()
+  const voucherDisplayNo = formatVoucherDisplayNumber(values.voucherType, values.voucherNo ?? defaultVoucherNo)
 
   // When voucher type changes to contra, set accountsGroup to asset for all lines
   useEffect(() => {
@@ -449,6 +457,7 @@ export function VoucherEntryForm({
           fiscalYearStartDate,
           fiscalYearEndDate,
           defaultVoucherNo,
+          defaultVoucherNoByType,
           paymentModes,
           values: JSON.parse(existingDraft) as VoucherFormValues,
         })
@@ -459,6 +468,7 @@ export function VoucherEntryForm({
   }, [
     clientId,
     defaultVoucherNo,
+    defaultVoucherNoByType,
     draftKey,
     draftRestored,
     fiscalYearEndDate,
@@ -536,6 +546,22 @@ export function VoucherEntryForm({
     setSelectedFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))
   }
 
+  const handleDescriptionToggle = (nextValue: boolean) => {
+    form.setValue("showDescription", nextValue)
+
+    if (!nextValue) {
+      form.setValue("description", "")
+    }
+  }
+
+  const handleSupportingDocumentsToggle = (nextValue: boolean) => {
+    form.setValue("showSupportingDocuments", nextValue)
+
+    if (!nextValue) {
+      setSelectedFiles([])
+    }
+  }
+
   const uploadVoucherAttachments = async (voucherIdToAttach: string) => {
     if (!selectedFiles.length) {
       return { success: true as const }
@@ -604,7 +630,8 @@ export function VoucherEntryForm({
       buildFormValues({
         clientId,
         fiscalYearId,
-        defaultVoucherNo: defaultVoucherNo + 1,
+        defaultVoucherNo: (defaultVoucherNoByType?.payment ?? defaultVoucherNo) + 1,
+        defaultVoucherNoByType,
         paymentModes,
         values: { voucherType: newVoucherType },
       })
@@ -659,7 +686,7 @@ export function VoucherEntryForm({
         paymentModeId: showPaymentMode ? formValues.paymentModeId : undefined,
         paymentModeName: showPaymentMode ? normalizedPaymentModeName : undefined,
         paymentModeType: showPaymentMode ? selectedPaymentModeGroup : undefined,
-        description: formValues.description || "",
+        description: formValues.showDescription ? formValues.description || "" : "",
         lines: formValues.lines.map((line) => {
           const normalizedLine = normalizeVoucherLineAmounts({
             accountsGroup: line.accountsGroup as CreateVoucherInput["lines"][number]["accountsGroup"],
@@ -685,7 +712,9 @@ export function VoucherEntryForm({
           return
         }
 
-        const attachmentResult = await uploadVoucherAttachments(result.voucherId)
+        const attachmentResult = formValues.showSupportingDocuments
+          ? await uploadVoucherAttachments(result.voucherId)
+          : { success: true as const }
 
         if (!attachmentResult?.success) {
           toast.error(`Voucher saved, but documents were not attached. ${attachmentResult?.error || ""}`)
@@ -699,13 +728,13 @@ export function VoucherEntryForm({
       window.localStorage.removeItem(draftKey)
 
       if (mode === "edit") {
-        toast.success(`Voucher #${result.voucherNo} updated successfully.`)
+        toast.success(`Voucher #${voucherDisplayNo} updated successfully.`)
         router.push(`/clients/${clientId}/vouchers/${result.voucherId}`)
         router.refresh()
         return
       }
 
-      toast.success(`Voucher #${result.voucherNo} saved successfully.`, {
+      toast.success(`Voucher #${voucherDisplayNo} saved successfully.`, {
         action: {
           label: "View Voucher",
           onClick: () => router.push(`/clients/${clientId}/vouchers/${result.voucherId}`),
@@ -731,7 +760,7 @@ export function VoucherEntryForm({
           {mode === "edit" ? "Edit Voucher" : "Add New Voucher"}
         </h1>
         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-          <span>Voucher No: {values.voucherNo ?? defaultVoucherNo}</span>
+          <span>Voucher No: {voucherDisplayNo}</span>
           <span className="text-slate-300">|</span>
           <span>{fields.length} line{fields.length === 1 ? "" : "s"}</span>
           <span className="text-slate-300">|</span>
@@ -765,7 +794,12 @@ export function VoucherEntryForm({
                   className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-slate-400"
                   value={values.voucherType}
                   onChange={(event) =>
-                    form.setValue("voucherType", event.target.value as VoucherFormValues["voucherType"])
+                    {
+                      const nextType = event.target.value as VoucherFormValues["voucherType"]
+                      form.setValue("voucherType", nextType)
+                      const nextDefaultVoucherNo = defaultVoucherNoByType?.[nextType] ?? defaultVoucherNo
+                      form.setValue("voucherNo", nextDefaultVoucherNo)
+                    }
                   }
                 >
                   {visibleVoucherTypeOptions.map((option) => (
@@ -878,6 +912,11 @@ export function VoucherEntryForm({
               })}
 
               {accountsLoading ? <p className="text-sm text-slate-500">Loading chart of accounts...</p> : null}
+              {showPaymentMode ? (
+                <p className="text-sm text-slate-500">
+                  Add the selected cash or bank account as an explicit line so the voucher stays fully balanced.
+                </p>
+              ) : null}
 
             </CardContent>
           </Card>
@@ -892,7 +931,7 @@ export function VoucherEntryForm({
                 <SectionToggle
                   label="Include"
                   value={values.showDescription}
-                  onChange={(nextValue) => form.setValue("showDescription", nextValue)}
+                  onChange={handleDescriptionToggle}
                   disabled={disabled || isPending}
                 />
               </CardHeader>
@@ -917,7 +956,7 @@ export function VoucherEntryForm({
                 <SectionToggle
                   label="Attach"
                   value={values.showSupportingDocuments}
-                  onChange={(nextValue) => form.setValue("showSupportingDocuments", nextValue)}
+                  onChange={handleSupportingDocumentsToggle}
                   disabled={disabled || isPending}
                 />
               </CardHeader>
@@ -952,8 +991,8 @@ export function VoucherEntryForm({
                 </label>
 
                 <div className="rounded-xl bg-slate-50 px-4 py-2.5 text-sm text-slate-600">
-                  You can add up to {MAX_ATTACHMENT_COUNT} files. Useful examples: supplier invoice, bank advice, receipt,
-                  approval note, or supporting worksheet.
+                  You can add up to {MAX_ATTACHMENT_COUNT} files. Useful examples: supplier invoice, bank advice,
+                  receipt, approval note, or supporting worksheet.
                 </div>
 
                 {selectedFiles.length ? (

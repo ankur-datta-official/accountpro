@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 export function VoucherPrintActions({
   companyName,
   voucherType,
-  voucherNo,
+  voucherDisplayNo,
   voucherDate,
   paymentModeName,
   description,
@@ -30,7 +30,7 @@ export function VoucherPrintActions({
 }: {
   companyName: string
   voucherType: string
-  voucherNo: number
+  voucherDisplayNo: string
   voucherDate: string
   paymentModeName: string | null
   description: string | null
@@ -48,7 +48,7 @@ export function VoucherPrintActions({
   const hasAutoPrintedRef = useRef(false)
   const handlePrint = useReactToPrint({
     contentRef,
-    documentTitle: `${companyName}-voucher-${voucherNo}`,
+    documentTitle: `${companyName}-voucher-${voucherDisplayNo}`,
   })
 
   useEffect(() => {
@@ -75,7 +75,7 @@ export function VoucherPrintActions({
           ref={contentRef}
           companyName={companyName}
           voucherType={voucherType}
-          voucherNo={voucherNo}
+          voucherDisplayNo={voucherDisplayNo}
           voucherDate={voucherDate}
           paymentModeName={paymentModeName}
           description={description}

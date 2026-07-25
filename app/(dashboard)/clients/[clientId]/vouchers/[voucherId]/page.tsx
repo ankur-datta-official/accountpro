@@ -6,6 +6,8 @@ import { notFound } from "next/navigation"
 export const dynamic = "force-dynamic"
 
 import {
+  buildVoucherTypeSerialMap,
+  formatVoucherDisplayNumber,
   getVoucherTypeBadgeClass,
   getVoucherTypeLabel,
   isAutoBalanceEntry,
@@ -79,6 +81,27 @@ export default async function VoucherDetailPage({
     notFound()
   }
 
+  const { data: fiscalYearVouchers } = voucher.fiscal_year_id
+    ? await supabase
+        .from("vouchers")
+        .select("id,client_id,fiscal_year_id,voucher_date,voucher_no,voucher_type,created_at")
+        .eq("client_id", client.id)
+        .eq("fiscal_year_id", voucher.fiscal_year_id)
+        .or("is_posted.eq.true,is_posted.is.null")
+    : { data: [] }
+  const voucherTypeSerialById = buildVoucherTypeSerialMap(
+    (fiscalYearVouchers ?? []) as Array<
+      Pick<
+        Database["public"]["Tables"]["vouchers"]["Row"],
+        "id" | "client_id" | "fiscal_year_id" | "voucher_date" | "voucher_no" | "voucher_type" | "created_at"
+      >
+    >
+  )
+  const voucherDisplayNo = formatVoucherDisplayNumber(
+    voucher.voucher_type,
+    voucherTypeSerialById.get(voucher.id) ?? voucher.voucher_no
+  )
+
   const [{ data: entries }, { data: fiscalYear }, { data: paymentMode }, { data: attachments }] = await Promise.all([
     supabase.from("voucher_entries").select("*").eq("voucher_id", voucher.id),
     supabase.from("fiscal_years").select("*").eq("id", voucher.fiscal_year_id ?? "").maybeSingle(),
@@ -129,7 +152,7 @@ export default async function VoucherDetailPage({
       <div className="flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm lg:flex-row lg:items-center lg:justify-between print:hidden">
         <div>
           <h2 className="text-3xl font-semibold tracking-tight text-slate-950">
-            Voucher #{voucher.voucher_no}
+            Voucher #{voucherDisplayNo}
           </h2>
           <p className="mt-2 text-sm text-slate-500">
             {format(new Date(voucher.voucher_date), "dd MMM yyyy")} · {getVoucherTypeLabel(voucher.voucher_type)}
@@ -145,7 +168,7 @@ export default async function VoucherDetailPage({
           <VoucherDetailActions
             clientId={client.id}
             voucherId={voucher.id}
-            voucherNo={voucher.voucher_no}
+            voucherDisplayNo={voucherDisplayNo}
             companyName={client.name}
             voucherType={voucher.voucher_type}
             voucherDate={voucher.voucher_date}

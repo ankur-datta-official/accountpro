@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 export function VoucherDetailActions({
   clientId,
   voucherId,
-  voucherNo,
+  voucherDisplayNo,
   companyName,
   voucherType,
   voucherDate,
@@ -28,7 +28,7 @@ export function VoucherDetailActions({
 }: {
   clientId: string
   voucherId: string
-  voucherNo: number
+  voucherDisplayNo: string
   companyName: string
   voucherType: string
   voucherDate: string
@@ -51,7 +51,7 @@ export function VoucherDetailActions({
       <VoucherPrintActions
         companyName={companyName}
         voucherType={voucherType}
-        voucherNo={voucherNo}
+        voucherDisplayNo={voucherDisplayNo}
         voucherDate={voucherDate}
         paymentModeName={paymentModeName}
         description={description}
@@ -69,7 +69,7 @@ export function VoucherDetailActions({
       <DeleteVoucherButton
         clientId={clientId}
         voucherId={voucherId}
-        voucherNo={voucherNo}
+        voucherDisplayNo={voucherDisplayNo}
         variant="outline"
         className="rounded-xl border-slate-200 text-destructive hover:text-destructive"
       />

@@ -31,7 +31,9 @@ async function loadVoucherIntegrityModule() {
 
 const integrity = await loadVoucherIntegrityModule()
 const {
+  getVoucherLineSignedDelta,
   runAtomicVoucherOperation,
+  validateNonNegativeProjectedBalance,
   validateVoucherAccountHeads,
   validateVoucherDateInFiscalYear,
   validateVoucherLines,
@@ -95,6 +97,24 @@ test("rejects an unbalanced journal voucher", () => {
   assert.match(result.error, /balanced/i)
 })
 
+test("rejects an unbalanced payment voucher", () => {
+  const result = validateVoucherLines(
+    [
+      line({ debitAmount: 100, creditAmount: 0 }),
+      line({
+        accountHeadId: "bank-1",
+        accountsGroup: "asset",
+        debitAmount: 0,
+        creditAmount: 90,
+      }),
+    ],
+    "payment"
+  )
+
+  assert.equal(result.ok, false)
+  assert.match(result.error, /balanced/i)
+})
+
 test("rejects zero-only voucher lines", () => {
   const result = validateVoucherLines(
     [
@@ -129,6 +149,48 @@ test("rejects malformed amounts including infinity", () => {
 
   assert.equal(result.ok, false)
   assert.match(result.error, /finite positive numbers/i)
+})
+
+test("calculates signed movement using account natural side", () => {
+  assert.equal(
+    getVoucherLineSignedDelta({
+      accountsGroup: "asset",
+      debitAmount: 150,
+      creditAmount: 40,
+    }),
+    110
+  )
+
+  assert.equal(
+    getVoucherLineSignedDelta({
+      accountsGroup: "liability",
+      debitAmount: 25,
+      creditAmount: 125,
+    }),
+    100
+  )
+})
+
+test("rejects projected balances that would go negative", () => {
+  const result = validateNonNegativeProjectedBalance({
+    accountName: "Cash",
+    currentBalance: 80,
+    signedMovement: -120,
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.error, /insufficient balance/i)
+})
+
+test("allows projected balances that remain non-negative", () => {
+  const result = validateNonNegativeProjectedBalance({
+    accountName: "Cash",
+    currentBalance: 80,
+    signedMovement: -20,
+  })
+
+  assert.equal(result.ok, true)
+  assert.equal(result.projectedBalance, 60)
 })
 
 test("accepts exact fiscal-year boundaries", () => {

@@ -15,12 +15,17 @@ function getTrialBalanceRowKey(groupName: string, row: TrialBalanceRow, index: n
   return `${groupName}-${row.accountHeadId}-${row.accountHeadName}-${index}`
 }
 
+function getTrialBalanceGroupKey(accountGroupName: string, semiSubGroupName: string) {
+  return `${accountGroupName}::${semiSubGroupName}`
+}
+
 export const TrialBalancePrint = forwardRef<
   HTMLDivElement,
   {
     companyName: string
     fiscalYearLabel: string
     periodLabel: string
+    selectedAccountGroupLabel: string
     rows: TrialBalanceRow[]
     totalDebit: number
     totalCredit: number
@@ -32,6 +37,7 @@ export const TrialBalancePrint = forwardRef<
     companyName,
     fiscalYearLabel,
     periodLabel,
+    selectedAccountGroupLabel,
     rows,
     totalDebit,
     totalCredit,
@@ -40,17 +46,35 @@ export const TrialBalancePrint = forwardRef<
   },
   ref
 ) {
-  const grouped = rows.reduce<Record<string, TrialBalanceRow[]>>((acc, row) => {
-    const key = row.semiSubGroupName ?? "Other"
-    if (!acc[key]) {
-      acc[key] = []
+  const groupedEntries = Array.from(
+    rows.reduce<
+      Map<string, { accountGroupName: string; semiSubGroupName: string; rows: TrialBalanceRow[] }>
+    >((acc, row) => {
+      const accountGroupName = row.groupName ?? "Other"
+      const semiSubGroupName = row.semiSubGroupName ?? "Other"
+      const key = getTrialBalanceGroupKey(accountGroupName, semiSubGroupName)
+      const current = acc.get(key)
+
+      if (!current) {
+        acc.set(key, {
+          accountGroupName,
+          semiSubGroupName,
+          rows: [row],
+        })
+        return acc
+      }
+
+      current.rows.push(row)
+      return acc
+    }, new Map()).values()
+  ).sort((left, right) => {
+    const groupComparison = left.accountGroupName.localeCompare(right.accountGroupName)
+    if (groupComparison !== 0) {
+      return groupComparison
     }
 
-    acc[key].push(row)
-    return acc
-  }, {})
-
-  const groupedEntries = Object.entries(grouped)
+    return left.semiSubGroupName.localeCompare(right.semiSubGroupName)
+  })
 
   return (
     <div ref={ref} className="bg-white p-6 text-slate-950">
@@ -67,11 +91,13 @@ export const TrialBalancePrint = forwardRef<
           <p className="text-sm font-medium">Trial Balance</p>
           <p className="text-xs text-slate-600">Fiscal Year: {fiscalYearLabel}</p>
           <p className="text-xs text-slate-600">Period: {periodLabel}</p>
+          <p className="text-xs text-slate-600">Account Group: {selectedAccountGroupLabel}</p>
         </div>
 
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="border-y border-slate-300 bg-slate-100">
+              <th className="px-2 py-2 text-left">Account Group</th>
               <th className="px-2 py-2 text-left">Semi-Sub Accounts Group</th>
               <th className="px-2 py-2 text-left">Account Head</th>
               <th className="px-2 py-2 text-right">Debit</th>
@@ -80,21 +106,30 @@ export const TrialBalancePrint = forwardRef<
             </tr>
           </thead>
           <tbody>
-            {groupedEntries.map(([groupName, groupRows]) => {
+            {groupedEntries.map(({ accountGroupName, semiSubGroupName, rows: groupRows }) => {
               const groupDebit = groupRows.reduce((sum, row) => sum + row.debit, 0)
               const groupCredit = groupRows.reduce((sum, row) => sum + row.credit, 0)
 
               return (
-                <Fragment key={groupName}>
+                <Fragment key={getTrialBalanceGroupKey(accountGroupName, semiSubGroupName)}>
                   <tr className="bg-slate-100 font-semibold">
-                    <td className="px-2 py-2">{groupName}</td>
+                    <td className="px-2 py-2">{accountGroupName}</td>
+                    <td className="px-2 py-2">{semiSubGroupName}</td>
                     <td className="px-2 py-2" />
                     <td className="px-2 py-2 text-right" />
                     <td className="px-2 py-2 text-right" />
                     <td className="px-2 py-2 text-right" />
                   </tr>
                   {groupRows.map((row, index) => (
-                    <tr key={getTrialBalanceRowKey(groupName, row, index)} className="border-b border-slate-200">
+                    <tr
+                      key={getTrialBalanceRowKey(
+                        getTrialBalanceGroupKey(accountGroupName, semiSubGroupName),
+                        row,
+                        index
+                      )}
+                      className="border-b border-slate-200"
+                    >
+                      <td className="px-2 py-1.5" />
                       <td className="px-2 py-1.5" />
                       <td className="px-2 py-1.5">{row.accountHeadName}</td>
                       <td className="px-2 py-1.5 text-right">{amount(row.debit)}</td>
@@ -103,6 +138,7 @@ export const TrialBalancePrint = forwardRef<
                     </tr>
                   ))}
                   <tr className="border-b border-slate-300 bg-slate-50 font-semibold">
+                    <td className="px-2 py-1.5" />
                     <td className="px-2 py-1.5" />
                     <td className="px-2 py-1.5">Subtotal</td>
                     <td className="px-2 py-1.5 text-right">{amount(groupDebit)}</td>
@@ -116,10 +152,11 @@ export const TrialBalancePrint = forwardRef<
           <tfoot>
             <tr className="border-t-2 border-slate-500 bg-slate-100 font-semibold">
               <td className="px-2 py-2" />
+              <td className="px-2 py-2" />
               <td className="px-2 py-2 text-right">Grand Total</td>
               <td className="px-2 py-2 text-right">{amount(totalDebit)}</td>
               <td className="px-2 py-2 text-right">{amount(totalCredit)}</td>
-              <td className="px-2 py-2 text-right">—</td>
+              <td className="px-2 py-2 text-right">-</td>
             </tr>
           </tfoot>
         </table>

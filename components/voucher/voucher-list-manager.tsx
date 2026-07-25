@@ -20,9 +20,15 @@ import * as XLSX from "xlsx"
 import { toast } from "sonner"
 
 import { bulkDeleteVouchersAction } from "@/lib/actions/vouchers"
-import { getVoucherTypeBadgeClass, getVoucherTypeLabel } from "@/lib/accounting/vouchers"
+import {
+  formatVoucherRegisterNumber,
+  getVoucherTypeBadgeClass,
+  getVoucherTypeLabel,
+  getVoucherRegisterRowClass,
+} from "@/lib/accounting/vouchers"
 import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
 import { useVouchers, type VoucherFilters, type VoucherSortBy } from "@/lib/hooks/useVouchers"
+import { ClientFiscalYearSelect } from "@/components/clients/client-fiscal-year-select"
 import { DeleteVoucherButton } from "@/components/voucher/delete-voucher-button"
 import { VoucherShareActions } from "@/components/voucher/voucher-share-actions"
 import { Badge } from "@/components/ui/badge"
@@ -33,7 +39,7 @@ import { ErrorFallback } from "@/components/ui/ErrorBoundary"
 import { Autocomplete } from "@/components/ui/autocomplete"
 import { Input } from "@/components/ui/input"
 import { LoadingTable } from "@/components/ui/LoadingTable"
-import { ActionBar, FilterPanel, MetricCard, PageHeader } from "@/components/ui/page-shell"
+import { FilterPanel, MetricCard, PageHeader } from "@/components/ui/page-shell"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,6 +82,9 @@ export function VoucherListManager({
   clientId,
   clientName,
   fiscalYearId,
+  fiscalYearLabel,
+  fiscalYearStartDate,
+  fiscalYearEndDate,
   defaultFrom,
   defaultTo,
   months,
@@ -84,6 +93,9 @@ export function VoucherListManager({
   clientId: string
   clientName: string
   fiscalYearId: string
+  fiscalYearLabel: string
+  fiscalYearStartDate: string
+  fiscalYearEndDate: string
   defaultFrom: string
   defaultTo: string
   months: string[]
@@ -213,7 +225,7 @@ export function VoucherListManager({
 
     const worksheet = XLSX.utils.json_to_sheet(
       selectedItems.map((item) => ({
-        "Voucher No": item.voucherNo,
+        "Voucher No": formatVoucherRegisterNumber(item.voucherTypeSerial, item.voucherType),
         Date: item.voucherDate,
         Type: getVoucherTypeLabel(item.voucherType),
         "Payment Mode": item.paymentModeName ?? "",
@@ -227,6 +239,24 @@ export function VoucherListManager({
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, "Vouchers")
     XLSX.writeFile(workbook, `${clientName}-vouchers-${format(new Date(), "yyyyMMdd-HHmm")}.xlsx`)
+  }
+
+  const handlePrintSelected = () => {
+    if (!selectedVoucherIds.length) {
+      toast.error("Select at least one voucher to print.")
+      return
+    }
+
+    const params = new URLSearchParams({
+      ids: selectedVoucherIds.join(","),
+      auto: "1",
+    })
+    const url = `/clients/${clientId}/vouchers/print?${params.toString()}`
+    const popup = window.open(url, "_blank", "noopener,noreferrer")
+
+    if (!popup) {
+      window.location.href = url
+    }
   }
 
   const handleBulkDelete = () => {
@@ -270,16 +300,30 @@ export function VoucherListManager({
         description={`Browse and manage voucher activity for ${clientName}.`}
         icon={PlusCircle}
         actions={
-          <Button asChild className="h-10 rounded-lg px-4">
-            <Link href={`/clients/${clientId}/vouchers/new?fiscalYear=${fiscalYearId}`}>
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add New Voucher
-            </Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-[220px] rounded-xl border border-slate-200 bg-slate-50 p-1">
+              <ClientFiscalYearSelect className="h-10 border-0 bg-transparent shadow-none focus:ring-0 sm:w-[240px]" />
+            </div>
+            <Button asChild className="h-10 rounded-lg px-4">
+              <Link href={`/clients/${clientId}/vouchers/new?fiscalYear=${fiscalYearId}`}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                Add New Voucher
+              </Link>
+            </Button>
+          </div>
         }
       >
         <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700">
+            Fiscal Year: {fiscalYearLabel}
+          </span>
+          <span className="text-slate-300">•</span>
           <span>{totalItems} vouchers</span>
+          <span className="text-slate-300">•</span>
+          <span>
+            {format(new Date(fiscalYearStartDate), "dd MMM yyyy")} to{" "}
+            {format(new Date(fiscalYearEndDate), "dd MMM yyyy")}
+          </span>
           <span className="text-slate-300">•</span>
           <span>
             {format(new Date(filters.from), "dd MMM yyyy")} to {format(new Date(filters.to), "dd MMM yyyy")}
@@ -382,12 +426,15 @@ export function VoucherListManager({
                 id: account.id,
                 value: account.id,
                 label: account.label,
+                displayLabel: account.name,
+                path: account.path,
               }))}
               value={filters.accountHeadId}
               onChange={(newValue) => {
                 updateFilter("accountHeadId", newValue || undefined)
               }}
               onInputChange={() => undefined}
+              menuClassName="min-w-[min(34rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]"
               placeholder="Search account head"
             />
           </div>
@@ -482,6 +529,16 @@ export function VoucherListManager({
             <Button
               type="button"
               variant="outline"
+              className="rounded-xl border-slate-200"
+              disabled={!selectedCount || isBulkPending}
+              onClick={handlePrintSelected}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Print Selected
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               className="rounded-xl border-slate-200 text-destructive hover:text-destructive"
               disabled={!selectedCount || isBulkPending}
               onClick={handleBulkDelete}
@@ -492,40 +549,6 @@ export function VoucherListManager({
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {selectedCount ? (
-            <ActionBar>
-              <div>
-                <p className="text-sm font-medium text-slate-700">
-                  {selectedCount} voucher{selectedCount === 1 ? "" : "s"} selected
-                </p>
-                <p className="text-xs text-slate-500">
-                  Debit {currency(selectedTotals.debit)} and credit {currency(selectedTotals.credit)} in selection
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-lg border-slate-200"
-                  disabled={isBulkPending}
-                  onClick={handleExportSelected}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Export Selected
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-lg border-slate-200 text-destructive hover:text-destructive"
-                  disabled={isBulkPending}
-                  onClick={handleBulkDelete}
-                >
-                  {isBulkPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Bulk Delete
-                </Button>
-              </div>
-            </ActionBar>
-          ) : null}
           {error ? <ErrorFallback error={error} onRetry={() => void mutate()} /> : null}
 
           <div className="overflow-hidden rounded-2xl border border-slate-200">
@@ -550,7 +573,9 @@ export function VoucherListManager({
                   <TableHead className="w-24 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Debit</TableHead>
                   <TableHead className="w-24 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Credit</TableHead>
                   <TableHead className="w-[20%] text-xs font-semibold uppercase tracking-wide text-slate-500">Description</TableHead>
-                  <TableHead className="w-16 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</TableHead>
+                  <TableHead className="w-24 pr-4 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -578,7 +603,7 @@ export function VoucherListManager({
                   items.map((item) => (
                     <TableRow
                       key={item.id}
-                      className="cursor-pointer border-slate-100 transition-colors hover:bg-slate-50/80"
+                      className={`cursor-pointer border-slate-100 transition-colors ${getVoucherRegisterRowClass(item.voucherType)}`}
                       onClick={() => router.push(`/clients/${clientId}/vouchers/${item.id}`)}
                     >
                       <TableCell className="px-4 py-4 align-middle" onClick={(event) => event.stopPropagation()}>
@@ -596,7 +621,9 @@ export function VoucherListManager({
                         />
                       </TableCell>
                       <TableCell className="py-4 align-middle">
-                        <p className="font-semibold text-slate-950">#{item.voucherNo}</p>
+                        <span className="inline-flex min-w-[5rem] items-center justify-center rounded-full bg-white/80 px-3 py-1 text-sm font-semibold tracking-wide text-slate-900 shadow-sm ring-1 ring-slate-200/80">
+                          {formatVoucherRegisterNumber(item.voucherTypeSerial, item.voucherType)}
+                        </span>
                         <p className="mt-1 text-xs text-slate-500">{item.monthLabel ?? "No month assigned"}</p>
                       </TableCell>
                       <TableCell className="py-4 align-middle">
@@ -625,7 +652,10 @@ export function VoucherListManager({
                       <TableCell className="py-4 align-middle">
                         <p className="line-clamp-2 break-words text-sm text-slate-600">{item.description || "-"}</p>
                       </TableCell>
-                      <TableCell className="py-4 text-right align-middle" onClick={(event) => event.stopPropagation()}>
+                      <TableCell
+                        className="w-24 whitespace-nowrap py-4 pr-4 text-right align-middle"
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="outline" size="icon" className="h-9 w-9 rounded-xl border-slate-200">
@@ -663,7 +693,7 @@ export function VoucherListManager({
                               <DeleteVoucherButton
                                 clientId={clientId}
                                 voucherId={item.id}
-                                voucherNo={item.voucherNo}
+                                voucherDisplayNo={formatVoucherRegisterNumber(item.voucherTypeSerial, item.voucherType)}
                                 className="h-8 w-full justify-start px-2 text-destructive hover:text-destructive"
                                 onDeleted={() => {
                                   setSelectedVoucherIds((current) =>

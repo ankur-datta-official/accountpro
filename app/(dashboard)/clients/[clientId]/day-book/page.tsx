@@ -5,6 +5,7 @@ import { DayBookReport, type DayBookRow } from "@/components/reports/day-book-re
 import { resolveAccountHierarchy } from "@/lib/accounting/chart-hierarchy"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { getVoucherTypeLabel, isAutoBalanceEntry } from "@/lib/accounting/vouchers"
+import { buildVoucherTypeSerialMap, formatVoucherDisplayNumber } from "@/lib/accounting/vouchers"
 import { createClient } from "@/lib/supabase/server"
 import type { Database } from "@/lib/types"
 
@@ -61,6 +62,7 @@ export default async function ClientDayBookPage({
     ])
 
   const voucherRows = (vouchers ?? []) as VoucherRecord[]
+  const voucherTypeSerialById = buildVoucherTypeSerialMap(voucherRows)
   const paymentModeRows = (paymentModes ?? []) as PaymentModeRecord[]
   const accountHeadRows = (accountHeads ?? []) as AccountHeadRecord[]
 
@@ -108,13 +110,15 @@ export default async function ClientDayBookPage({
         id: entry.id,
         voucherId: voucher.id,
         accountHeadId: entry.account_head_id ?? "",
-        voucherNo: voucher.voucher_no,
+        voucherNo: formatVoucherDisplayNumber(voucher.voucher_type, voucherTypeSerialById.get(voucher.id) ?? voucher.voucher_no),
         date: voucher.voucher_date,
         accountsGroup: accountHead.groupName || "General",
         semiSubGroup: accountHead.semiSubGroupName,
         subGroup: accountHead.subGroupName,
         accountHead: accountHead.name,
         voucherType: getVoucherTypeLabel(voucher.voucher_type),
+        voucherTypeSerial: voucherTypeSerialById.get(voucher.id) ?? voucher.voucher_no,
+        voucherDisplayNo: formatVoucherDisplayNumber(voucher.voucher_type, voucherTypeSerialById.get(voucher.id) ?? voucher.voucher_no),
         paymentMode: paymentModeMap.get(voucher.payment_mode_id ?? "") ?? "",
         receipt: Number(entry.debit ?? 0),
         payment: Number(entry.credit ?? 0),

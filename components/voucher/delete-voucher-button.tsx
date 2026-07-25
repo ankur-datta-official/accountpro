@@ -11,14 +11,14 @@ import { Button } from "@/components/ui/button"
 export function DeleteVoucherButton({
   clientId,
   voucherId,
-  voucherNo,
+  voucherDisplayNo,
   variant = "ghost",
   className,
   onDeleted,
 }: {
   clientId: string
   voucherId: string
-  voucherNo: number
+  voucherDisplayNo: string
   variant?: "ghost" | "outline" | "destructive"
   className?: string
   onDeleted?: () => void
@@ -33,7 +33,7 @@ export function DeleteVoucherButton({
       className={className}
       disabled={isPending}
       onClick={() => {
-        if (!window.confirm(`Delete voucher #${voucherNo}? This cannot be undone.`)) {
+        if (!window.confirm(`Delete voucher #${voucherDisplayNo}? This cannot be undone.`)) {
           return
         }
 
@@ -50,7 +50,7 @@ export function DeleteVoucherButton({
             return
           }
 
-          toast.success(`Voucher #${voucherNo} deleted.`)
+          toast.success(`Voucher #${voucherDisplayNo} deleted.`)
 
           if (onDeleted) {
             onDeleted()

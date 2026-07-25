@@ -11,6 +11,11 @@ import type { Database } from "@/lib/types"
 
 type PaymentModeRecord = Database["public"]["Tables"]["payment_modes"]["Row"]
 
+function getVoucherDefaultToDate(fiscalYearEndDate: string) {
+  const today = getCurrentDateInAppTimeZone()
+  return today <= fiscalYearEndDate ? today : fiscalYearEndDate
+}
+
 export default async function VouchersPage({
   params,
   searchParams,
@@ -50,8 +55,11 @@ export default async function VouchersPage({
       clientId={client.id}
       clientName={client.name}
       fiscalYearId={selectedFiscalYear.id}
+      fiscalYearLabel={selectedFiscalYear.label}
+      fiscalYearStartDate={selectedFiscalYear.start_date}
+      fiscalYearEndDate={selectedFiscalYear.end_date}
       defaultFrom={selectedFiscalYear.start_date}
-      defaultTo={getCurrentDateInAppTimeZone()}
+      defaultTo={getVoucherDefaultToDate(selectedFiscalYear.end_date)}
       months={months}
       paymentModes={((paymentModes ?? []) as PaymentModeRecord[]).map((mode: PaymentModeRecord) => ({
         id: mode.id,

@@ -8,6 +8,7 @@ import {
   type LedgerEntryInput,
 } from "@/lib/accounting/ledger"
 import { resolveAccountHierarchy } from "@/lib/accounting/chart-hierarchy"
+import { buildVoucherTypeSerialMap } from "@/lib/accounting/vouchers"
 import { keepPreviousData, useAppQuery } from "@/lib/query"
 import { createClient } from "@/lib/supabase/client"
 import type {
@@ -110,6 +111,12 @@ async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
   }
 
   const { data: vouchers } = await voucherQuery as { data: Database["public"]["Tables"]["vouchers"]["Row"][] | null }
+  const voucherTypeSerialById = buildVoucherTypeSerialMap((vouchers ?? []) as Array<
+    Pick<
+      Database["public"]["Tables"]["vouchers"]["Row"],
+      "id" | "client_id" | "fiscal_year_id" | "voucher_date" | "voucher_no" | "voucher_type" | "created_at"
+    >
+  >)
   const voucherIds = (vouchers ?? []).map((voucher: Database["public"]["Tables"]["vouchers"]["Row"]) => voucher.id)
   const paymentModeIds = Array.from(
     new Set((vouchers ?? []).map((voucher: Database["public"]["Tables"]["vouchers"]["Row"]) => voucher.payment_mode_id).filter(Boolean) as string[])
@@ -150,6 +157,7 @@ async function fetchLedger(filters: LedgerFilters): Promise<LedgerResult> {
       id: entry.id,
       date: voucher.voucher_date,
       voucherNo: voucher.voucher_no,
+      voucherTypeSerial: voucherTypeSerialById.get(voucher.id) ?? voucher.voucher_no,
       voucherType: voucher.voucher_type as VoucherType,
       paymentMode: paymentModeMap.get(voucher.payment_mode_id ?? "") ?? null,
       description: entry.description || voucher.description,

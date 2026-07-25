@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+﻿import { format } from "date-fns"
 import * as XLSX from "xlsx"
 
 import type { BankStatementResult } from "@/lib/accounting/bank-statement"
@@ -32,7 +32,7 @@ function workbookToBlob(workbook: XLSX.WorkBook) {
 }
 
 export type DayBookExportRow = {
-  voucherNo: number
+  voucherNo: string
   date: string
   accountsGroup: string
   semiSubGroup: string
@@ -57,45 +57,46 @@ export function exportDayBook(
     [clientName],
     [`Period: ${periodLabel}`],
     [],
-    ["Voucher #", "Accounts Group", "Accounts Head", "Voucher Type", "Payment Mode", "Receipts", "Payments", "Description"],
+    ["Date", "Voucher No", "Voucher Type", "Account Group", "Account Head", "Payment Mode", "Description", "Debit", "Credit"],
     ...data.map((row) => [
+      row.date,
       row.voucherNo,
+      row.voucherType,
       row.accountsGroup,
       row.accountHead,
-      row.voucherType,
       row.paymentMode,
+      row.description,
       row.receipt,
       row.payment,
-      row.description,
     ]),
   ]
 
   const totalReceipts = data.reduce((sum, row) => sum + row.receipt, 0)
   const totalPayments = data.reduce((sum, row) => sum + row.payment, 0)
-  rows.push(["", "", "", "", "Total", totalReceipts, totalPayments, ""])
+  rows.push(["", "", "", "", "", "", "Total", totalReceipts, totalPayments])
 
   const ws = XLSX.utils.aoa_to_sheet(rows)
-  ws["!cols"] = [{ wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 34 }]
+  ws["!cols"] = [{ wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 24 }, { wch: 24 }, { wch: 16 }, { wch: 34 }, { wch: 14 }, { wch: 14 }]
 
   styleCell(ws, "A1", { font: { bold: true, sz: 16 } })
   styleCell(ws, "A2", { font: { bold: true, sz: 12 } })
   styleCell(ws, "A3", { font: { bold: true } })
 
-  for (let col = 0; col < 8; col += 1) {
+  for (let col = 0; col < 9; col += 1) {
     const cell = XLSX.utils.encode_cell({ c: col, r: 4 })
     styleCell(ws, cell, { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
   }
 
   for (let rowIndex = 5; rowIndex < 5 + data.length; rowIndex += 1) {
     if ((rowIndex - 5) % 2 !== 0) continue
-    for (let col = 0; col < 8; col += 1) {
+    for (let col = 0; col < 9; col += 1) {
       const cell = XLSX.utils.encode_cell({ c: col, r: rowIndex })
       styleCell(ws, cell, { fill: { fgColor: { rgb: "F8FAFC" } } })
     }
   }
 
   const totalRowIndex = 5 + data.length
-  for (let col = 0; col < 8; col += 1) {
+  for (let col = 0; col < 9; col += 1) {
     const cell = XLSX.utils.encode_cell({ c: col, r: totalRowIndex })
     styleCell(ws, cell, { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
   }
@@ -114,7 +115,7 @@ export type LedgerExportSection = {
   openingBalance: string
   rows: Array<{
     date: string
-    voucherNo: number
+    voucherNo: string
     voucherType: string
     paymentMode: string
     description: string
@@ -175,29 +176,58 @@ export function exportTrialBalance(
   const rowsInput = Array.isArray(dataOrPayload) ? dataOrPayload : dataOrPayload.rows
   const clientName = Array.isArray(dataOrPayload) ? clientNameArg ?? "Client" : dataOrPayload.clientName
   const period = Array.isArray(dataOrPayload) ? periodArg ?? "" : dataOrPayload.periodLabel ?? periodArg ?? ""
-  const grouped = rowsInput.reduce<Record<string, TrialBalanceRow[]>>((acc, row) => {
-    const key = row.semiSubGroupName ?? "Other"
-    if (!acc[key]) acc[key] = []
-    acc[key].push(row)
-    return acc
-  }, {})
+  const grouped = Array.from(
+    rowsInput.reduce<
+      Map<string, { accountGroupName: string; semiSubGroupName: string; rows: TrialBalanceRow[] }>
+    >((acc, row) => {
+      const accountGroupName = row.groupName ?? "Other"
+      const semiSubGroupName = row.semiSubGroupName ?? "Other"
+      const key = `${accountGroupName}::${semiSubGroupName}`
+      const current = acc.get(key)
 
-  const rows: Array<Array<string | number>> = [["Trial Balance"], [clientName], [`Period: ${period}`], [], ["Group", "Account Head", "Debit", "Credit", "Balance"]]
+      if (!current) {
+        acc.set(key, {
+          accountGroupName,
+          semiSubGroupName,
+          rows: [row],
+        })
+        return acc
+      }
 
-  for (const [groupName, groupRows] of Object.entries(grouped)) {
-    rows.push([groupName, "", "", "", ""])
-    for (const row of groupRows) {
-      rows.push(["", row.accountHeadName, row.debit, row.credit, row.balanceLabel])
+      current.rows.push(row)
+      return acc
+    }, new Map()).values()
+  ).sort((left, right) => {
+    const groupComparison = left.accountGroupName.localeCompare(right.accountGroupName)
+    if (groupComparison !== 0) {
+      return groupComparison
+    }
+
+    return left.semiSubGroupName.localeCompare(right.semiSubGroupName)
+  })
+
+  const rows: Array<Array<string | number>> = [
+    ["Trial Balance"],
+    [clientName],
+    [`Period: ${period}`],
+    [],
+    ["Account Group", "Semi-Sub Accounts Group", "Account Head", "Debit", "Credit", "Balance"],
+  ]
+
+  for (const group of grouped) {
+    rows.push([group.accountGroupName, group.semiSubGroupName, "", "", "", ""])
+    for (const row of group.rows) {
+      rows.push(["", "", row.accountHeadName, row.debit, row.credit, row.balanceLabel])
     }
   }
 
   const totalDebit = rowsInput.reduce((sum, row) => sum + row.debit, 0)
   const totalCredit = rowsInput.reduce((sum, row) => sum + row.credit, 0)
-  rows.push(["", "Grand Total", totalDebit, totalCredit, ""])
+  rows.push(["", "", "Grand Total", totalDebit, totalCredit, ""])
 
   const ws = XLSX.utils.aoa_to_sheet(rows)
-  ws["!cols"] = [{ wch: 26 }, { wch: 34 }, { wch: 14 }, { wch: 14 }, { wch: 16 }]
-  for (let c = 0; c < 5; c += 1) {
+  ws["!cols"] = [{ wch: 24 }, { wch: 28 }, { wch: 34 }, { wch: 14 }, { wch: 14 }, { wch: 16 }]
+  for (let c = 0; c < 6; c += 1) {
     styleCell(ws, XLSX.utils.encode_cell({ c, r: 4 }), { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
     styleCell(ws, XLSX.utils.encode_cell({ c, r: rows.length - 1 }), { font: { bold: true }, fill: { fgColor: { rgb: "E2E8F0" } } })
   }

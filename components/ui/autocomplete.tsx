@@ -9,6 +9,7 @@ interface AutocompleteOption {
   label: string
   id: string
   displayLabel?: string
+  path?: string[]
 }
 
 interface AutocompleteProps {
@@ -19,7 +20,43 @@ interface AutocompleteProps {
   placeholder?: string
   className?: string
   inputClassName?: string
+  menuClassName?: string
   disabled?: boolean
+}
+
+function normalizeText(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function getOptionSearchScore(option: AutocompleteOption, query: string) {
+  if (!query) {
+    return option.displayLabel ?? option.label
+  }
+
+  const displayLabel = normalizeText(option.displayLabel ?? "")
+  const label = normalizeText(option.label)
+  const path = (option.path ?? []).map(normalizeText)
+
+  if (displayLabel.startsWith(query)) return `0-${displayLabel}`
+  if (label.startsWith(query)) return `1-${label}`
+  if (path.some((segment) => segment.startsWith(query))) return `2-${displayLabel}`
+  if (displayLabel.includes(query)) return `3-${displayLabel}`
+  if (label.includes(query)) return `4-${label}`
+  if (path.some((segment) => segment.includes(query))) return `5-${displayLabel}`
+
+  return null
+}
+
+function buildSecondaryLabel(option: AutocompleteOption) {
+  if (!option.path?.length) {
+    return option.label
+  }
+
+  if (option.path.length === 1) {
+    return option.path[0]
+  }
+
+  return option.path.slice(0, -1).join(" · ")
 }
 
 export function Autocomplete({
@@ -30,6 +67,7 @@ export function Autocomplete({
   placeholder = "Search...",
   className,
   inputClassName,
+  menuClassName,
   disabled = false,
 }: AutocompleteProps) {
   const [inputValue, setInputValue] = React.useState("")
@@ -40,16 +78,25 @@ export function Autocomplete({
     () => options.find((option) => option.id === value),
     [options, value]
   )
+  const normalizedInput = normalizeText(inputValue)
 
   React.useEffect(() => {
     setInputValue(selectedOption?.displayLabel ?? selectedOption?.label ?? "")
   }, [selectedOption])
 
-  const filteredOptions = options.filter((option) =>
-    [option.label, option.displayLabel ?? ""].some((candidate) =>
-      candidate.toLowerCase().includes(inputValue.toLowerCase())
-    )
-  )
+  const filteredOptions = React.useMemo(() => {
+    const ranked = options
+      .map((option) => {
+        const score = getOptionSearchScore(option, normalizedInput)
+
+        return score ? { option, score } : null
+      })
+      .filter((entry): entry is { option: AutocompleteOption; score: string } => Boolean(entry))
+
+    return ranked
+      .sort((left, right) => left.score.localeCompare(right.score))
+      .map((entry) => entry.option)
+  }, [normalizedInput, options])
 
   const handleOptionSelect = (option: AutocompleteOption) => {
     setInputValue(option.displayLabel ?? option.label)
@@ -95,7 +142,10 @@ export function Autocomplete({
       {open && filteredOptions.length > 0 && (
         <div
           ref={listRef}
-          className="absolute z-50 mt-1 w-full min-w-[300px] max-w-[600px] max-h-80 overflow-auto rounded-md border border-slate-200 bg-white py-1 text-sm shadow-md"
+          className={cn(
+            "absolute z-50 mt-1 w-full min-w-[min(28rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] max-h-72 overflow-auto rounded-2xl border border-slate-200 bg-white py-1 text-sm shadow-lg",
+            menuClassName
+          )}
         >
           <ul className="w-full">
             {filteredOptions.map((option) => (
@@ -103,14 +153,21 @@ export function Autocomplete({
                 key={option.id}
                 onClick={() => handleOptionSelect(option)}
                 className={cn(
-                  "relative flex cursor-pointer select-none items-center gap-2 px-3 py-2 outline-none hover:bg-slate-100",
+                  "relative flex cursor-pointer select-none items-start gap-2 px-3 py-2.5 outline-none transition hover:bg-slate-50",
                   option.id === value && "bg-slate-50"
                 )}
               >
-                <span className="flex h-4 w-4 items-center justify-center shrink-0">
+                <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
                   {option.id === value && <Check className="h-4 w-4" />}
                 </span>
-                <span className="flex-1 whitespace-normal break-words">{option.label}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-slate-950">
+                    {option.displayLabel ?? option.label}
+                  </p>
+                  <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">
+                    {buildSecondaryLabel(option)}
+                  </p>
+                </div>
               </li>
             ))}
           </ul>

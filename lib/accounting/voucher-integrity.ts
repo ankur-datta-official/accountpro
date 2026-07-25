@@ -213,42 +213,11 @@ export function validateVoucherLines(
 
   const differenceMinor = totalDebitMinor - totalCreditMinor
   const isBalanced = differenceMinor === 0
-  const hasOnlyDebits = totalDebitMinor > 0 && totalCreditMinor === 0
-  const hasOnlyCredits = totalCreditMinor > 0 && totalDebitMinor === 0
-  const requiresAutoBalance =
-    !isBalanced &&
-    ((voucherType === "payment" && hasOnlyDebits) ||
-      (voucherType === "received" && hasOnlyCredits))
 
-  if (!isBalanced && !requiresAutoBalance) {
+  if (!isBalanced) {
     return {
       ok: false as const,
       error: "Total debit and total credit must be balanced.",
-    }
-  }
-
-  if (!isBalanced && (voucherType === "payment" || voucherType === "received")) {
-    const invalidDirection =
-      (voucherType === "payment" && !hasOnlyDebits) ||
-      (voucherType === "received" && !hasOnlyCredits)
-
-    if (invalidDirection) {
-      return {
-        ok: false as const,
-        error:
-          "Payment and received vouchers may auto-balance only when the entered lines contain one clear accounting side.",
-      }
-    }
-  }
-
-  if (!isBalanced && requiresAutoBalance) {
-    return {
-      ok: true as const,
-      totalDebitMinor,
-      totalCreditMinor,
-      differenceMinor,
-      requiresAutoBalance: true,
-      autoBalanceSide: voucherType === "payment" ? ("credit" as const) : ("debit" as const),
     }
   }
 
@@ -259,6 +228,46 @@ export function validateVoucherLines(
     differenceMinor,
     requiresAutoBalance: false,
     autoBalanceSide: null,
+  }
+}
+
+export function getVoucherLineSignedDelta({
+  accountsGroup,
+  debitAmount,
+  creditAmount,
+}: Pick<VoucherIntegrityLine, "accountsGroup" | "debitAmount" | "creditAmount">) {
+  const debit = typeof debitAmount === "number" && Number.isFinite(debitAmount) ? debitAmount : Number(debitAmount || 0)
+  const credit =
+    typeof creditAmount === "number" && Number.isFinite(creditAmount) ? creditAmount : Number(creditAmount || 0)
+
+  if (accountsGroup === "asset" || accountsGroup === "expense") {
+    return debit - credit
+  }
+
+  return credit - debit
+}
+
+export function validateNonNegativeProjectedBalance({
+  accountName,
+  currentBalance,
+  signedMovement,
+}: {
+  accountName: string
+  currentBalance: number
+  signedMovement: number
+}) {
+  const projectedBalance = Number((currentBalance + signedMovement).toFixed(2))
+
+  if (projectedBalance < 0) {
+    return {
+      ok: false as const,
+      error: `Insufficient balance in ${accountName}. Available balance is ${currentBalance.toFixed(2)}.`,
+    }
+  }
+
+  return {
+    ok: true as const,
+    projectedBalance,
   }
 }
 

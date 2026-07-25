@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { Fragment, useMemo, useState } from "react"
 import { format } from "date-fns"
@@ -21,6 +21,8 @@ export type DayBookRow = DayBookExportRow & {
   id: string
   voucherId: string
   accountHeadId: string
+  voucherTypeSerial: number
+  voucherDisplayNo: string
 }
 
 function formatAmount(value: number) {
@@ -103,7 +105,7 @@ export function DayBookReport({
       const matchesVoucherType = voucherTypeFilter === "all" || row.voucherType === voucherTypeFilter
       const matchesPaymentMode = paymentModeFilter === "all" || row.paymentMode === paymentModeFilter
       const matchesSearch = !searchQuery || 
-        String(row.voucherNo).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        row.voucherDisplayNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
         row.accountHead.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (row.description && row.description.toLowerCase().includes(searchQuery.toLowerCase()))
 
@@ -150,8 +152,8 @@ export function DayBookReport({
 
         // Secondary sort by voucher number if primary is equal
         if (comparison === 0 && primaryCol !== "voucherNo") {
-          const aVoucher = String(a.voucherNo).toLowerCase()
-          const bVoucher = String(b.voucherNo).toLowerCase()
+          const aVoucher = a.voucherDisplayNo.toLowerCase()
+          const bVoucher = b.voucherDisplayNo.toLowerCase()
           if (aVoucher < bVoucher) return -1
           if (aVoucher > bVoucher) return 1
         }
@@ -197,7 +199,7 @@ export function DayBookReport({
   const closingBalance = openingBalance + totalReceipts - totalPayments
 
   const exportRows = filteredRows.map<DayBookExportRow>((row) => ({
-    voucherNo: row.voucherNo,
+    voucherNo: row.voucherDisplayNo,
     date: row.date,
     accountsGroup: row.accountsGroup,
     semiSubGroup: row.semiSubGroup,
@@ -543,7 +545,7 @@ export function DayBookReport({
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <Input
             type="text"
-            placeholder="Search by Voucher #, Accounts Head, or Description..."
+            placeholder="Search by Voucher No, Accounts Head, or Description..."
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value)
@@ -618,14 +620,14 @@ export function DayBookReport({
                 <thead>
                   <tr>
                     <th style={{ width: "8%" }}>Date</th>
-                    <th style={{ width: "7%" }}>Voucher #</th>
-                    <th style={{ width: "13%" }}>Accounts Group</th>
-                    <th style={{ width: "16%" }}>Accounts Head</th>
+                    <th style={{ width: "7%" }}>Voucher No</th>
                     <th style={{ width: "10%" }}>Voucher Type</th>
+                    <th style={{ width: "13%" }}>Account Group</th>
+                    <th style={{ width: "16%" }}>Account Head</th>
                     <th style={{ width: "11%" }}>Payment Mode</th>
-                    <th style={{ width: "9%", textAlign: "right" }}>Receipts (Dr)</th>
-                    <th style={{ width: "9%", textAlign: "right" }}>Payments (Cr)</th>
                     <th style={{ width: "17%" }}>Description</th>
+                    <th style={{ width: "9%", textAlign: "right" }}>Debit</th>
+                    <th style={{ width: "9%", textAlign: "right" }}>Credit</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -639,39 +641,37 @@ export function DayBookReport({
                       {group.items.map((row) => (
                         <tr key={row.id}>
                           <td>{format(new Date(row.date), "dd MMM yyyy")}</td>
-                          <td className="font-medium">{row.voucherNo}</td>
+                          <td className="font-medium">{row.voucherDisplayNo}</td>
+                          <td>{row.voucherType}</td>
                           <td>{row.accountsGroup}</td>
                           <td>{row.accountHead}</td>
-                          <td>{row.voucherType}</td>
                           <td>{row.paymentMode || "—"}</td>
+                          <td>{row.description || "—"}</td>
                           <td style={{ textAlign: "right" }}>
                             {formatAmount(row.receipt)}
                           </td>
                           <td style={{ textAlign: "right" }}>
                             {formatAmount(row.payment)}
                           </td>
-                          <td>{row.description || "—"}</td>
                         </tr>
                       ))}
                       <tr key={`${group.date}-subtotal`} className="daily-total">
-                        <td colSpan={6} style={{ textAlign: "right" }}>
+                        <td colSpan={7} style={{ textAlign: "right" }}>
                           Daily Total
                         </td>
                         <td style={{ textAlign: "right" }}>{formatAmount(group.receipts)}</td>
                         <td style={{ textAlign: "right" }}>{formatAmount(group.payments)}</td>
-                        <td />
                       </tr>
                     </Fragment>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="grand-total">
-                    <td colSpan={6} style={{ textAlign: "right" }}>
+                    <td colSpan={7} style={{ textAlign: "right" }}>
                       Grand Total
                     </td>
                     <td style={{ textAlign: "right" }}>{formatAmount(totalReceipts)}</td>
                     <td style={{ textAlign: "right" }}>{formatAmount(totalPayments)}</td>
-                    <td />
                   </tr>
                 </tfoot>
               </table>
@@ -712,14 +712,14 @@ export function DayBookReport({
                 <tr className="border-y border-slate-200 bg-slate-50 text-slate-700">
                   {[
                     { label: "Date", column: "date" as SortColumn },
-                    { label: "Voucher #", column: "voucherNo" as SortColumn },
-                    { label: "Accounts Group", column: "accountsGroup" as SortColumn },
-                    { label: "Accounts Head", column: "accountHead" as SortColumn },
+                    { label: "Voucher No", column: "voucherNo" as SortColumn },
                     { label: "Voucher Type", column: "voucherType" as SortColumn },
+                    { label: "Account Group", column: "accountsGroup" as SortColumn },
+                    { label: "Account Head", column: "accountHead" as SortColumn },
                     { label: "Payment Mode", column: "paymentMode" as SortColumn },
-                    { label: "Receipts(Dr)", column: "receipt" as SortColumn },
-                    { label: "Payments(Cr)", column: "payment" as SortColumn },
                     { label: "Description", column: "description" as SortColumn },
+                    { label: "Debit", column: "receipt" as SortColumn },
+                    { label: "Credit", column: "payment" as SortColumn },
                   ].map(({ label, column }) => (
                     <th
                       key={column}
@@ -765,44 +765,42 @@ export function DayBookReport({
                       >
                         <td className="px-3 py-2">{format(new Date(row.date), "dd MMM yyyy")}</td>
                         <td className="px-3 py-2 font-medium text-slate-900">
-                          <HighlightedText text={String(row.voucherNo)} search={searchQuery} />
+                          <HighlightedText text={row.voucherDisplayNo} search={searchQuery} />
                         </td>
+                        <td className="px-3 py-2">{row.voucherType}</td>
                         <td className="px-3 py-2">{row.accountsGroup}</td>
                         <td className="px-3 py-2">
                           <HighlightedText text={row.accountHead} search={searchQuery} />
                         </td>
-                        <td className="px-3 py-2">{row.voucherType}</td>
                         <td className="px-3 py-2">{row.paymentMode || "—"}</td>
+                        <td className="px-3 py-2">
+                          {row.description ? <HighlightedText text={row.description} search={searchQuery} /> : "—"}
+                        </td>
                         <td className={`px-3 py-2 text-right ${row.receipt < 0 ? "text-red-600" : "text-slate-900"}`}>
                           {formatAmount(row.receipt)}
                         </td>
                         <td className={`px-3 py-2 text-right ${row.payment < 0 ? "text-red-600" : "text-slate-900"}`}>
                           {formatAmount(row.payment)}
                         </td>
-                        <td className="px-3 py-2">
-                          {row.description ? <HighlightedText text={row.description} search={searchQuery} /> : "—"}
-                        </td>
                       </tr>
                     ))}
                     <tr key={`${group.date}-subtotal`} className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-900">
-                      <td colSpan={6} className="px-3 py-2 text-right">
+                      <td colSpan={7} className="px-3 py-2 text-right">
                         Daily Total
                       </td>
                       <td className="px-3 py-2 text-right">{formatAmount(group.receipts)}</td>
                       <td className="px-3 py-2 text-right">{formatAmount(group.payments)}</td>
-                      <td colSpan={1} />
                     </tr>
                   </Fragment>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-300 bg-slate-100 font-semibold text-slate-950">
-                  <td colSpan={6} className="px-3 py-3 text-right">
+                  <td colSpan={7} className="px-3 py-3 text-right">
                     Grand Total
                   </td>
                   <td className="px-3 py-3 text-right">{formatAmount(totalReceipts)}</td>
                   <td className="px-3 py-3 text-right">{formatAmount(totalPayments)}</td>
-                  <td colSpan={1} />
                 </tr>
               </tfoot>
             </table>

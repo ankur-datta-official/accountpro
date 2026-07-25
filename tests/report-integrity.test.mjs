@@ -72,6 +72,10 @@ const bankStatement = await loadModule({
       'import { resolveMappedPaymentModeAccount, type PaymentModeAccountHead } from "@/lib/accounting/payment-modes"',
       "const resolveMappedPaymentModeAccount = ({ clientId, paymentMode, accountHeads }) => {\n  if (!paymentMode.account_head_id) {\n    return { ok: false, error: 'The selected payment mode is not mapped to an account head.' }\n  }\n  const accountHead = accountHeads.find((head) => head.id === paymentMode.account_head_id) ?? null\n  if (!accountHead || accountHead.client_id !== clientId || accountHead.is_active === false || accountHead.type !== 'asset') {\n    return { ok: false, error: 'The selected payment mode must be linked to an active same-client cash or bank asset account.' }\n  }\n  return { ok: true, accountHead }\n}"
     ],
+    [
+      'import { buildVoucherTypeSerialMap, isAutoBalanceEntry } from "@/lib/accounting/vouchers"',
+      "const buildVoucherTypeSerialMap = (vouchers) => new Map(vouchers.map((voucher, index) => [voucher.id, index + 1]))\nconst isAutoBalanceEntry = (description) => Boolean(description?.startsWith('Auto-balancing entry for '))"
+    ],
   ],
 })
 
@@ -268,6 +272,48 @@ test("bank statement keeps only the selected bank account leg and excludes count
   )
   assert.equal(result.totalDebit, 0)
   assert.equal(result.totalCredit, 75)
+})
+
+test("bank statement excludes legacy auto-balancing rows", () => {
+  const result = buildBankStatementResult({
+    paymentModeName: "Cash",
+    accountHead: {
+      id: "cash-1",
+      client_id: "client-1",
+      name: "Cash",
+      opening_balance: 0,
+      balance_type: "debit",
+      is_active: true,
+    },
+    vouchers: [
+      { id: "v1", voucher_date: "2026-01-15", voucher_no: 1, description: "Legacy receipt" },
+      { id: "v2", voucher_date: "2026-01-16", voucher_no: 2, description: "Real receipt" },
+    ],
+    entries: [
+      {
+        id: "e1",
+        voucher_id: "v1",
+        account_head_id: "cash-1",
+        debit: 50,
+        credit: 0,
+        description: "Auto-balancing entry for Cash",
+      },
+      {
+        id: "e2",
+        voucher_id: "v2",
+        account_head_id: "cash-1",
+        debit: 30,
+        credit: 0,
+        description: "Customer collection",
+      },
+    ],
+    fromDate: "2026-01-01",
+    toDate: "2026-01-31",
+  })
+
+  assert.equal(result.rows.length, 1)
+  assert.equal(result.rows[0].voucherNo, 2)
+  assert.equal(result.totalDebit, 30)
 })
 
 test("opening balance is included exactly once and running balance is correct", () => {
