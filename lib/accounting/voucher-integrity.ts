@@ -156,7 +156,7 @@ export function validateVoucherDateInFiscalYear({
 
 export function validateVoucherLines(
   lines: VoucherIntegrityLine[],
-  voucherType: VoucherIntegrityVoucherType
+  _voucherType: VoucherIntegrityVoucherType
 ) {
   if (!lines.length) {
     return {

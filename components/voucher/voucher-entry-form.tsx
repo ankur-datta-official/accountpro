@@ -19,7 +19,6 @@ import { z } from "zod"
 import {
   normalizePaymentModeName,
 } from "@/lib/accounting/payment-modes"
-import { openingBalanceToSignedAmount } from "@/lib/accounting/ledger"
 import { normalizeVoucherLineAmounts } from "@/lib/accounting/voucher-entry-rules"
 import {
   createVoucherAction,
@@ -306,7 +305,6 @@ function buildFormValues({
   fiscalYearEndDate,
   defaultVoucherNo,
   defaultVoucherNoByType,
-  paymentModes,
   values,
 }: {
   clientId: string
@@ -315,7 +313,6 @@ function buildFormValues({
   fiscalYearEndDate?: string
   defaultVoucherNo: number
   defaultVoucherNoByType?: Partial<Record<VoucherFormValues["voucherType"], number>>
-  paymentModes: PaymentModeOption[]
   values?: Partial<VoucherFormValues>
 }): VoucherFormValues {
   const voucherType = values?.voucherType ?? "payment"
@@ -400,7 +397,6 @@ export function VoucherEntryForm({
       fiscalYearEndDate,
       defaultVoucherNo,
       defaultVoucherNoByType,
-      paymentModes,
       values: initialValues,
     }),
   })
@@ -464,7 +460,6 @@ export function VoucherEntryForm({
           fiscalYearEndDate,
           defaultVoucherNo,
           defaultVoucherNoByType,
-          paymentModes,
           values: JSON.parse(existingDraft) as VoucherFormValues,
         })
       )
@@ -870,7 +865,6 @@ export function VoucherEntryForm({
         fiscalYearId,
         defaultVoucherNo: (defaultVoucherNoByType?.payment ?? defaultVoucherNo) + 1,
         defaultVoucherNoByType,
-        paymentModes,
         values: { voucherType: newVoucherType },
       })
     )

@@ -5,9 +5,21 @@ type PaymentModeRow = Database["public"]["Tables"]["payment_modes"]["Row"]
 type AccountHeadRow = Database["public"]["Tables"]["account_heads"]["Row"]
 type VoucherEntryRow = Database["public"]["Tables"]["voucher_entries"]["Row"]
 
+type QueryResult<T> = PromiseLike<{
+  data: T[] | null
+  error: { message?: string } | null
+}>
+
+type FilterableQuery<T> = QueryResult<T> & {
+  eq: (column: string, value: string) => FilterableQuery<T>
+  in: (column: string, values: string[]) => FilterableQuery<T>
+  lte: (column: string, value: string) => FilterableQuery<T>
+  neq: (column: string, value: string) => FilterableQuery<T>
+}
+
 type SupabaseLike = {
   from: (table: string) => {
-    select: (query: string) => any
+    select: (query: string) => FilterableQuery<Record<string, unknown>>
   }
 }
 

@@ -291,8 +291,8 @@ export function LedgerBookManager({
     fiscalYears[0]
 
   const periodLabel = `${format(new Date(fromDate), "dd MMM yyyy")} - ${format(new Date(toDate), "dd MMM yyyy")}`
-  const accountSummaries = dataset?.accounts ?? []
-  const sections = dataset?.sections ?? []
+  const accountSummaries = useMemo(() => dataset?.accounts ?? [], [dataset])
+  const sections = useMemo(() => dataset?.sections ?? [], [dataset])
   const sectionById = useMemo(
     () => new Map(sections.map((section) => [section.accountHeadId, section])),
     [sections]

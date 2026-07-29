@@ -178,18 +178,6 @@ export function VoucherListManager({
     Boolean(filters.search),
     filters.sortBy !== "date" || filters.sortOrder !== "desc",
   ].filter(Boolean).length
-  const selectedTotals = useMemo(() => {
-    const selectedItems = items.filter((item) => selectedVoucherIds.includes(item.id))
-
-    return selectedItems.reduce(
-      (totals, item) => ({
-        debit: totals.debit + item.debit,
-        credit: totals.credit + item.credit,
-      }),
-      { debit: 0, credit: 0 }
-    )
-  }, [items, selectedVoucherIds])
-
   const updateFilter = <Key extends keyof VoucherFilters>(key: Key, value: VoucherFilters[Key]) => {
     setFilters((current) => ({
       ...current,
