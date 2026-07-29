@@ -416,6 +416,7 @@ export interface Database {
           id: string
           voucher_id: string | null
           account_head_id: string | null
+          payment_mode_id: string | null
           accounts_group: string | null
           debit: number | null
           credit: number | null
@@ -426,6 +427,7 @@ export interface Database {
           id?: string
           voucher_id?: string | null
           account_head_id?: string | null
+          payment_mode_id?: string | null
           accounts_group?: string | null
           debit?: number | null
           credit?: number | null
@@ -436,6 +438,7 @@ export interface Database {
           id?: string
           voucher_id?: string | null
           account_head_id?: string | null
+          payment_mode_id?: string | null
           accounts_group?: string | null
           debit?: number | null
           credit?: number | null

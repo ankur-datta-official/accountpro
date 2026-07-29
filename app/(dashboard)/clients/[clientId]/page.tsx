@@ -14,8 +14,6 @@ import { DashboardEmptyState } from "@/components/dashboard/dashboard-empty-stat
 import { DashboardPeriodSelector } from "@/components/dashboard/dashboard-period-selector"
 import {
   CashFlowPanel,
-  QuickActionsPanel,
-  RecentActivitiesPanel,
   TopAccountsPanel,
 } from "@/components/dashboard/dashboard-support-panels"
 import {
@@ -149,11 +147,6 @@ export default async function ClientDashboardPage({
           href={dashboard.cashFlow.href}
           subtitle={dashboard.selectedPeriod?.periodLabel}
         />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <RecentActivitiesPanel items={dashboard.recentActivities} />
-        <QuickActionsPanel actions={dashboard.quickActions} />
       </section>
     </div>
   )

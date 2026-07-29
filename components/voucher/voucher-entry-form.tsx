@@ -4,12 +4,9 @@
 import { useEffect, useMemo, useState, useTransition } from "react"
 import { format } from "date-fns"
 import {
-  CircleAlert,
-  CircleCheckBig,
   FileText,
   Loader2,
   PlusCircle,
-  Scale,
   UploadCloud,
   X,
 } from "lucide-react"
@@ -20,11 +17,9 @@ import { toast } from "sonner"
 import { z } from "zod"
 
 import {
-  BANGLADESH_BANK_OPTIONS,
-  BANGLADESH_MOBILE_BANKING_OPTIONS,
-  PAYMENT_MODE_GROUPS,
   normalizePaymentModeName,
 } from "@/lib/accounting/payment-modes"
+import { openingBalanceToSignedAmount } from "@/lib/accounting/ledger"
 import { normalizeVoucherLineAmounts } from "@/lib/accounting/voucher-entry-rules"
 import {
   createVoucherAction,
@@ -35,7 +30,6 @@ import {
 import { formatVoucherDisplayNumber } from "@/lib/accounting/vouchers"
 import { useChartOfAccounts } from "@/lib/hooks/useChartOfAccounts"
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client"
-import type { PaymentModeType } from "@/lib/types"
 import { VoucherLineRow, type VoucherLineFormValues } from "@/components/voucher/VoucherLineRow"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -49,9 +43,6 @@ const voucherFormSchema = z.object({
   voucherNo: z.number().int().positive().optional(),
   voucherDate: z.string().min(1),
   voucherType: z.enum(["payment", "received", "journal", "contra", "bf", "bp", "br"]),
-  paymentModeId: z.string().optional(),
-  paymentModeName: z.string().optional(),
-  paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
   showDescription: z.boolean(),
   description: z.string().optional(),
   showSupportingDocuments: z.boolean(),
@@ -63,6 +54,9 @@ const voucherFormSchema = z.object({
           .or(z.literal(""))
           .refine((value) => value !== "", "Accounts group is required."),
         accountHeadId: z.string().min(1, "Account head is required."),
+        paymentModeId: z.string().optional(),
+        paymentModeName: z.string().optional(),
+        paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
         debitAmount: z.number().min(0),
         creditAmount: z.number().min(0),
         description: z.string().optional(),
@@ -77,6 +71,17 @@ type PaymentModeOption = {
   id: string
   name: string
   type: string | null
+  accountHeadId?: string | null
+}
+
+type PaymentModeBalanceState = {
+  currentBalance: number
+  loading: boolean
+  error?: string
+}
+
+type ResolvedPaymentModeSelection = PaymentModeOption & {
+  lookupKey: string
 }
 
 const voucherTypeOptions = [
@@ -157,18 +162,13 @@ function clampVoucherDateToFiscalYear({
 const defaultLine = (voucherType?: string): VoucherFormValues["lines"][number] => ({
   accountsGroup: voucherType === "contra" ? "asset" : "",
   accountHeadId: "",
+  paymentModeId: "",
+  paymentModeName: "",
+  paymentModeType: undefined,
   debitAmount: 0,
   creditAmount: 0,
   description: "",
 })
-
-function getDefaultCashMode(paymentModes: PaymentModeOption[]) {
-  return (
-    paymentModes.find((mode) => mode.type === "cash" && normalizePaymentModeName(mode.name).toLowerCase() === "cash") ??
-    paymentModes.find((mode) => mode.type === "cash") ??
-    null
-  )
-}
 
 function formatFileSize(size: number) {
   if (size < 1024) {
@@ -184,6 +184,59 @@ function formatFileSize(size: number) {
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ")
+}
+
+function formatBalanceAmount(value: number) {
+  return Number(value.toFixed(2)).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+
+function buildPaymentModeLookupKey(type?: string | null, name?: string | null) {
+  const normalizedType = (type ?? "").trim()
+  const normalizedName = normalizePaymentModeName(name ?? "").toLowerCase()
+
+  if (!normalizedType || !normalizedName) {
+    return null
+  }
+
+  return `${normalizedType}:${normalizedName}`
+}
+
+function resolveLinePaymentMode(
+  line: VoucherFormValues["lines"][number],
+  paymentModes: PaymentModeOption[]
+): ResolvedPaymentModeSelection | null {
+  if (line.paymentModeId) {
+    const modeById = paymentModes.find((mode) => mode.id === line.paymentModeId) ?? null
+
+    if (modeById) {
+      return {
+        ...modeById,
+        lookupKey: modeById.id,
+      }
+    }
+  }
+
+  const lookupKey = buildPaymentModeLookupKey(line.paymentModeType, line.paymentModeName)
+
+  if (!lookupKey) {
+    return null
+  }
+
+  const modeByName = paymentModes.find(
+    (mode) => buildPaymentModeLookupKey(mode.type, mode.name) === lookupKey
+  )
+
+  if (!modeByName) {
+    return null
+  }
+
+  return {
+    ...modeByName,
+    lookupKey,
+  }
 }
 
 function SectionToggle({
@@ -265,34 +318,24 @@ function buildFormValues({
   paymentModes: PaymentModeOption[]
   values?: Partial<VoucherFormValues>
 }): VoucherFormValues {
-  const defaultCashMode = getDefaultCashMode(paymentModes)
-  const selectedPaymentMode = values?.paymentModeId
-    ? paymentModes.find((mode) => mode.id === values.paymentModeId)
-    : null
-
-  const paymentModeType = (selectedPaymentMode?.type ??
-    values?.paymentModeType ??
-    defaultCashMode?.type ??
-    "cash") as PaymentModeType
-  const normalizedDraftPaymentModeName = normalizePaymentModeName(values?.paymentModeName ?? "")
-  const paymentModeName =
-    selectedPaymentMode?.name ??
-    (normalizedDraftPaymentModeName || defaultCashMode?.name || "Cash")
-
   const voucherType = values?.voucherType ?? "payment"
   const resolvedDefaultVoucherNo = values?.voucherNo ?? defaultVoucherNoByType?.[voucherType] ?? defaultVoucherNo
 
-  const validatedLines = values?.lines?.length 
-    ? values.lines.map(line => line 
-      ? { 
+  const validatedLines = values?.lines?.length
+    ? values.lines.map((line) =>
+        line
+          ? {
         accountsGroup: voucherType === "contra" ? "asset" : (line.accountsGroup ?? ""),
         accountHeadId: line.accountHeadId ?? "",
+        paymentModeId: line.paymentModeId ?? "",
+        paymentModeName: line.paymentModeName ?? "",
+        paymentModeType: line.paymentModeType ?? undefined,
         debitAmount: Number(line.debitAmount ?? 0),
         creditAmount: Number(line.creditAmount ?? 0),
         description: line.description ?? ""
-      } 
-      : defaultLine(voucherType)
-    )
+      }
+          : defaultLine(voucherType)
+      )
     : [defaultLine(voucherType)]
 
   return {
@@ -305,9 +348,6 @@ function buildFormValues({
       fiscalYearEndDate,
     }),
     voucherType: values?.voucherType ?? "payment",
-    paymentModeId: selectedPaymentMode?.id ?? (paymentModeType === "cash" ? defaultCashMode?.id ?? "" : ""),
-    paymentModeName,
-    paymentModeType,
     showDescription: values?.showDescription ?? Boolean(values?.description?.trim()),
     description: values?.description ?? "",
     showSupportingDocuments: values?.showSupportingDocuments ?? false,
@@ -386,43 +426,9 @@ export function VoucherEntryForm({
 
   const showPaymentMode =
     values.voucherType === "payment" ||
-    values.voucherType === "received" ||
-    values.voucherType === "journal"
+    values.voucherType === "received"
   const visibleVoucherTypeOptions =
     mode === "create" ? voucherTypeOptions : [...voucherTypeOptions, ...legacyVoucherTypeOptions]
-
-  const paymentModesByType = useMemo(
-    () => ({
-      cash: paymentModes.filter((mode) => mode.type === "cash"),
-      mobile_banking: paymentModes.filter((mode) => mode.type === "mobile_banking"),
-      bank: paymentModes.filter((mode) => mode.type === "bank"),
-      other: paymentModes.filter((mode) => mode.type === "other"),
-    }),
-    [paymentModes]
-  )
-
-  const selectedExistingPaymentMode = values.paymentModeId
-    ? paymentModes.find((mode) => mode.id === values.paymentModeId) ?? null
-    : null
-  const selectedPaymentModeGroup = (selectedExistingPaymentMode?.type ??
-    values.paymentModeType ??
-    "cash") as PaymentModeType
-
-  const bankOptions = useMemo(() => {
-    const names = new Set([
-      ...BANGLADESH_BANK_OPTIONS,
-      ...paymentModesByType.bank.map((mode) => mode.name),
-    ])
-    return Array.from(names).sort((left, right) => left.localeCompare(right))
-  }, [paymentModesByType.bank])
-
-  const mobileBankingOptions = useMemo(() => {
-    const names = new Set([
-      ...BANGLADESH_MOBILE_BANKING_OPTIONS,
-      ...paymentModesByType.mobile_banking.map((mode) => mode.name),
-    ])
-    return Array.from(names).sort((left, right) => left.localeCompare(right))
-  }, [paymentModesByType.mobile_banking])
 
   const totalDebit = useMemo(
     () => values.lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0),
@@ -492,6 +498,238 @@ export function VoucherEntryForm({
 
     return () => window.clearInterval(interval)
   }, [disabled, draftKey, draftRestored, form, shouldUseDraft])
+
+  const selectedPaymentModes = useMemo(() => {
+    const selectedModes = new Map<string, ResolvedPaymentModeSelection>()
+
+    for (const line of values.lines) {
+      const paymentMode = resolveLinePaymentMode(line, paymentModes)
+
+      if (paymentMode?.accountHeadId) {
+        selectedModes.set(paymentMode.lookupKey, paymentMode)
+      }
+    }
+
+    return Array.from(selectedModes.values())
+  }, [paymentModes, values.lines])
+
+  const [paymentModeBalances, setPaymentModeBalances] = useState<Record<string, PaymentModeBalanceState>>({})
+
+  useEffect(() => {
+    if (!showPaymentMode || !selectedPaymentModes.length || !values.voucherDate) {
+      setPaymentModeBalances({})
+      return
+    }
+
+    const paymentModeLookupKeys = selectedPaymentModes.map((mode) => mode.lookupKey)
+
+    setPaymentModeBalances((current) => {
+      const nextState: Record<string, PaymentModeBalanceState> = {}
+
+      for (const paymentMode of selectedPaymentModes) {
+        nextState[paymentMode.lookupKey] = current[paymentMode.lookupKey]
+          ? { ...current[paymentMode.lookupKey], loading: true, error: undefined }
+          : { currentBalance: 0, loading: true }
+      }
+
+      return nextState
+    })
+
+    let isActive = true
+
+    async function loadPaymentModeBalances() {
+      const supabase = createBrowserSupabaseClient()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      if (!session?.access_token) {
+        throw new Error("Your session has expired. Please sign in again.")
+      }
+
+      const params = new URLSearchParams({
+        voucherDate: values.voucherDate,
+        paymentModeIds: Array.from(new Set(selectedPaymentModes.map((mode) => mode.id))).join(","),
+      })
+
+      if (mode === "edit" && voucherId) {
+        params.set("excludeVoucherId", voucherId)
+      }
+
+      const response = await fetch(`/api/clients/${clientId}/payment-mode-funding?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      })
+
+      const result = await response.json().catch(() => ({ error: "Unable to load the latest fund balance right now." }))
+
+      if (!isActive) {
+        return
+      }
+
+      if (!response.ok) {
+        const errorMessage = result.error ?? "Unable to load the latest fund balance right now."
+
+        setPaymentModeBalances((current) => {
+          const nextState = { ...current }
+
+          for (const paymentModeLookupKey of paymentModeLookupKeys) {
+            nextState[paymentModeLookupKey] = {
+              currentBalance: current[paymentModeLookupKey]?.currentBalance ?? 0,
+              loading: false,
+              error: errorMessage,
+            }
+          }
+
+          return nextState
+        })
+        return
+      }
+
+      setPaymentModeBalances(() => {
+        const nextState: Record<string, PaymentModeBalanceState> = {}
+        const fundingItems = Array.isArray(result.items) ? result.items : []
+        const fundingByPaymentModeId = new Map<string, { currentBalance: number | null; isMapped: boolean }>(
+          fundingItems.map((item: { paymentModeId: string; currentBalance: number | null; isMapped: boolean }) => [
+            item.paymentModeId,
+            {
+              currentBalance: item.currentBalance,
+              isMapped: item.isMapped,
+            },
+          ])
+        )
+
+        for (const paymentMode of selectedPaymentModes) {
+          const funding = fundingByPaymentModeId.get(paymentMode.id)
+
+          nextState[paymentMode.lookupKey] = {
+            currentBalance: funding?.currentBalance ?? 0,
+            loading: false,
+            error: funding && !funding.isMapped
+              ? "This payment mode is not linked to a fund account yet, so the live balance is unavailable."
+              : undefined,
+          }
+        }
+
+        return nextState
+      })
+    }
+
+    loadPaymentModeBalances().catch((error) => {
+      if (!isActive) {
+        return
+      }
+
+      const errorMessage = error instanceof Error ? error.message : "Unable to load the latest fund balance right now."
+
+      setPaymentModeBalances((current) => {
+        const nextState = { ...current }
+
+        for (const paymentModeLookupKey of paymentModeLookupKeys) {
+          nextState[paymentModeLookupKey] = {
+            currentBalance: current[paymentModeLookupKey]?.currentBalance ?? 0,
+            loading: false,
+            error: errorMessage,
+          }
+        }
+
+        return nextState
+      })
+    })
+
+    return () => {
+      isActive = false
+    }
+  }, [clientId, mode, selectedPaymentModes, showPaymentMode, values.voucherDate, voucherId])
+
+  const paymentModeFundingHints = useMemo(() => {
+    if (!showPaymentMode) {
+      return {}
+    }
+
+    const runningBalanceByLookupKey = new Map<string, number>()
+
+    return values.lines.reduce<Record<number, { tone: "neutral" | "positive" | "warning"; text: string }>>(
+      (acc, line, index) => {
+        const selectedMode = resolveLinePaymentMode(line, paymentModes)
+
+        if (!selectedMode) {
+          return acc
+        }
+
+        if (!selectedMode?.accountHeadId) {
+          acc[index] = {
+            tone: "neutral",
+            text: "This fund will show a live balance after its linked cash or bank account is available.",
+          }
+          return acc
+        }
+
+        const balanceState = paymentModeBalances[selectedMode.lookupKey]
+
+        if (!balanceState) {
+          return acc
+        }
+
+        if (balanceState.loading) {
+          acc[index] = {
+            tone: "neutral",
+            text: `Checking latest ${selectedMode.name} balance...`,
+          }
+          return acc
+        }
+
+        if (balanceState.error) {
+          acc[index] = {
+            tone: "warning",
+            text: balanceState.error,
+          }
+          return acc
+        }
+
+        const startingBalance = runningBalanceByLookupKey.has(selectedMode.lookupKey)
+          ? runningBalanceByLookupKey.get(selectedMode.lookupKey) ?? 0
+          : balanceState.currentBalance
+        const currentBalance = Number(startingBalance.toFixed(2))
+        const lineMovement = Number((Number(line.debitAmount || 0) - Number(line.creditAmount || 0)).toFixed(2))
+        const projectedBalance = Number((currentBalance + lineMovement).toFixed(2))
+        const hasEnteredAmount = Number(line.debitAmount || 0) > 0 || Number(line.creditAmount || 0) > 0
+        runningBalanceByLookupKey.set(selectedMode.lookupKey, projectedBalance)
+
+        if (projectedBalance < 0) {
+          acc[index] = {
+            tone: "warning",
+            text: `Insufficient ${selectedMode.name} balance. Current fund is ${formatBalanceAmount(currentBalance)} and this line would update it to ${formatBalanceAmount(projectedBalance)}.`,
+          }
+          return acc
+        }
+
+        if (!hasEnteredAmount) {
+          acc[index] = {
+            tone: "neutral",
+            text: `Current ${selectedMode.name} balance is ${formatBalanceAmount(currentBalance)}.`,
+          }
+          return acc
+        }
+
+        if (lineMovement < 0) {
+          acc[index] = {
+            tone: "neutral",
+            text: `Current ${selectedMode.name} fund balance is ${formatBalanceAmount(currentBalance)}. After this payment, remaining balance will be ${formatBalanceAmount(projectedBalance)}.`,
+          }
+          return acc
+        }
+
+        acc[index] = {
+          tone: "positive",
+          text: `Current ${selectedMode.name} fund balance is ${formatBalanceAmount(currentBalance)}. After this receipt, updated balance will be ${formatBalanceAmount(projectedBalance)}.`,
+        }
+        return acc
+      },
+      {}
+    )
+  }, [paymentModeBalances, paymentModes, showPaymentMode, values.lines])
 
   const handleAddLine = () => {
     append(defaultLine(values.voucherType))
@@ -638,59 +876,45 @@ export function VoucherEntryForm({
     )
   }
 
-  const handlePaymentModeGroupChange = (nextGroup: PaymentModeType) => {
-    if (nextGroup === "cash") {
-      const cashMode = getDefaultCashMode(paymentModes)
-      form.setValue("paymentModeId", cashMode?.id ?? "")
-      form.setValue("paymentModeName", cashMode?.name ?? "Cash")
-      form.setValue("paymentModeType", "cash")
-      return
-    }
-
-    form.setValue("paymentModeId", "")
-    form.setValue("paymentModeName", "")
-    form.setValue("paymentModeType", nextGroup)
-  }
-
-  const handleNamedPaymentModeChange = (name: string, type: Extract<PaymentModeType, "bank" | "mobile_banking">) => {
-    const existingMode = paymentModes.find(
-      (mode) => mode.type === type && normalizePaymentModeName(mode.name).toLowerCase() === name.toLowerCase()
-    )
-
-    form.setValue("paymentModeId", existingMode?.id ?? "")
-    form.setValue("paymentModeName", name)
-    form.setValue("paymentModeType", type)
-  }
-
   const onSubmit = (formValues: VoucherFormValues) => {
-    const normalizedPaymentModeName = normalizePaymentModeName(formValues.paymentModeName ?? "")
+    const hasInvalidPaymentModeLine = formValues.lines.some((line) => {
+      const normalizedPaymentModeName = normalizePaymentModeName(line.paymentModeName ?? "")
 
-    if (showPaymentMode) {
-      if (selectedPaymentModeGroup === "other" && !normalizedPaymentModeName) {
-        toast.error("Please enter an other payment mode.")
-        return
+      if (!line.paymentModeType) {
+        return false
+      }
+
+      if (line.paymentModeType === "other" && !normalizedPaymentModeName) {
+        toast.error("Please enter the payment mode name for every selected entry line.")
+        return true
       }
 
       if (
-        (selectedPaymentModeGroup === "bank" || selectedPaymentModeGroup === "mobile_banking") &&
+        (line.paymentModeType === "bank" || line.paymentModeType === "mobile_banking") &&
         !normalizedPaymentModeName
       ) {
-        toast.error("Please choose a payment mode option.")
-        return
+        toast.error("Please choose the payment mode option for every selected entry line.")
+        return true
       }
+
+      return false
+    })
+
+    if (hasInvalidPaymentModeLine) {
+      return
     }
 
     startTransition(async () => {
       const payload: CreateVoucherInput = {
         ...formValues,
-        paymentModeId: showPaymentMode ? formValues.paymentModeId : undefined,
-        paymentModeName: showPaymentMode ? normalizedPaymentModeName : undefined,
-        paymentModeType: showPaymentMode ? selectedPaymentModeGroup : undefined,
         description: formValues.showDescription ? formValues.description || "" : "",
         lines: formValues.lines.map((line) => {
           const normalizedLine = normalizeVoucherLineAmounts({
             accountsGroup: line.accountsGroup as CreateVoucherInput["lines"][number]["accountsGroup"],
             accountHeadId: line.accountHeadId,
+            paymentModeId: showPaymentMode ? line.paymentModeId || undefined : undefined,
+            paymentModeName: showPaymentMode ? normalizePaymentModeName(line.paymentModeName ?? "") || undefined : undefined,
+            paymentModeType: showPaymentMode ? line.paymentModeType : undefined,
             debitAmount: Number(line.debitAmount || 0),
             creditAmount: Number(line.creditAmount || 0),
             description: line.description || "",
@@ -750,9 +974,6 @@ export function VoucherEntryForm({
     })
   }
 
-  const namedPaymentModeValue =
-    selectedExistingPaymentMode?.name || (selectedPaymentModeGroup === "other" ? "" : values.paymentModeName || "")
-
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -775,12 +996,19 @@ export function VoucherEntryForm({
           <Card className="rounded-[1.5rem] border-slate-200 bg-white shadow-sm">
             <CardHeader className="space-y-2">
               <CardTitle className="text-xl text-slate-950">Voucher Header</CardTitle>
-              <CardDescription>Set the identity, date, and payment mode.</CardDescription>
+              <CardDescription>Set the identity, date, and voucher type.</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-12">
+            <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-8">
               <label className="space-y-2 xl:col-span-2">
                 <Label htmlFor="voucherNo">Voucher No</Label>
-                <Input id="voucherNo" type="number" {...form.register("voucherNo", { valueAsNumber: true })} />
+                <input type="hidden" {...form.register("voucherNo", { valueAsNumber: true })} />
+                <Input
+                  id="voucherNo"
+                  type="text"
+                  value={voucherDisplayNo}
+                  readOnly
+                  className="bg-slate-50 text-slate-700"
+                />
               </label>
 
               <label className="space-y-2 xl:col-span-3">
@@ -809,69 +1037,6 @@ export function VoucherEntryForm({
                   ))}
                 </select>
               </label>
-
-              {showPaymentMode ? (
-                <div className="space-y-2 md:col-span-2 xl:col-span-4">
-                  <Label>Payment Mode</Label>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <select
-                      className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-slate-400"
-                      value={selectedPaymentModeGroup}
-                      onChange={(event) => handlePaymentModeGroupChange(event.target.value as PaymentModeType)}
-                    >
-                      {PAYMENT_MODE_GROUPS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    {selectedPaymentModeGroup === "cash" ? <Input value={values.paymentModeName || "Cash"} readOnly /> : null}
-
-                    {selectedPaymentModeGroup === "mobile_banking" ? (
-                      <select
-                        className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-slate-400"
-                        value={namedPaymentModeValue}
-                        onChange={(event) => handleNamedPaymentModeChange(event.target.value, "mobile_banking")}
-                      >
-                        <option value="">Select mobile banking option</option>
-                        {mobileBankingOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
-
-                    {selectedPaymentModeGroup === "bank" ? (
-                      <select
-                        className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-slate-400"
-                        value={namedPaymentModeValue}
-                        onChange={(event) => handleNamedPaymentModeChange(event.target.value, "bank")}
-                      >
-                        <option value="">Select bank</option>
-                        {bankOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
-
-                    {selectedPaymentModeGroup === "other" ? (
-                      <Input
-                        placeholder="Enter other payment mode"
-                        value={values.paymentModeName ?? ""}
-                        onChange={(event) => {
-                          form.setValue("paymentModeId", "")
-                          form.setValue("paymentModeName", event.target.value)
-                          form.setValue("paymentModeType", "other")
-                        }}
-                      />
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
             </CardContent>
           </Card>
 
@@ -879,7 +1044,9 @@ export function VoucherEntryForm({
             <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="space-y-2">
                 <CardTitle className="text-xl text-slate-950">Entry Lines</CardTitle>
-                <CardDescription>Build the voucher with account-wise debit and credit entries.</CardDescription>
+                <CardDescription>
+                  Build the voucher with account-wise debit and credit entries{showPaymentMode ? ", including line-wise payment modes." : "."}
+                </CardDescription>
               </div>
               <Button
                 type="button"
@@ -902,6 +1069,8 @@ export function VoucherEntryForm({
                     line={line}
                     accounts={flatAccounts}
                     voucherType={values.voucherType}
+                    paymentModes={paymentModes}
+                    paymentModeFundingHint={paymentModeFundingHints[index]}
                     onRemove={() => handleRemoveLine(index)}
                     onAddLine={handleAddLine}
                     register={(name) => form.register(name)}
@@ -912,12 +1081,6 @@ export function VoucherEntryForm({
               })}
 
               {accountsLoading ? <p className="text-sm text-slate-500">Loading chart of accounts...</p> : null}
-              {showPaymentMode ? (
-                <p className="text-sm text-slate-500">
-                  Add the selected cash or bank account as an explicit line so the voucher stays fully balanced.
-                </p>
-              ) : null}
-
             </CardContent>
           </Card>
 
@@ -1035,30 +1198,14 @@ export function VoucherEntryForm({
           </div>
         </fieldset>
 
-        <div className="sticky bottom-4 z-10 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-              <span className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-700">
-                <Scale className="h-4 w-4" />
-                Debit {totalDebit.toFixed(2)}
-              </span>
-              <span className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 font-medium text-slate-700">
-                <Scale className="h-4 w-4" />
-                Credit {totalCredit.toFixed(2)}
-              </span>
-              <span
-                className={cn(
-                  "inline-flex items-center gap-2 rounded-lg px-3 py-2 font-medium",
-                  isBalanced ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                )}
+        <div className="sticky bottom-4 z-10 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-lg supports-[backdrop-filter]:bg-white/85 supports-[backdrop-filter]:backdrop-blur">
+          <div className="flex justify-end">
+            <div className="w-full sm:w-auto">
+              <Button
+                type="submit"
+                className="h-12 w-full rounded-xl px-6 text-base font-semibold shadow-sm sm:min-w-[180px] sm:w-auto"
+                disabled={isPending || disabled}
               >
-                {isBalanced ? <CircleCheckBig className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}
-                {isBalanced ? "Balanced and ready" : `Difference ${Math.abs(difference).toFixed(2)}`}
-              </span>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Button type="submit" className="h-11 rounded-xl px-6" disabled={isPending || disabled}>
                 {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 {mode === "edit" ? "Update Voucher" : "Save Voucher"}
               </Button>

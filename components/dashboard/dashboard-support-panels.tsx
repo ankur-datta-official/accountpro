@@ -58,13 +58,13 @@ export function TopAccountsPanel({
         <CardTitle className="type-section-title text-text-primary">Top Accounts Balance</CardTitle>
         {asOfLabel ? <p className="text-sm text-text-secondary">{asOfLabel}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-1.5">
         {accounts.length ? (
           accounts.map((account) => (
             <Link
               key={account.label}
               href={account.href ?? href}
-              className="flex items-center justify-between gap-4 rounded-2xl px-3 py-3 transition-colors hover:bg-surface-page"
+              className="flex items-center justify-between gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-page"
             >
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-page text-text-secondary">
@@ -84,7 +84,7 @@ export function TopAccountsPanel({
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-text-primary">{account.label}</p>
-                  {account.meta ? <p className="mt-1 text-xs text-text-muted">{account.meta}</p> : null}
+                  {account.meta ? <p className="mt-0.5 text-xs text-text-muted">{account.meta}</p> : null}
                 </div>
               </div>
               <p className="financial-number text-sm font-semibold text-text-primary">{account.formattedValue}</p>

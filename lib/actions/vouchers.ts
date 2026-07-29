@@ -26,6 +26,9 @@ import type { Database, PaymentModeType } from "@/lib/types"
 const voucherLineSchema = z.object({
   accountsGroup: z.enum(["expense", "income", "asset", "liability"]),
   accountHeadId: z.string().min(1),
+  paymentModeId: z.string().optional(),
+  paymentModeName: z.string().optional(),
+  paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
   debitAmount: z.number().finite().min(0),
   creditAmount: z.number().finite().min(0),
   description: z.string().optional(),
@@ -37,9 +40,6 @@ const createVoucherSchema = z.object({
   voucherNo: z.number().int().positive().optional(),
   voucherDate: z.string().min(1),
   voucherType: z.enum(["payment", "received", "journal", "contra", "bf", "bp", "br"]),
-  paymentModeId: z.string().optional(),
-  paymentModeName: z.string().optional(),
-  paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
   showDescription: z.boolean(),
   description: z.string().optional(),
   showSupportingDocuments: z.boolean(),
@@ -301,6 +301,7 @@ function buildVoucherEntries(
     (line) => ({
       voucher_id: voucherId,
       account_head_id: line.accountHeadId,
+      payment_mode_id: line.paymentModeId ?? null,
       accounts_group: line.accountsGroup,
       debit: Number(line.debitAmount || 0),
       credit: Number(line.creditAmount || 0),
@@ -309,67 +310,164 @@ function buildVoucherEntries(
   )
 }
 
-async function validateExplicitPaymentModeLine({
+async function resolveVoucherLinePaymentModes({
   supabase,
   clientId,
   voucherType,
-  paymentMode,
   lines,
 }: {
   supabase: ServerSupabase
   clientId: string
   voucherType: CreateVoucherInput["voucherType"]
-  paymentMode: PaymentModeRow | null
   lines: CreateVoucherInput["lines"]
 }) {
-  if (!paymentMode || (voucherType !== "payment" && voucherType !== "received")) {
+  if (voucherType !== "payment" && voucherType !== "received") {
     return {
       success: true as const,
-      paymentModeHeadId: null,
+      lines,
+      voucherPaymentModeId: null,
     }
   }
 
-  const resolvedPaymentModeHead = await resolvePaymentModeAccountHead(supabase, {
-    clientId,
-    paymentMode,
-  })
+  const paymentModeLineIndexes = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => Boolean(line.paymentModeId || line.paymentModeName || line.paymentModeType))
 
-  if (!resolvedPaymentModeHead.success) {
+  if (!paymentModeLineIndexes.length) {
     return {
       success: false as const,
-      error: resolvedPaymentModeHead.error,
+      error: "Select at least one payment mode line for this voucher.",
     }
   }
 
-  const paymentModeHead = resolvedPaymentModeHead.accountHead
-  const paymentModeNetMovement = lines
-    .filter((line) => line.accountHeadId === paymentModeHead.id)
-    .reduce((sum, line) => sum + getVoucherLineSignedDelta(line), 0)
+  const normalizedLines = [...lines]
+  const distinctPaymentModeIds = new Set<string>()
 
-  if (paymentModeNetMovement === 0) {
+  for (const { line, index } of paymentModeLineIndexes) {
+    const paymentModeResult = await resolveOrCreatePaymentMode(supabase, {
+      clientId,
+      paymentModeId: line.paymentModeId,
+      paymentModeName: line.paymentModeName,
+      paymentModeType: line.paymentModeType as PaymentModeType | undefined,
+    })
+
+    if (!paymentModeResult.success) {
+      return paymentModeResult
+    }
+
+    const resolvedPaymentModeHead = await resolvePaymentModeAccountHead(supabase, {
+      clientId,
+      paymentMode: paymentModeResult.paymentMode,
+    })
+
+    if (!resolvedPaymentModeHead.success) {
+      return {
+        success: false as const,
+        error: resolvedPaymentModeHead.error,
+      }
+    }
+
+    if (line.accountHeadId !== resolvedPaymentModeHead.accountHead.id) {
+      return {
+        success: false as const,
+        error: `${paymentModeResult.paymentMode.name} must be used on its mapped cash or bank account line.`,
+      }
+    }
+
+    const paymentModeNetMovement = getVoucherLineSignedDelta(line)
+    if (paymentModeNetMovement === 0) {
+      return {
+        success: false as const,
+        error: `${paymentModeResult.paymentMode.name} line must carry a debit or credit amount.`,
+      }
+    }
+
+    if (voucherType === "payment" && paymentModeNetMovement >= 0) {
+      return {
+        success: false as const,
+        error: `Payment vouchers must credit ${paymentModeResult.paymentMode.name} on the selected payment mode line.`,
+      }
+    }
+
+    if (voucherType === "received" && paymentModeNetMovement <= 0) {
+      return {
+        success: false as const,
+        error: `Received vouchers must debit ${paymentModeResult.paymentMode.name} on the selected payment mode line.`,
+      }
+    }
+
+    normalizedLines[index] = {
+      ...line,
+      paymentModeId: paymentModeResult.paymentMode.id,
+      paymentModeName: paymentModeResult.paymentMode.name,
+      paymentModeType:
+        (paymentModeResult.paymentMode.type as PaymentModeType | null) ??
+        (line.paymentModeType as PaymentModeType | undefined),
+    }
+    distinctPaymentModeIds.add(paymentModeResult.paymentMode.id)
+  }
+
+  return {
+    success: true as const,
+    lines: normalizedLines,
+    voucherPaymentModeId: distinctPaymentModeIds.size === 1 ? Array.from(distinctPaymentModeIds)[0] : null,
+  }
+}
+
+async function validateExplicitPaymentModeLine({
+  supabase,
+  clientId,
+  voucherType,
+  lines,
+}: {
+  supabase: ServerSupabase
+  clientId: string
+  voucherType: CreateVoucherInput["voucherType"]
+  lines: CreateVoucherInput["lines"]
+}) {
+  if (voucherType !== "payment" && voucherType !== "received") {
     return {
-      success: false as const,
-      error: `${paymentModeHead.name} must be added as an explicit voucher line for the selected payment mode.`,
+      success: true as const,
     }
   }
 
-  if (voucherType === "payment" && paymentModeNetMovement >= 0) {
-    return {
-      success: false as const,
-      error: `Payment vouchers must credit ${paymentModeHead.name} for the selected payment mode.`,
-    }
-  }
+  for (const line of lines.filter((entry) => Boolean(entry.paymentModeId))) {
+    const { data: paymentMode } = await supabase
+      .from("payment_modes")
+      .select("*")
+      .eq("id", line.paymentModeId ?? "")
+      .eq("client_id", clientId)
+      .maybeSingle()
 
-  if (voucherType === "received" && paymentModeNetMovement <= 0) {
-    return {
-      success: false as const,
-      error: `Received vouchers must debit ${paymentModeHead.name} for the selected payment mode.`,
+    if (!paymentMode) {
+      return {
+        success: false as const,
+        error: "Selected payment mode could not be resolved.",
+      }
+    }
+
+    const resolvedPaymentModeHead = await resolvePaymentModeAccountHead(supabase, {
+      clientId,
+      paymentMode: paymentMode as PaymentModeRow,
+    })
+
+    if (!resolvedPaymentModeHead.success) {
+      return {
+        success: false as const,
+        error: resolvedPaymentModeHead.error,
+      }
+    }
+
+    if (line.accountHeadId !== resolvedPaymentModeHead.accountHead.id) {
+      return {
+        success: false as const,
+        error: `${paymentMode.name} must stay on its mapped cash or bank account line.`,
+      }
     }
   }
 
   return {
     success: true as const,
-    paymentModeHeadId: paymentModeHead.id,
   }
 }
 
@@ -743,7 +841,7 @@ async function restoreVoucherUpdateSnapshot(
     >
     previousEntries: Pick<
       VoucherEntryRow,
-      "account_head_id" | "accounts_group" | "debit" | "credit" | "description"
+      "account_head_id" | "payment_mode_id" | "accounts_group" | "debit" | "credit" | "description"
     >[]
   }
 ) {
@@ -770,6 +868,7 @@ async function restoreVoucherUpdateSnapshot(
     previousEntries.map((entry) => ({
       voucher_id: voucherId,
       account_head_id: entry.account_head_id,
+      payment_mode_id: entry.payment_mode_id,
       accounts_group: entry.accounts_group,
       debit: entry.debit,
       credit: entry.credit,
@@ -851,34 +950,22 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     return accountOwnershipValidation
   }
 
-  const requiresPaymentModeSelection = ["payment", "received"].includes(values.voucherType)
+  const resolvedLinePaymentModes = await resolveVoucherLinePaymentModes({
+    supabase,
+    clientId: client.id,
+    voucherType: values.voucherType,
+    lines: values.lines,
+  })
 
-  if (requiresPaymentModeSelection && !values.paymentModeId && !values.paymentModeName) {
-    return {
-      success: false as const,
-      error: "Payment mode is required for payment and received vouchers.",
-    }
-  }
-
-  const paymentModeResult = requiresPaymentModeSelection
-    ? await resolveOrCreatePaymentMode(supabase, {
-        clientId: client.id,
-        paymentModeId: values.paymentModeId,
-        paymentModeName: values.paymentModeName,
-        paymentModeType: values.paymentModeType as PaymentModeType | undefined,
-      })
-    : null
-
-  if (paymentModeResult && !paymentModeResult.success) {
-    return paymentModeResult
+  if (!resolvedLinePaymentModes.success) {
+    return resolvedLinePaymentModes
   }
 
   const explicitPaymentModeLineValidation = await validateExplicitPaymentModeLine({
     supabase,
     clientId: client.id,
     voucherType: values.voucherType,
-    paymentMode: paymentModeResult?.paymentMode ?? null,
-    lines: values.lines,
+    lines: resolvedLinePaymentModes.lines,
   })
 
   if (!explicitPaymentModeLineValidation.success) {
@@ -889,7 +976,7 @@ export async function createVoucherAction(input: CreateVoucherInput) {
     supabase,
     clientId: client.id,
     voucherDate: values.voucherDate,
-    lines: values.lines,
+    lines: resolvedLinePaymentModes.lines,
   })
 
   if (!nonNegativeBalanceValidation.success) {
@@ -911,12 +998,7 @@ export async function createVoucherAction(input: CreateVoucherInput) {
       voucher_no: voucherNo,
       voucher_date: values.voucherDate,
       voucher_type: values.voucherType,
-      payment_mode_id:
-        values.voucherType === "payment" ||
-        values.voucherType === "received" ||
-        values.voucherType === "journal"
-          ? paymentModeResult?.paymentMode.id ?? null
-          : null,
+      payment_mode_id: resolvedLinePaymentModes.voucherPaymentModeId,
       show_description: values.showDescription,
       description: values.description || null,
       show_supporting_documents: values.showSupportingDocuments,
@@ -937,7 +1019,7 @@ export async function createVoucherAction(input: CreateVoucherInput) {
 
   const voucherEntries = buildVoucherEntries({
     voucherId: insertedVoucher.id,
-    lines: values.lines,
+    lines: resolvedLinePaymentModes.lines,
   })
 
   const createEntriesResult = await runAtomicVoucherOperation({
@@ -1071,34 +1153,22 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     return accountOwnershipValidation
   }
 
-  const requiresPaymentModeSelection = ["payment", "received"].includes(values.voucherType)
+  const resolvedLinePaymentModes = await resolveVoucherLinePaymentModes({
+    supabase,
+    clientId: client.id,
+    voucherType: values.voucherType,
+    lines: values.lines,
+  })
 
-  if (requiresPaymentModeSelection && !values.paymentModeId && !values.paymentModeName) {
-    return {
-      success: false as const,
-      error: "Payment mode is required for payment and received vouchers.",
-    }
-  }
-
-  const paymentModeResult = requiresPaymentModeSelection
-    ? await resolveOrCreatePaymentMode(supabase, {
-        clientId: client.id,
-        paymentModeId: values.paymentModeId,
-        paymentModeName: values.paymentModeName,
-        paymentModeType: values.paymentModeType as PaymentModeType | undefined,
-      })
-    : null
-
-  if (paymentModeResult && !paymentModeResult.success) {
-    return paymentModeResult
+  if (!resolvedLinePaymentModes.success) {
+    return resolvedLinePaymentModes
   }
 
   const explicitPaymentModeLineValidation = await validateExplicitPaymentModeLine({
     supabase,
     clientId: client.id,
     voucherType: values.voucherType,
-    paymentMode: paymentModeResult?.paymentMode ?? null,
-    lines: values.lines,
+    lines: resolvedLinePaymentModes.lines,
   })
 
   if (!explicitPaymentModeLineValidation.success) {
@@ -1109,7 +1179,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
     supabase,
     clientId: client.id,
     voucherDate: values.voucherDate,
-    lines: values.lines,
+    lines: resolvedLinePaymentModes.lines,
     excludeVoucherId: existingVoucher.id,
   })
 
@@ -1128,12 +1198,12 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
   // Build new entries based on the LATEST data provided
   const voucherEntries = buildVoucherEntries({
     voucherId: existingVoucher.id,
-    lines: values.lines,
+    lines: resolvedLinePaymentModes.lines,
   })
 
   const { data: existingEntries, error: existingEntriesError } = await supabase
     .from("voucher_entries")
-    .select("account_head_id, accounts_group, debit, credit, description")
+    .select("account_head_id, payment_mode_id, accounts_group, debit, credit, description")
     .eq("voucher_id", existingVoucher.id)
 
   if (existingEntriesError) {
@@ -1175,12 +1245,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
       voucher_date: values.voucherDate,
       voucher_type: values.voucherType,
       fiscal_year_id: fiscalYear.id,
-      payment_mode_id:
-        values.voucherType === "payment" ||
-        values.voucherType === "received" ||
-        values.voucherType === "journal"
-          ? paymentModeResult?.paymentMode.id ?? null
-          : null,
+      payment_mode_id: resolvedLinePaymentModes.voucherPaymentModeId,
       show_description: values.showDescription,
       description: values.description || null,
       show_supporting_documents: values.showSupportingDocuments,
@@ -1219,7 +1284,7 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
         previousVoucher: previousVoucherSnapshot,
         previousEntries: (existingEntries ?? []) as Pick<
           VoucherEntryRow,
-          "account_head_id" | "accounts_group" | "debit" | "credit" | "description"
+          "account_head_id" | "payment_mode_id" | "accounts_group" | "debit" | "credit" | "description"
         >[],
       }),
     failureMessage: "Unable to update voucher entries.",

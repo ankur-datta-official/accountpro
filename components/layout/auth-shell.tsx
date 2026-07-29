@@ -9,7 +9,7 @@ export function AuthShell({
   children: React.ReactNode
 }>) {
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.06),_transparent_35%),linear-gradient(180deg,_#f8fafc_0%,_#eef2ff_100%)]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(20,139,121,0.08),_transparent_35%),linear-gradient(180deg,_#f3f6f4_0%,_#edf4f1_100%)]">
       <div className="mx-auto flex min-h-screen max-w-7xl items-center px-6 py-12 lg:px-10">
         <div className="grid w-full gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="flex flex-col justify-center rounded-[2rem] border border-slate-200/80 bg-white/70 p-8 shadow-sm backdrop-blur md:p-12">

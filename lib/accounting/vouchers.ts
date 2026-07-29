@@ -153,3 +153,27 @@ export function getVoucherRegisterRowClass(type: VoucherType) {
       return "bg-slate-50/80 hover:bg-slate-100/80"
   }
 }
+
+export function summarizePaymentModeNames(names: Array<string | null | undefined>) {
+  const uniqueNames = Array.from(
+    new Set(
+      names
+        .map((name) => name?.trim())
+        .filter((name): name is string => Boolean(name))
+    )
+  )
+
+  if (!uniqueNames.length) {
+    return null
+  }
+
+  if (uniqueNames.length === 1) {
+    return uniqueNames[0]
+  }
+
+  if (uniqueNames.length === 2) {
+    return uniqueNames.join(", ")
+  }
+
+  return `${uniqueNames.slice(0, 2).join(", ")} +${uniqueNames.length - 2} more`
+}

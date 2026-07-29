@@ -107,7 +107,7 @@
     --accent-soft: #ecfdf9;
     --accent-foreground: #ffffff;
 
-    --surface-page: #f7f9fc;
+    --surface-page: #f3f6f4;
     --surface-card: #ffffff;
     --surface-subtle: #f0f3f7;
     --surface-hover: #e9eef5;
@@ -222,7 +222,7 @@
     --ring: var(--focus-ring);
     --ring-offset-background: var(--focus-ring-offset);
 
-    --background-rgb: 247 249 252;
+    --background-rgb: 243 246 244;
     --foreground-rgb: 17 24 39;
     --card-rgb: 255 255 255;
     --card-foreground-rgb: 17 24 39;

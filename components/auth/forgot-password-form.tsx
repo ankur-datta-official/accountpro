@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createClient } from "@/lib/supabase/client"
-import { getSupabaseConfigError } from "@/lib/supabase/env"
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Enter a valid email address."),
@@ -41,12 +40,6 @@ export function ForgotPasswordForm() {
     setIsSubmitting(true)
 
     try {
-      const configError = getSupabaseConfigError()
-      if (configError) {
-        form.setError("email", { message: configError })
-        return
-      }
-
       const supabase = createClient()
       await supabase.auth.resetPasswordForEmail(values.email, {
         redirectTo: buildRecoveryRedirect(),

@@ -624,11 +624,11 @@ export function VoucherListManager({
                         <span className="inline-flex min-w-[5rem] items-center justify-center rounded-full bg-white/80 px-3 py-1 text-sm font-semibold tracking-wide text-slate-900 shadow-sm ring-1 ring-slate-200/80">
                           {formatVoucherRegisterNumber(item.voucherTypeSerial, item.voucherType)}
                         </span>
-                        <p className="mt-1 text-xs text-slate-500">{item.monthLabel ?? "No month assigned"}</p>
                       </TableCell>
                       <TableCell className="py-4 align-middle">
-                        <p className="font-medium text-slate-900">{format(new Date(item.voucherDate), "dd MMM yyyy")}</p>
-                        <p className="mt-1 text-xs text-slate-500">{format(new Date(item.voucherDate), "EEE")}</p>
+                        <p className="whitespace-nowrap font-medium text-slate-900">
+                          {format(new Date(item.voucherDate), "dd MMM yyyy")}
+                        </p>
                       </TableCell>
                       <TableCell className="py-4 align-middle">
                         <Badge className={`rounded-full ${getVoucherTypeBadgeClass(item.voucherType)}`}>
@@ -636,7 +636,7 @@ export function VoucherListManager({
                         </Badge>
                       </TableCell>
                       <TableCell className="py-4 align-middle">
-                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                        <span className="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
                           {item.paymentModeName ?? "-"}
                         </span>
                       </TableCell>

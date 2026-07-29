@@ -92,6 +92,7 @@ export default async function NewVoucherPage({
           id: mode.id,
           name: mode.name,
           type: mode.type,
+          accountHeadId: mode.account_head_id,
         }))}
         initialValues={initialVoucherType ? { voucherType: initialVoucherType } : undefined}
       />

@@ -42,22 +42,22 @@ export function DashboardSummaryPanel({
         <CardTitle className="type-section-title text-text-primary">{title}</CardTitle>
         {subtitle ? <p className="text-sm text-text-secondary">{subtitle}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-2.5">
+      <CardContent className="space-y-0.5">
         {metrics.map((metric) => (
           <div
             key={metric.key}
-            className="flex items-start justify-between gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-page"
+            className="flex items-start justify-between gap-2 rounded-2xl px-3 py-1 transition-colors hover:bg-surface-page"
           >
             <div className="min-w-0">
               <p className="text-sm font-medium text-text-secondary">{metric.label}</p>
-              <p className="mt-0.5 text-xs leading-4 text-text-muted">{metric.periodLabel}</p>
+              <p className="mt-0 text-xs leading-4 text-text-muted">{metric.periodLabel}</p>
             </div>
             <div className="text-right">
               <p className={cn("financial-number text-sm font-semibold", metricToneClass(metric))}>
                 {metric.formattedValue}
               </p>
               {metric.state !== "ready" ? (
-                <p className="mt-0.5 text-xs leading-4 text-text-muted">
+                <p className="mt-0 text-xs leading-4 text-text-muted">
                   {metric.state === "configurationRequired" ? "Configuration required" : "Unavailable"}
                 </p>
               ) : null}

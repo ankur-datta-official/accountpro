@@ -2,7 +2,12 @@ import Link from "next/link"
 import { format } from "date-fns"
 import { notFound } from "next/navigation"
 
-import { buildVoucherTypeSerialMap, formatVoucherDisplayNumber, isAutoBalanceEntry } from "@/lib/accounting/vouchers"
+import {
+  buildVoucherTypeSerialMap,
+  formatVoucherDisplayNumber,
+  isAutoBalanceEntry,
+  summarizePaymentModeNames,
+} from "@/lib/accounting/vouchers"
 import { getClientRouteContext } from "@/lib/accounting/client-route-context"
 import { VoucherPrintView, type VoucherPrintAttachment, type VoucherPrintLine } from "@/components/voucher/VoucherPrintView"
 import { SelectedVouchersPrintActions } from "@/components/voucher/selected-vouchers-print-actions"
@@ -139,12 +144,19 @@ export default async function SelectedVoucherPrintPage({
 
       const entryRows = (entries ?? []) as VoucherEntryRecord[]
       const accountHeadIds = dedupe(entryRows.map((entry) => entry.account_head_id ?? "").filter(Boolean))
+      const linePaymentModeIds = dedupe(entryRows.map((entry) => entry.payment_mode_id ?? "").filter(Boolean))
       const { data: accountHeads } = accountHeadIds.length
         ? await supabase.from("account_heads").select("*").in("id", accountHeadIds)
         : { data: [] as AccountHeadRecord[] }
+      const { data: linePaymentModes } = linePaymentModeIds.length
+        ? await supabase.from("payment_modes").select("*").in("id", linePaymentModeIds)
+        : { data: [] as PaymentModeRecord[] }
 
       const accountHeadMap = new Map<string, string>(
         ((accountHeads ?? []) as AccountHeadRecord[]).map((head) => [head.id, head.name])
+      )
+      const linePaymentModeMap = new Map<string, string>(
+        ((linePaymentModes ?? []) as PaymentModeRecord[]).map((mode) => [mode.id, mode.name])
       )
       const visibleEntries = entryRows.filter((entry) => !isAutoBalanceEntry(entry.description))
       const lines = (visibleEntries.length ? visibleEntries : entryRows).map((entry) => ({
@@ -171,7 +183,10 @@ export default async function SelectedVoucherPrintPage({
 
       return {
         voucher,
-        paymentModeName: (paymentMode as PaymentModeRecord | null)?.name ?? null,
+        paymentModeName: summarizePaymentModeNames([
+          ...entryRows.map((entry) => linePaymentModeMap.get(entry.payment_mode_id ?? "") ?? null),
+          (paymentMode as PaymentModeRecord | null)?.name ?? null,
+        ]),
         lines,
         totalDebit,
         totalCredit,

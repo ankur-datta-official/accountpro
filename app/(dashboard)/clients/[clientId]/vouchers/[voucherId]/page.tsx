@@ -11,6 +11,7 @@ import {
   getVoucherTypeBadgeClass,
   getVoucherTypeLabel,
   isAutoBalanceEntry,
+  summarizePaymentModeNames,
 } from "@/lib/accounting/vouchers"
 import { VoucherDetailActions } from "@/components/voucher/voucher-detail-actions"
 import { Badge } from "@/components/ui/badge"
@@ -89,6 +90,7 @@ export default async function VoucherDetailPage({
         .eq("fiscal_year_id", voucher.fiscal_year_id)
         .or("is_posted.eq.true,is_posted.is.null")
     : { data: [] }
+
   const voucherTypeSerialById = buildVoucherTypeSerialMap(
     (fiscalYearVouchers ?? []) as Array<
       Pick<
@@ -115,16 +117,28 @@ export default async function VoucherDetailPage({
   const fiscalYearRow = fiscalYear as FiscalYearRecord | null
   const paymentModeRow = paymentMode as PaymentModeRecord | null
   const attachmentRows = (attachments ?? []) as VoucherAttachmentRecord[]
-  const accountHeadIds = entryRows.map((entry: VoucherEntryRecord) => entry.account_head_id).filter(Boolean) as string[]
-  const { data: accountHeads } = accountHeadIds.length
-    ? await supabase.from("account_heads").select("*").in("id", accountHeadIds)
-    : { data: [] as AccountHeadRecord[] }
+  const accountHeadIds = entryRows.map((entry) => entry.account_head_id).filter(Boolean) as string[]
+  const linePaymentModeIds = Array.from(
+    new Set(entryRows.map((entry) => entry.payment_mode_id).filter(Boolean) as string[])
+  )
 
-  const accountHeadMap = new Map<string, string>((accountHeads ?? []).map((head: AccountHeadRecord) => [head.id, head.name]))
-  const totalDebit = entryRows.reduce((sum: number, entry: VoucherEntryRecord) => sum + Number(entry.debit ?? 0), 0)
-  const totalCredit = entryRows.reduce((sum: number, entry: VoucherEntryRecord) => sum + Number(entry.credit ?? 0), 0)
-  const visibleEntries = entryRows.filter((entry: VoucherEntryRecord) => !isAutoBalanceEntry(entry.description))
-  const printLines = (visibleEntries.length ? visibleEntries : entryRows).map((entry: VoucherEntryRecord) => ({
+  const [{ data: accountHeads }, { data: linePaymentModes }] = await Promise.all([
+    accountHeadIds.length
+      ? supabase.from("account_heads").select("*").in("id", accountHeadIds)
+      : Promise.resolve({ data: [] as AccountHeadRecord[] }),
+    linePaymentModeIds.length
+      ? supabase.from("payment_modes").select("*").in("id", linePaymentModeIds)
+      : Promise.resolve({ data: [] as PaymentModeRecord[] }),
+  ])
+
+  const accountHeadMap = new Map((accountHeads ?? []).map((head: AccountHeadRecord) => [head.id, head.name]))
+  const linePaymentModeMap = new Map(
+    (linePaymentModes ?? []).map((mode: PaymentModeRecord) => [mode.id, mode.name])
+  )
+  const totalDebit = entryRows.reduce((sum, entry) => sum + Number(entry.debit ?? 0), 0)
+  const totalCredit = entryRows.reduce((sum, entry) => sum + Number(entry.credit ?? 0), 0)
+  const visibleEntries = entryRows.filter((entry) => !isAutoBalanceEntry(entry.description))
+  const printLines = (visibleEntries.length ? visibleEntries : entryRows).map((entry) => ({
     id: entry.id,
     accountHeadName: accountHeadMap.get(entry.account_head_id ?? "") ?? "Unknown",
     accountsGroup: entry.accounts_group,
@@ -132,10 +146,14 @@ export default async function VoucherDetailPage({
     credit: Number(entry.credit ?? 0),
     description: entry.description ?? null,
   }))
+  const paymentModeSummary = summarizePaymentModeNames([
+    ...entryRows.map((entry) => linePaymentModeMap.get(entry.payment_mode_id ?? "") ?? null),
+    paymentModeRow?.name ?? null,
+  ])
   const primaryAccountHeadName = printLines[0]?.accountHeadName ?? client.name
   const autoPrint = resolvedSearchParams?.print === "1"
   const attachmentItems = await Promise.all(
-    attachmentRows.map(async (attachment: VoucherAttachmentRecord) => {
+    attachmentRows.map(async (attachment) => {
       const { data } = await supabase.storage
         .from("voucher-documents")
         .createSignedUrl(attachment.file_path, 60 * 60)
@@ -155,8 +173,8 @@ export default async function VoucherDetailPage({
             Voucher #{voucherDisplayNo}
           </h2>
           <p className="mt-2 text-sm text-slate-500">
-            {format(new Date(voucher.voucher_date), "dd MMM yyyy")} · {getVoucherTypeLabel(voucher.voucher_type)}
-            {voucher.month_label ? ` · ${voucher.month_label}` : ""}
+            {format(new Date(voucher.voucher_date), "dd MMM yyyy")} - {getVoucherTypeLabel(voucher.voucher_type)}
+            {voucher.month_label ? ` - ${voucher.month_label}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -172,7 +190,7 @@ export default async function VoucherDetailPage({
             companyName={client.name}
             voucherType={voucher.voucher_type}
             voucherDate={voucher.voucher_date}
-            paymentModeName={paymentModeRow?.name ?? null}
+            paymentModeName={paymentModeSummary}
             description={voucher.description ?? null}
             accountHeadName={primaryAccountHeadName}
             lines={printLines}
@@ -204,21 +222,21 @@ export default async function VoucherDetailPage({
             </div>
             <div>
               <p className="text-sm text-slate-500">Payment mode</p>
-              <p className="mt-1 font-medium text-slate-950">{paymentMode?.name ?? "—"}</p>
+              <p className="mt-1 font-medium text-slate-950">{paymentModeSummary ?? "-"}</p>
             </div>
             <div>
               <p className="text-sm text-slate-500">Fiscal year</p>
-              <p className="mt-1 font-medium text-slate-950">{fiscalYearRow?.label ?? "—"}</p>
+              <p className="mt-1 font-medium text-slate-950">{fiscalYearRow?.label ?? "-"}</p>
             </div>
             <div>
               <p className="text-sm text-slate-500">Last updated</p>
               <p className="mt-1 font-medium text-slate-950">
-                {voucher.updated_at ? format(new Date(voucher.updated_at), "dd MMM yyyy, h:mm a") : "—"}
+                {voucher.updated_at ? format(new Date(voucher.updated_at), "dd MMM yyyy, h:mm a") : "-"}
               </p>
             </div>
             <div className="sm:col-span-2">
               <p className="text-sm text-slate-500">Narration</p>
-              <p className="mt-1 font-medium text-slate-900">{voucher.description || "—"}</p>
+              <p className="mt-1 font-medium text-slate-900">{voucher.description || "-"}</p>
             </div>
           </CardContent>
         </Card>
@@ -259,34 +277,36 @@ export default async function VoucherDetailPage({
                     <p className="truncate text-sm font-medium text-slate-950">{attachment.file_name}</p>
                     <p className="text-xs text-slate-500">
                       {formatFileSize(Number(attachment.file_size))}
-                      {attachment.created_at ? ` · ${format(new Date(attachment.created_at), "dd MMM yyyy")}` : ""}
+                      {attachment.mime_type ? ` - ${attachment.mime_type}` : ""}
                     </p>
                   </div>
                 </div>
                 {attachment.signedUrl ? (
-                  <Button asChild variant="outline" size="sm" className="shrink-0 rounded-xl border-slate-200">
+                  <Button asChild variant="outline" size="sm" className="rounded-xl border-slate-200">
                     <a href={attachment.signedUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink className="mr-2 h-4 w-4" />
                       Open
+                      <ExternalLink className="ml-2 h-4 w-4" />
                     </a>
                   </Button>
-                ) : (
-                  <span className="shrink-0 text-xs text-slate-500">Unavailable</span>
-                )}
+                ) : null}
               </div>
             ))}
           </CardContent>
         </Card>
       ) : null}
 
-      <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm print:hidden">
-        <CardHeader>
+      <Card className="rounded-[1.75rem] border-slate-200 bg-white shadow-sm">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-xl text-slate-950">Voucher Entries</CardTitle>
+          <div className="text-sm text-slate-500">
+            {entryRows.length} line{entryRows.length === 1 ? "" : "s"}
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-hidden rounded-2xl border border-slate-200 p-0">
           <Table>
-            <TableHeader>
-              <TableRow>
+            <TableHeader className="bg-slate-50">
+              <TableRow className="border-slate-200 hover:bg-slate-50">
+                <TableHead className="w-16">#</TableHead>
                 <TableHead>Account Head</TableHead>
                 <TableHead>Group</TableHead>
                 <TableHead className="text-right">Debit</TableHead>
@@ -295,18 +315,21 @@ export default async function VoucherDetailPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {entryRows.map((entry: VoucherEntryRecord) => (
-                <TableRow key={entry.id}>
-                  <TableCell className="font-medium text-slate-900">
+              {entryRows.map((entry, index) => (
+                <TableRow key={entry.id} className="border-slate-100">
+                  <TableCell>{index + 1}</TableCell>
+                  <TableCell className="font-medium text-slate-950">
                     {accountHeadMap.get(entry.account_head_id ?? "") ?? "Unknown"}
                   </TableCell>
-                  <TableCell className="capitalize">{entry.accounts_group}</TableCell>
-                  <TableCell className="text-right">{Number(entry.debit ?? 0).toFixed(2)}</TableCell>
-                  <TableCell className="text-right">{Number(entry.credit ?? 0).toFixed(2)}</TableCell>
-                  <TableCell>
-                    {isAutoBalanceEntry(entry.description)
-                      ? accountHeadMap.get(entry.account_head_id ?? "") ?? "Unknown"
-                      : entry.description || "-"}
+                  <TableCell className="capitalize text-slate-600">{entry.accounts_group ?? "-"}</TableCell>
+                  <TableCell className="text-right font-semibold text-slate-950">
+                    {Number(entry.debit ?? 0).toFixed(2)}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold text-slate-950">
+                    {Number(entry.credit ?? 0).toFixed(2)}
+                  </TableCell>
+                  <TableCell className="text-slate-600">
+                    {isAutoBalanceEntry(entry.description) ? "Auto-balancing entry" : entry.description || "-"}
                   </TableCell>
                 </TableRow>
               ))}

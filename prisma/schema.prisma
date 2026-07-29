@@ -179,6 +179,7 @@ model PaymentMode {
   client    Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   accountHead AccountHead? @relation(fields: [accountHeadId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   vouchers  Voucher[]
+  voucherEntries VoucherEntry[]
 
   @@index([accountHeadId], map: "idx_payment_modes_account_head")
   @@map("payment_modes")
@@ -229,6 +230,7 @@ model VoucherEntry {
   id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   voucherId     String?      @map("voucher_id") @db.Uuid
   accountHeadId String?      @map("account_head_id") @db.Uuid
+  paymentModeId String?      @map("payment_mode_id") @db.Uuid
   accountsGroup String?      @map("accounts_group")
   debit         Decimal?     @default(0) @db.Decimal(15, 2)
   credit        Decimal?     @default(0) @db.Decimal(15, 2)
@@ -236,9 +238,11 @@ model VoucherEntry {
   createdAt     DateTime?    @default(now()) @map("created_at") @db.Timestamptz(6)
   voucher       Voucher?     @relation(fields: [voucherId], references: [id], onDelete: Cascade)
   accountHead   AccountHead? @relation(fields: [accountHeadId], references: [id])
+  paymentMode   PaymentMode? @relation(fields: [paymentModeId], references: [id])
 
   @@index([voucherId], map: "idx_voucher_entries_voucher")
   @@index([accountHeadId], map: "idx_voucher_entries_account")
+  @@index([paymentModeId], map: "idx_voucher_entries_payment_mode")
   @@map("voucher_entries")
 }
 

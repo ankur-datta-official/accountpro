@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
-import { isAutoBalanceEntry } from "@/lib/accounting/vouchers"
+import { isAutoBalanceEntry, summarizePaymentModeNames } from "@/lib/accounting/vouchers"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getAuthorizedClient } from "@/lib/api-auth"
 import type { VoucherType, Voucher, VoucherEntry, AccountHead, PaymentMode } from "@/lib/types"
@@ -117,10 +117,6 @@ export async function GET(
     vouchersQuery = vouchersQuery.eq("voucher_type", filters.voucherType)
   }
 
-  if (filters.paymentModeId) {
-    vouchersQuery = vouchersQuery.eq("payment_mode_id", filters.paymentModeId)
-  }
-
   if (filters.month) {
     vouchersQuery = vouchersQuery.eq("month_label", filters.month)
   }
@@ -146,15 +142,24 @@ export async function GET(
     : { data: [] }
   const entries = entriesResult.data;
 
-  const matchingVoucherIds = filters.accountHeadId
-    ? new Set(
-        (entries ?? [] as VoucherEntry[])
-          .filter((entry: VoucherEntry) => entry.account_head_id === filters.accountHeadId)
-          .map((entry: VoucherEntry) => entry.voucher_id)
-      )
-    : null
+  const matchingVoucherIds = new Set(
+    (entries ?? [] as VoucherEntry[])
+      .filter((entry: VoucherEntry) => {
+        if (filters.accountHeadId && entry.account_head_id !== filters.accountHeadId) {
+          return false
+        }
 
-  const filteredVouchers = matchingVoucherIds
+        if (filters.paymentModeId && entry.payment_mode_id !== filters.paymentModeId) {
+          return false
+        }
+
+        return Boolean(filters.accountHeadId || filters.paymentModeId)
+      })
+      .map((entry: VoucherEntry) => entry.voucher_id)
+  )
+
+  const shouldFilterByEntry = Boolean(filters.accountHeadId || filters.paymentModeId)
+  const filteredVouchers = shouldFilterByEntry
     ? (vouchers ?? [] as Voucher[]).filter((voucher: Voucher) => matchingVoucherIds.has(voucher.id))
     : (vouchers ?? [] as Voucher[])
 
@@ -196,7 +201,10 @@ export async function GET(
     new Set(filteredEntries.map((entry: VoucherEntry) => entry.account_head_id).filter(Boolean) as string[])
   )
   const paymentModeIds = Array.from(
-    new Set(filteredVouchers.map((voucher: Voucher) => voucher.payment_mode_id).filter(Boolean) as string[])
+    new Set([
+      ...filteredVouchers.map((voucher: Voucher) => voucher.payment_mode_id).filter(Boolean) as string[],
+      ...filteredEntries.map((entry: VoucherEntry) => entry.payment_mode_id).filter(Boolean) as string[],
+    ])
   )
 
   const accountHeadsPromise = accountHeadIds.length
@@ -235,6 +243,9 @@ export async function GET(
 
     const debit = voucherEntries.reduce((sum: number, entry: VoucherEntry) => sum + Number(entry.debit ?? 0), 0)
     const credit = voucherEntries.reduce((sum: number, entry: VoucherEntry) => sum + Number(entry.credit ?? 0), 0)
+    const linePaymentModeNames = voucherEntries
+      .map((entry: VoucherEntry) => paymentModeMap.get(entry.payment_mode_id ?? ""))
+      .filter(Boolean) as string[]
 
     return {
       id: voucher.id,
@@ -242,7 +253,10 @@ export async function GET(
       voucherTypeSerial: voucherTypeSerialById.get(voucher.id) ?? 1,
       voucherDate: voucher.voucher_date,
       voucherType: voucher.voucher_type,
-      paymentModeName: paymentModeMap.get(voucher.payment_mode_id ?? "") ?? null,
+      paymentModeName: summarizePaymentModeNames([
+        ...linePaymentModeNames,
+        paymentModeMap.get(voucher.payment_mode_id ?? "") ?? null,
+      ]),
       accountHeadNames,
       accountHeadLabel: buildAccountHeadLabel(accountHeadNames),
       debit,

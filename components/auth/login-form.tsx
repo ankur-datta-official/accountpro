@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { createClient } from "@/lib/supabase/client"
-import { getSupabaseConfigError } from "@/lib/supabase/env"
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address."),
@@ -56,12 +55,6 @@ export function LoginForm({
   const onSubmit = async (values: LoginValues) => {
     setIsSubmitting(true)
     try {
-      const configError = getSupabaseConfigError()
-      if (configError) {
-        toast.error(configError)
-        return
-      }
-
       const supabase = createClient()
       const { error } = await supabase.auth.signInWithPassword({
         email: values.email,

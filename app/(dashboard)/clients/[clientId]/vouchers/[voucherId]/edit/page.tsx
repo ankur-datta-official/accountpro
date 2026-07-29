@@ -37,15 +37,13 @@ export default async function EditVoucherPage({
     notFound()
   }
 
-  const [{ data: fiscalYear }, { data: paymentModes }, { data: entries }, paymentModeResult] = await Promise.all([
+  const [{ data: fiscalYear }, { data: paymentModes }, { data: entries }] = await Promise.all([
     supabase.from("fiscal_years").select("*").eq("id", voucher.fiscal_year_id ?? "").maybeSingle(),
     supabase.from("payment_modes").select("*").eq("client_id", client.id).order("name"),
     supabase.from("voucher_entries").select("*").eq("voucher_id", voucher.id),
-    voucher.payment_mode_id ? supabase.from("payment_modes").select("*").eq("id", voucher.payment_mode_id).maybeSingle() : Promise.resolve(null),
   ])
   const voucherRow = voucher as VoucherRecord
   const fiscalYearRow = fiscalYear as FiscalYearRecord | null
-  const paymentMode = paymentModeResult?.data ?? null
   const entryRows = (entries ?? []) as VoucherEntryRecord[]
   const paymentModeRows = (paymentModes ?? []) as PaymentModeRecord[]
 
@@ -53,9 +51,13 @@ export default async function EditVoucherPage({
     notFound()
   }
 
+  const paymentModeMap = new Map(paymentModeRows.map((mode) => [mode.id, mode]))
   const formEntries = entryRows.map((entry: VoucherEntryRecord) => ({
     accountsGroup: (entry.accounts_group ?? "expense") as "expense" | "income" | "asset" | "liability",
     accountHeadId: entry.account_head_id ?? "",
+    paymentModeId: entry.payment_mode_id ?? "",
+    paymentModeName: entry.payment_mode_id ? paymentModeMap.get(entry.payment_mode_id)?.name ?? "" : "",
+    paymentModeType: entry.payment_mode_id ? paymentModeMap.get(entry.payment_mode_id)?.type ?? undefined : undefined,
     debitAmount: Number(entry.debit ?? 0),
     creditAmount: Number(entry.credit ?? 0),
     description: isAutoBalanceEntry(entry.description) ? "" : entry.description ?? "",
@@ -81,6 +83,7 @@ export default async function EditVoucherPage({
           id: mode.id,
           name: mode.name,
           type: mode.type,
+          accountHeadId: mode.account_head_id,
         }))}
         initialValues={{
           clientId: client.id,
@@ -88,9 +91,6 @@ export default async function EditVoucherPage({
           voucherNo: voucherRow.voucher_no,
           voucherDate: voucherRow.voucher_date,
           voucherType: voucherRow.voucher_type,
-          paymentModeId: voucherRow.payment_mode_id ?? "",
-          paymentModeName: paymentMode?.name ?? "",
-          paymentModeType: paymentMode?.type ?? undefined,
           showDescription: voucherRow.show_description ?? true,
           description: voucherRow.description ?? "",
           showSupportingDocuments: voucherRow.show_supporting_documents ?? true,

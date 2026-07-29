@@ -1576,13 +1576,19 @@ export async function postPayrollPaymentAction(input: z.input<typeof postPayment
     fiscalYearId: fiscalYear.id,
     voucherDate: parsed.data.voucherDate,
     voucherType: "payment",
-    paymentModeId: parsed.data.paymentModeId,
-    paymentModeName: parsed.data.paymentModeName,
-    paymentModeType: parsed.data.paymentModeType as PaymentModeType | undefined,
     description: `Payroll salary payment for ${payrollRun.period_label}`,
     showDescription: true,
     showSupportingDocuments: false,
-    lines: paymentLines.lines,
+    lines: paymentLines.lines.map((line, index) =>
+      index === 1
+        ? {
+            ...line,
+            paymentModeId: parsed.data.paymentModeId,
+            paymentModeName: parsed.data.paymentModeName,
+            paymentModeType: parsed.data.paymentModeType as PaymentModeType | undefined,
+          }
+        : line
+    ),
   })
 
   if (!result.success) return result
