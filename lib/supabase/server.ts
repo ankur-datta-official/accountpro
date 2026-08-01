@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 import { requireSupabasePublicEnv } from "@/lib/supabase/env"
+import { canManageOrganization, isPlatformAdminUser } from "@/lib/platform-access"
 import type { Organization, OrganizationMember } from "@/lib/types"
 import type { Database } from "@/lib/types/database"
 
@@ -36,6 +37,8 @@ type OrganizationContext = {
   membership: OrganizationMember | null
   organization: Organization | null
   user: User | null
+  isPlatformAdmin: boolean
+  canManageOrganization: boolean
 }
 
 export const getCurrentOrganizationContext = cache(async function getCurrentOrganizationContext(): Promise<OrganizationContext> {
@@ -54,6 +57,8 @@ export const getCurrentOrganizationContext = cache(async function getCurrentOrga
       membership: null,
       organization: null,
       user: null,
+      isPlatformAdmin: false,
+      canManageOrganization: false,
     }
   }
 
@@ -76,6 +81,8 @@ export const getCurrentOrganizationContext = cache(async function getCurrentOrga
       membership: membership ?? null,
       organization: null,
       user,
+      isPlatformAdmin: isPlatformAdminUser(user),
+      canManageOrganization: canManageOrganization(membership),
     }
   }
 
@@ -95,5 +102,7 @@ export const getCurrentOrganizationContext = cache(async function getCurrentOrga
     membership,
     organization: organization ?? null,
     user,
+    isPlatformAdmin: isPlatformAdminUser(user),
+    canManageOrganization: canManageOrganization(membership),
   }
 })

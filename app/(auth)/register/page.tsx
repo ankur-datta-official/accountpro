@@ -7,8 +7,8 @@ export default function RegisterPage() {
   return (
     <div>
       <AuthFormHeader
-        title="Create your DKLedger workspace"
-        description="Set up your organization and invite your team later from the dashboard."
+        title="Create your DKLedger account"
+        description="Create your login first. DKLedger platform owners can activate management access, and invited users can join their assigned workspace after sign-in."
       />
 
       <RegisterPanel />

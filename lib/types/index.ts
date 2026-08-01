@@ -5,6 +5,7 @@ export type {
   AccountGroupType,
   AccountHeadBalanceType,
   ClientType,
+  BillingProvider,
   OrganizationMemberRole,
   OrganizationPlan,
   PaymentModeType,
@@ -22,6 +23,22 @@ export type OrganizationUpdate = Database["public"]["Tables"]["organizations"]["
 export type OrganizationMember = Database["public"]["Tables"]["organization_members"]["Row"]
 export type OrganizationMemberInsert = Database["public"]["Tables"]["organization_members"]["Insert"]
 export type OrganizationMemberUpdate = Database["public"]["Tables"]["organization_members"]["Update"]
+
+export type BillingCustomer = Database["public"]["Tables"]["billing_customers"]["Row"]
+export type BillingCustomerInsert = Database["public"]["Tables"]["billing_customers"]["Insert"]
+export type BillingCustomerUpdate = Database["public"]["Tables"]["billing_customers"]["Update"]
+
+export type BillingSubscription = Database["public"]["Tables"]["billing_subscriptions"]["Row"]
+export type BillingSubscriptionInsert = Database["public"]["Tables"]["billing_subscriptions"]["Insert"]
+export type BillingSubscriptionUpdate = Database["public"]["Tables"]["billing_subscriptions"]["Update"]
+
+export type BillingWebhookEvent = Database["public"]["Tables"]["billing_webhook_events"]["Row"]
+export type BillingWebhookEventInsert = Database["public"]["Tables"]["billing_webhook_events"]["Insert"]
+export type BillingWebhookEventUpdate = Database["public"]["Tables"]["billing_webhook_events"]["Update"]
+
+export type BillingTransaction = Database["public"]["Tables"]["billing_transactions"]["Row"]
+export type BillingTransactionInsert = Database["public"]["Tables"]["billing_transactions"]["Insert"]
+export type BillingTransactionUpdate = Database["public"]["Tables"]["billing_transactions"]["Update"]
 
 export type Client = Database["public"]["Tables"]["clients"]["Row"]
 export type ClientInsert = Database["public"]["Tables"]["clients"]["Insert"]

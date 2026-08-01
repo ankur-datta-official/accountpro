@@ -1,5 +1,14 @@
-import { TeamManagement } from "@/components/team/TeamManagement"
+import { redirect } from "next/navigation"
 
-export default function TeamPage() {
+import { TeamManagement } from "@/components/team/TeamManagement"
+import { getCurrentOrganizationContext } from "@/lib/supabase/server"
+
+export default async function TeamPage() {
+  const { canManageOrganization } = await getCurrentOrganizationContext()
+
+  if (!canManageOrganization) {
+    redirect("/clients")
+  }
+
   return <TeamManagement />
 }

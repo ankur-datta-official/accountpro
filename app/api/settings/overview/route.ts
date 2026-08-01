@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 
+import { canManageOrganization } from "@/lib/platform-access"
+import { getBillingOverview } from "@/lib/billing/service"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getPlanClientLimit, getPlanMemberLimit } from "@/lib/team"
 
@@ -31,6 +33,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "No active organization found." }, { status: 403 })
   }
 
+  if (!canManageOrganization(membership)) {
+    return NextResponse.json({ error: "Only owners and admins can access organization settings." }, { status: 403 })
+  }
+
   const { data: organization } = await supabaseAdmin
     .from("organizations")
     .select("*")
@@ -54,10 +60,12 @@ export async function GET(request: Request) {
 
   const clientLimit = organization.max_clients ?? getPlanClientLimit(organization.plan)
   const memberLimit = getPlanMemberLimit(organization.plan)
+  const billing = await getBillingOverview(membership.org_id)
 
   return NextResponse.json({
     organization,
     role: membership.role,
+    billing,
     usage: {
       clients: clientCount ?? 0,
       members: memberCount ?? 0,

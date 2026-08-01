@@ -4,7 +4,7 @@ import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/serv
 
 export default async function ClientsPage() {
   const supabase = await createClient()
-  const { membership } = await getCurrentOrganizationContext()
+  const { membership, canManageOrganization } = await getCurrentOrganizationContext()
 
   const { data: clients } = membership?.org_id
     ? await supabase
@@ -39,5 +39,5 @@ export default async function ClientsPage() {
     routeSegment: buildClientRouteSegment(client),
   }))
 
-  return <ClientsTable data={rows} />
+  return <ClientsTable data={rows} canManageOrganization={canManageOrganization} />
 }

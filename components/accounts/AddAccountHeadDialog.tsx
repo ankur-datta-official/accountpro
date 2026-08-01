@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select"
 
 const addAccountHeadSchema = z.object({
+  accountGroupType: z.enum(["expense", "income", "asset", "liability"]).optional(),
   accountGroupId: z.string().optional(),
   semiSubGroupId: z.string().optional(),
   subGroupId: z.string().optional(),
@@ -56,6 +57,19 @@ type ParentOption = {
 
 function normalizeHierarchyName(value: string) {
   return value.trim().toLowerCase()
+}
+
+function getGroupTypeLabel(value: "expense" | "income" | "asset" | "liability") {
+  switch (value) {
+    case "expense":
+      return "Expense"
+    case "income":
+      return "Income"
+    case "asset":
+      return "Asset"
+    case "liability":
+      return "Liability"
+  }
 }
 
 function flattenHeadOptions(heads: ChartTreeHead[], prefix: string[] = []): ParentOption[] {
@@ -108,11 +122,14 @@ export function AddAccountHeadDialog({
   const resolvedDefaultGroupId =
     semiSubGroups.find((semiSubGroup) => semiSubGroup.id === resolvedDefaultSemiSubGroupId)?.group_id ??
     defaultGroupId
+  const resolvedDefaultGroupType =
+    groups.find((group) => group.id === resolvedDefaultGroupId)?.type ?? undefined
   const resolvedDefaultParentAccountHeadId = head?.parent_id ?? defaultParentAccountHeadId ?? undefined
 
   const form = useForm<AccountHeadFormValues>({
     resolver: zodResolver(addAccountHeadSchema),
     defaultValues: {
+      accountGroupType: resolvedDefaultGroupType,
       accountGroupId: resolvedDefaultGroupId,
       semiSubGroupId: resolvedDefaultSemiSubGroupId,
       subGroupId: resolvedDefaultSubGroupId,
@@ -133,6 +150,7 @@ export function AddAccountHeadDialog({
       setCreateSemiInline(false)
       setCreateSubInline(false)
       form.reset({
+        accountGroupType: resolvedDefaultGroupType,
         accountGroupId: resolvedDefaultGroupId,
         semiSubGroupId: resolvedDefaultSemiSubGroupId,
         subGroupId: resolvedDefaultSubGroupId,
@@ -151,11 +169,13 @@ export function AddAccountHeadDialog({
     head,
     open,
     resolvedDefaultGroupId,
+    resolvedDefaultGroupType,
     resolvedDefaultParentAccountHeadId,
     resolvedDefaultSemiSubGroupId,
     resolvedDefaultSubGroupId,
   ])
 
+  const selectedGroupType = form.watch("accountGroupType")
   const selectedGroupId = form.watch("accountGroupId")
   const selectedSemiSubGroupId = form.watch("semiSubGroupId")
   const selectedSubGroupId = form.watch("subGroupId")
@@ -163,6 +183,11 @@ export function AddAccountHeadDialog({
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null
   const selectedSemiSubGroup =
     semiSubGroups.find((semiSubGroup) => semiSubGroup.id === selectedSemiSubGroupId) ?? null
+
+  const filteredGroups = useMemo(
+    () => groups.filter((group) => !selectedGroupType || group.type === selectedGroupType),
+    [groups, selectedGroupType]
+  )
 
   const filteredSemiSubGroups = useMemo(
     () => semiSubGroups.filter((semiSubGroup) => semiSubGroup.group_id === selectedGroupId),
@@ -192,6 +217,33 @@ export function AddAccountHeadDialog({
     Boolean(selectedSemiSubGroup) &&
     filteredSubGroups.length === 1 &&
     Boolean(duplicateNamedSubGroup)
+
+  useEffect(() => {
+    if (!selectedGroupId) {
+      return
+    }
+
+    const selectedGroupRecord = groups.find((group) => group.id === selectedGroupId)
+    if (!selectedGroupRecord) {
+      form.setValue("accountGroupId", undefined)
+      form.setValue("semiSubGroupId", undefined)
+      form.setValue("subGroupId", undefined)
+      form.setValue("parentAccountHeadId", undefined)
+      return
+    }
+
+    if (selectedGroupType && selectedGroupRecord.type !== selectedGroupType) {
+      form.setValue("accountGroupId", undefined)
+      form.setValue("semiSubGroupId", undefined)
+      form.setValue("subGroupId", undefined)
+      form.setValue("parentAccountHeadId", undefined)
+      return
+    }
+
+    if (!selectedGroupType) {
+      form.setValue("accountGroupType", selectedGroupRecord.type)
+    }
+  }, [form, groups, selectedGroupId, selectedGroupType])
 
   useEffect(() => {
     if (!shouldAutoUseDuplicateSubGroup || !duplicateNamedSubGroup) {
@@ -225,6 +277,11 @@ export function AddAccountHeadDialog({
   )
 
   const onSubmit = async (values: AccountHeadFormValues) => {
+    if (!head && !values.accountGroupType) {
+      toast.error("Select one of the 4 main account types first.")
+      return
+    }
+
     setIsSubmitting(true)
     const supabase = createClient()
     const {
@@ -248,7 +305,7 @@ export function AddAccountHeadDialog({
       openingBalance: values.openingBalance ?? 0,
       balanceType: values.balanceType,
       newGroupName: createGroupInline ? values.newGroupName : undefined,
-      newGroupType: createGroupInline ? values.newGroupType || selectedGroup?.type || "expense" : undefined,
+      newGroupType: createGroupInline ? values.accountGroupType || values.newGroupType || selectedGroup?.type || "expense" : undefined,
       newSemiSubGroupName: createSemiInline ? values.newSemiSubGroupName : undefined,
       newSubGroupName: createSubInline ? values.newSubGroupName : undefined,
       is_active: head?.is_active ?? true,
@@ -291,8 +348,8 @@ export function AddAccountHeadDialog({
             Edit
           </Button>
         ) : (
-          <Button type="button" variant="outline" size="sm" className="h-8 rounded-xl border-slate-200 px-3 whitespace-nowrap">
-            <PlusCircle className="mr-2 h-4 w-4" />
+          <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg border-slate-200 px-3 whitespace-nowrap text-sm">
+            <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
             {defaultParentAccountHeadId ? "Add Child Head" : "Add Account Head"}
           </Button>
         )}
@@ -309,6 +366,30 @@ export function AddAccountHeadDialog({
               {!head ? (
                 <>
                   <div className="space-y-2">
+                    <Label>Main Account Type</Label>
+                    <Select
+                      value={form.watch("accountGroupType")}
+                      onValueChange={(value) => {
+                        form.setValue("accountGroupType", value as AccountHeadFormValues["accountGroupType"])
+                        form.setValue("accountGroupId", undefined)
+                        form.setValue("semiSubGroupId", undefined)
+                        form.setValue("subGroupId", undefined)
+                        form.setValue("parentAccountHeadId", undefined)
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose one of the 4 main accounts" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="expense">Expense</SelectItem>
+                        <SelectItem value="income">Income</SelectItem>
+                        <SelectItem value="asset">Asset</SelectItem>
+                        <SelectItem value="liability">Liability</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label>Main Account Group</Label>
                       <button
@@ -323,24 +404,21 @@ export function AddAccountHeadDialog({
                       </button>
                     </div>
                     {createGroupInline ? (
-                      <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-3">
                         <Input placeholder="e.g. General & Administrative Expenses" {...form.register("newGroupName")} />
-                        <Select
-                          value={form.watch("newGroupType")}
-                          onValueChange={(value) =>
-                            form.setValue("newGroupType", value as AccountHeadFormValues["newGroupType"])
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Group type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="expense">Expenses</SelectItem>
-                            <SelectItem value="income">Income</SelectItem>
-                            <SelectItem value="asset">Assets</SelectItem>
-                            <SelectItem value="liability">Liabilities</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        {selectedGroupType ? (
+                          <p className="text-xs text-slate-500">
+                            This new group will be created under the{" "}
+                            <span className="font-medium text-slate-700">
+                              {getGroupTypeLabel(selectedGroupType)}
+                            </span>{" "}
+                            main account.
+                          </p>
+                        ) : (
+                          <p className="text-xs text-amber-600">
+                            Select a main account type first to create a new group safely.
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <Select
@@ -351,12 +429,19 @@ export function AddAccountHeadDialog({
                           form.setValue("subGroupId", undefined)
                           form.setValue("parentAccountHeadId", undefined)
                         }}
+                        disabled={!selectedGroupType}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Choose the top-level group" />
+                          <SelectValue
+                            placeholder={
+                              selectedGroupType
+                                ? "Choose the related main group"
+                                : "Choose the main account type first"
+                            }
+                          />
                         </SelectTrigger>
                         <SelectContent>
-                          {groups.map((group) => (
+                          {filteredGroups.map((group) => (
                             <SelectItem key={group.id} value={group.id}>
                               {group.name}
                             </SelectItem>
@@ -390,9 +475,16 @@ export function AddAccountHeadDialog({
                           form.setValue("subGroupId", undefined)
                           form.setValue("parentAccountHeadId", undefined)
                         }}
+                        disabled={!selectedGroupId}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Choose the next category" />
+                          <SelectValue
+                            placeholder={
+                              selectedGroupId
+                                ? "Choose the related category"
+                                : "Choose the main group first"
+                            }
+                          />
                         </SelectTrigger>
                         <SelectContent>
                           {filteredSemiSubGroups.map((semiSubGroup) => (
@@ -435,9 +527,16 @@ export function AddAccountHeadDialog({
                           form.setValue("subGroupId", value)
                           form.setValue("parentAccountHeadId", undefined)
                         }}
+                        disabled={!selectedSemiSubGroupId}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="Choose the section where this belongs" />
+                          <SelectValue
+                            placeholder={
+                              selectedSemiSubGroupId
+                                ? "Choose the related sub-category"
+                                : "Choose the category first"
+                            }
+                          />
                         </SelectTrigger>
                         <SelectContent>
                           {filteredSubGroups.map((subGroup) => (

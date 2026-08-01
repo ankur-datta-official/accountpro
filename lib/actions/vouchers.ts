@@ -29,6 +29,9 @@ const voucherLineSchema = z.object({
   paymentModeId: z.string().optional(),
   paymentModeName: z.string().optional(),
   paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
+  bankBranchName: z.string().optional(),
+  bankInstrumentDate: z.string().optional(),
+  bankCheckChallanNo: z.string().optional(),
   debitAmount: z.number().finite().min(0),
   creditAmount: z.number().finite().min(0),
   description: z.string().optional(),
@@ -302,6 +305,9 @@ function buildVoucherEntries(
       voucher_id: voucherId,
       account_head_id: line.accountHeadId,
       payment_mode_id: line.paymentModeId ?? null,
+      bank_branch_name: line.paymentModeType === "bank" ? line.bankBranchName ?? null : null,
+      bank_instrument_date: line.paymentModeType === "bank" ? line.bankInstrumentDate ?? null : null,
+      bank_check_challan_no: line.paymentModeType === "bank" ? line.bankCheckChallanNo ?? null : null,
       accounts_group: line.accountsGroup,
       debit: Number(line.debitAmount || 0),
       credit: Number(line.creditAmount || 0),
@@ -841,7 +847,15 @@ async function restoreVoucherUpdateSnapshot(
     >
     previousEntries: Pick<
       VoucherEntryRow,
-      "account_head_id" | "payment_mode_id" | "accounts_group" | "debit" | "credit" | "description"
+      | "account_head_id"
+      | "payment_mode_id"
+      | "bank_branch_name"
+      | "bank_instrument_date"
+      | "bank_check_challan_no"
+      | "accounts_group"
+      | "debit"
+      | "credit"
+      | "description"
     >[]
   }
 ) {
@@ -869,6 +883,9 @@ async function restoreVoucherUpdateSnapshot(
       voucher_id: voucherId,
       account_head_id: entry.account_head_id,
       payment_mode_id: entry.payment_mode_id,
+      bank_branch_name: entry.bank_branch_name,
+      bank_instrument_date: entry.bank_instrument_date,
+      bank_check_challan_no: entry.bank_check_challan_no,
       accounts_group: entry.accounts_group,
       debit: entry.debit,
       credit: entry.credit,
@@ -1203,7 +1220,9 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
 
   const { data: existingEntries, error: existingEntriesError } = await supabase
     .from("voucher_entries")
-    .select("account_head_id, payment_mode_id, accounts_group, debit, credit, description")
+    .select(
+      "account_head_id, payment_mode_id, bank_branch_name, bank_instrument_date, bank_check_challan_no, accounts_group, debit, credit, description"
+    )
     .eq("voucher_id", existingVoucher.id)
 
   if (existingEntriesError) {
@@ -1284,7 +1303,15 @@ export async function updateVoucherAction(input: UpdateVoucherInput) {
         previousVoucher: previousVoucherSnapshot,
         previousEntries: (existingEntries ?? []) as Pick<
           VoucherEntryRow,
-          "account_head_id" | "payment_mode_id" | "accounts_group" | "debit" | "credit" | "description"
+          | "account_head_id"
+          | "payment_mode_id"
+          | "bank_branch_name"
+          | "bank_instrument_date"
+          | "bank_check_challan_no"
+          | "accounts_group"
+          | "debit"
+          | "credit"
+          | "description"
         >[],
       }),
     failureMessage: "Unable to update voucher entries.",

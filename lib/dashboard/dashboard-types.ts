@@ -92,6 +92,14 @@ export type DashboardLinkedValue = {
   meta?: string
 }
 
+export type DashboardFinancialSeriesPoint = {
+  key: string
+  label: string
+  income: number
+  expense: number
+  profit: number
+}
+
 export type DashboardCashFlowPoint = {
   label: string
   inflow: number
@@ -104,12 +112,25 @@ export type DashboardActivityItem = {
   description: string
   href?: string
   kind: "voucher" | "info" | "setup"
+  amount?: string
+  occurredAt?: string
+  relativeTime?: string
 }
 
 export type DashboardQuickAction = {
   label: string
   description: string
-  href: string
+  href?: string
+  disabled?: boolean
+  disabledReason?: string
+}
+
+export type DashboardOperationalStat = {
+  key: string
+  label: string
+  value: string
+  helper: string
+  tone?: DashboardMetricTone
 }
 
 export type OrganizationDashboardViewModel = {
@@ -140,6 +161,7 @@ export type OrganizationDashboardViewModel = {
     reportsHref: string
   }
   financialOverview: DashboardMetric[]
+  financialSeries: DashboardFinancialSeriesPoint[]
   financialPosition: DashboardMetric[]
   profitAndTax: DashboardMetric[]
   expenses: {
@@ -159,5 +181,6 @@ export type OrganizationDashboardViewModel = {
   }
   recentActivities: DashboardActivityItem[]
   quickActions: DashboardQuickAction[]
+  operationalStats: DashboardOperationalStat[]
   isEmpty: boolean
 }

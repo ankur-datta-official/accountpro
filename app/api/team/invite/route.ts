@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { reconcileOrganizationBilling } from "@/lib/billing/service"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getPlanMemberLimit } from "@/lib/team"
 import type { User } from "@supabase/supabase-js"
@@ -44,6 +45,8 @@ export async function POST(request: Request) {
   if (!membership?.org_id || (membership.role !== "owner" && membership.role !== "admin")) {
     return NextResponse.json({ error: "Only owners and admins can invite members." }, { status: 403 })
   }
+
+  await reconcileOrganizationBilling(membership.org_id)
 
   const { data: organization } = await supabaseAdmin
     .from("organizations")

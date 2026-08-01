@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 
+import { reconcileOrganizationBilling } from "@/lib/billing/service"
+import { canManageOrganization } from "@/lib/platform-access"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { getPlanMemberLimit } from "@/lib/team"
 import type { OrganizationMember } from "@/lib/types"
@@ -32,6 +34,12 @@ export async function GET(request: Request) {
   if (!membership?.org_id) {
     return NextResponse.json({ error: "No active organization found." }, { status: 403 })
   }
+
+  if (!canManageOrganization(membership)) {
+    return NextResponse.json({ error: "Only owners and admins can view team members." }, { status: 403 })
+  }
+
+  await reconcileOrganizationBilling(membership.org_id)
 
   const { data: organization } = await supabaseAdmin
     .from("organizations")

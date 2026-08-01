@@ -54,11 +54,11 @@ export function TopAccountsPanel({
   return (
     <Card className="overflow-hidden rounded-[1.75rem] border-border bg-card shadow-surface">
       <div className="h-1.5 bg-[linear-gradient(90deg,rgba(32,54,80,0.95),rgba(32,54,80,0.25),transparent)]" />
-      <CardHeader className="space-y-1 pb-4">
+      <CardHeader className="space-y-1 px-5 pb-3 pt-5">
         <CardTitle className="type-section-title text-text-primary">Top Accounts Balance</CardTitle>
         {asOfLabel ? <p className="text-sm text-text-secondary">{asOfLabel}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-1.5">
+      <CardContent className="space-y-1 px-5 pb-5">
         {accounts.length ? (
           accounts.map((account) => (
             <Link
@@ -122,19 +122,19 @@ export function CashFlowPanel({
   return (
     <Card className="overflow-hidden rounded-[1.75rem] border-border bg-card shadow-surface">
       <div className="h-1.5 bg-[linear-gradient(90deg,rgba(23,92,211,0.95),rgba(23,92,211,0.25),transparent)]" />
-      <CardHeader className="space-y-1 pb-4">
+      <CardHeader className="space-y-1 px-5 pb-3 pt-5">
         <CardTitle className="type-section-title text-text-primary">Cash Flow Summary</CardTitle>
         {subtitle ? <p className="text-sm text-text-secondary">{subtitle}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-3 md:grid-cols-3">
+      <CardContent className="space-y-4 px-5 pb-5">
+        <div className="grid gap-2.5 md:grid-cols-3">
           <SmallMetric metric={inflow} toneClass="text-success-fg" />
           <SmallMetric metric={outflow} toneClass="text-danger-fg" />
           <SmallMetric metric={net} toneClass="text-info-fg" />
         </div>
 
         <div className="rounded-2xl border border-border-subtle bg-surface-page p-4">
-          <div className="flex h-28 items-end gap-3">
+          <div className="flex h-24 items-end gap-2.5">
             {points.length ? (
               points.map((point) => {
                 const height = `${Math.max(8, (Math.abs(point.net) / maxAbs) * 100)}%`
@@ -343,7 +343,7 @@ export function QuickActionsPanel({
             },
             titleClassName: "text-primary",
           }
-          return (
+          return action.href && !action.disabled ? (
             <Link
               key={action.label}
               href={action.href}
@@ -360,6 +360,23 @@ export function QuickActionsPanel({
               <p className={cn("relative mt-4 text-sm font-semibold", palette.titleClassName)}>{action.label}</p>
               <p className="relative mt-1 text-sm text-text-secondary">{action.description}</p>
             </Link>
+          ) : (
+            <div
+              key={action.label}
+              className="relative overflow-hidden rounded-2xl border border-dashed px-4 py-4 opacity-80"
+              style={palette.cardStyle}
+              title={action.disabledReason}
+            >
+              <div className="pointer-events-none absolute inset-0 opacity-60" style={palette.glowStyle} />
+              <div
+                className="relative flex h-10 w-10 items-center justify-center rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]"
+                style={palette.iconStyle}
+              >
+                <Icon className="h-4 w-4" />
+              </div>
+              <p className={cn("relative mt-4 text-sm font-semibold", palette.titleClassName)}>{action.label}</p>
+              <p className="relative mt-1 text-sm text-text-secondary">{action.description}</p>
+            </div>
           )
         })}
       </CardContent>

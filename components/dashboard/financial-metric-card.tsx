@@ -106,10 +106,10 @@ export function FinancialMetricCard({
   return (
     <Card className="relative h-full overflow-hidden rounded-[1.5rem] border shadow-surface" style={cardStyle}>
       {palette ? <div className="absolute inset-x-0 top-0 h-1.5" style={{ backgroundColor: palette.accent }} aria-hidden="true" /> : null}
-      <CardContent className="flex h-full flex-col gap-3.5 p-5">
+      <CardContent className="flex h-full flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div
-            className={cn("flex h-11 w-11 items-center justify-center rounded-2xl", !palette && valueTone.badge)}
+            className={cn("flex h-10 w-10 items-center justify-center rounded-2xl", !palette && valueTone.badge)}
             style={iconStyle}
           >
             <Icon className="h-5 w-5" aria-hidden="true" />
@@ -133,12 +133,11 @@ export function FinancialMetricCard({
         <div className="space-y-1">
           <p className="text-sm font-medium text-text-secondary">{metric.label}</p>
           <p
-            className={cn("type-financial-metric financial-number break-words", !palette && valueTone.value)}
+            className={cn("financial-number break-words text-[2rem] font-semibold leading-none tracking-[-0.04em] md:text-[2.15rem]", !palette && valueTone.value)}
             style={valueStyle}
           >
             {metric.formattedValue}
           </p>
-          <p className="text-xs text-text-muted">{metric.periodLabel}</p>
         </div>
 
         <div className={cn(metric.comparison || metric.state !== "ready" ? "mt-auto" : "mt-0")}>

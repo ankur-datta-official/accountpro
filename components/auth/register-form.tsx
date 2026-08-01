@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label"
 const registerSchema = z
   .object({
     fullName: z.string().min(2, "Full name must be at least 2 characters."),
-    organizationName: z.string().min(2, "Organization name must be at least 2 characters."),
+    organizationName: z.string().optional(),
     email: z.string().email("Enter a valid email address."),
     password: z.string().min(8, "Password must be at least 8 characters."),
     confirmPassword: z.string().min(8, "Confirm your password."),
@@ -62,9 +62,11 @@ export function RegisterForm() {
     }
 
     toast.success(
-      result.requiresEmailConfirmation
-        ? "Account created. Check your email to confirm your account."
-        : "Account created successfully."
+      result.awaitingWorkspaceAccess
+        ? "Account created. After email confirmation, a DKLedger admin can activate your workspace access."
+        : result.requiresEmailConfirmation
+          ? "Account created. Check your email to confirm your account."
+          : "Account created successfully."
     )
 
     router.replace("/login?registered=1")
@@ -84,10 +86,17 @@ export function RegisterForm() {
 
         <div className="space-y-2">
           <Label htmlFor="organizationName">Organization Name</Label>
-          <Input id="organizationName" placeholder="Acme Accounting" {...form.register("organizationName")} />
+          <Input
+            id="organizationName"
+            placeholder="Only required for DKLedger platform owners"
+            {...form.register("organizationName")}
+          />
           {form.formState.errors.organizationName ? (
             <p className="text-sm text-destructive">{form.formState.errors.organizationName.message}</p>
           ) : null}
+          <p className="text-xs text-slate-500">
+            Regular users can sign up without this. DKLedger admins will assign workspace access after invitation or approval.
+          </p>
         </div>
 
         <div className="space-y-2">

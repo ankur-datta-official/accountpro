@@ -28,6 +28,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 SUPABASE_DB_PASSWORD=your_supabase_database_password
 DATABASE_URL=postgresql://postgres:your_password@db.your_project_ref.supabase.co:5432/postgres
 DIRECT_URL=postgresql://postgres:your_password@db.your_project_ref.supabase.co:5432/postgres
+DKLEDGER_PLATFORM_ADMIN_EMAILS=owner1@dkledger.com,owner2@dkledger.com
 ```
 
 `NEXT_PUBLIC_SUPABASE_URL` must be the full `https://<project-ref>.supabase.co` URL. If it is missing or malformed, the app now falls back safely instead of crashing the middleware.
@@ -84,6 +85,15 @@ Run the SQL files in `supabase/migrations` in order:
 4. `004_add_organization_active_flag.sql`
 5. `005_add_voucher_attachments.sql`
 6. `006_add_payroll_module.sql`
+7. `007_allow_voucher_delete_policies.sql`
+8. `008_add_voucher_visibility_fields.sql`
+9. `009_add_payroll_audit_trail.sql`
+10. `010_add_payroll_policies.sql`
+11. `011_add_account_head_hierarchy.sql`
+12. `012_add_voucher_reversal_metadata.sql`
+13. `013_add_payment_mode_account_mapping.sql`
+14. `018_add_voucher_entry_payment_mode.sql`
+15. `019_add_billing_subscriptions.sql`
 
 Prisma also tracks this migration in `prisma/migrations/20250619000000_add_payroll_module/`. Prefer:
 
@@ -113,14 +123,61 @@ supabase db reset
 - `SUPABASE_DB_PASSWORD` (for `npm run db:setup`)
 - `DATABASE_URL`
 - `DIRECT_URL`
+- `DKLEDGER_PLATFORM_ADMIN_EMAILS`
+- `NEXT_PUBLIC_APP_URL`
+- `SSLCOMMERZ_STORE_ID`
+- `SSLCOMMERZ_STORE_PASSWORD`
+- `SSLCOMMERZ_MODE` (`sandbox` or `live`)
+- `BILLING_PROFESSIONAL_AMOUNT_BDT`
+- `BILLING_SUPPORT_EMAIL` (optional)
 
-## Add the first admin user
+## Billing setup
 
-1. Open the registration page and create the first account.
-2. The registration flow creates the organization and inserts the first membership automatically.
-3. That first membership becomes the organization owner/admin path used for client creation, settings, and team management.
+The Bangladesh billing flow now uses hosted SSLCommerz checkout. Package activation happens only after SSLCommerz order validation succeeds.
 
-If you need to promote an existing user manually, update `organization_members.role` for that user in Supabase.
+1. Apply `supabase/migrations/019_add_billing_subscriptions.sql`.
+2. Apply `supabase/migrations/020_add_sslcommerz_billing_support.sql`.
+3. Set these environment variables:
+
+```bash
+NEXT_PUBLIC_APP_URL=https://accountpro-three.vercel.app
+SSLCOMMERZ_STORE_ID=your_store_id
+SSLCOMMERZ_STORE_PASSWORD=your_store_password
+SSLCOMMERZ_MODE=sandbox
+BILLING_PROFESSIONAL_AMOUNT_BDT=999
+BILLING_SUPPORT_EMAIL=billing@dkledger.com
+```
+
+4. In SSLCommerz, configure these callback URLs:
+   - Success URL: `https://accountpro-three.vercel.app/api/billing/sslcommerz/success`
+   - Fail URL: `https://accountpro-three.vercel.app/api/billing/sslcommerz/fail`
+   - Cancel URL: `https://accountpro-three.vercel.app/api/billing/sslcommerz/cancel`
+   - IPN URL: `https://accountpro-three.vercel.app/api/billing/sslcommerz/ipn`
+5. Open the app settings page as an organization owner or admin and use the Subscription tab to start checkout.
+
+After a successful payment, the app validates the transaction with SSLCommerz, records it in `billing_transactions`, updates `billing_subscriptions`, and unlocks the paid package automatically for the workspace.
+
+## Platform admin access
+
+`DKLEDGER_PLATFORM_ADMIN_EMAILS` controls who can access the top-level DKLedger admin panel at `/`.
+
+1. Add one or more comma-separated DKLedger owner emails to `.env.local`.
+2. Register those emails through the normal sign-up form.
+3. Only those allowlisted emails will receive the main software admin dashboard and platform-level management view.
+
+All other users are treated as general users:
+
+1. They can create a login account.
+2. They do not automatically become DKLedger platform admins.
+3. They must be invited or activated into a workspace before they can work inside a client dashboard.
+
+## Organization and client management
+
+- `owner` and `admin` organization members can manage team, settings, and client creation inside their assigned workspace.
+- `accountant` and `viewer` members can work inside client-facing areas according to the existing route and API permissions.
+- Users without any active membership see an access-pending state after sign-in instead of being granted management access automatically.
+
+If you need to promote an existing user manually inside a workspace, update `organization_members.role` for that user in Supabase.
 
 ## Deployment on Vercel
 

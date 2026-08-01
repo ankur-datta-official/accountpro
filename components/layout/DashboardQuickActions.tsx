@@ -25,8 +25,10 @@ import { buildClientPath } from "@/lib/routing/clients"
 
 export function DashboardQuickActions({
   clients,
+  canManageOrganization,
 }: {
   clients: Array<{ id: string; name: string; routeSegment?: string | null }>
+  canManageOrganization: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -75,9 +77,11 @@ export function DashboardQuickActions({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Button type="button" variant="outline" onClick={() => router.push("/clients/new")}>
-        Add Client
-      </Button>
+      {canManageOrganization ? (
+        <Button type="button" variant="outline" onClick={() => router.push("/clients/new")}>
+          Add Client
+        </Button>
+      ) : null}
     </div>
   )
 }

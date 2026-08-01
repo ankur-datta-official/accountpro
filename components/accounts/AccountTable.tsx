@@ -46,8 +46,8 @@ export function AccountTable({
         header: "Account Head",
         cell: ({ row }) => (
           <div className="min-w-[220px]">
-            <p className="font-medium text-slate-900">{row.original.name}</p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <p className="text-sm font-medium text-slate-900">{row.original.name}</p>
+            <div className="mt-1.5 flex flex-wrap gap-2">
               <AddAccountHeadDialog
                 clientId={clientId}
                 groups={groups}
@@ -122,8 +122,8 @@ export function AccountTable({
   })
 
   return (
-    <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
-      <Table>
+    <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+      <Table className="text-[13px]">
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
@@ -148,7 +148,7 @@ export function AccountTable({
             ))
           ) : (
             <TableRow>
-              <TableCell colSpan={columns.length} className="py-12 text-center text-sm text-slate-500">
+              <TableCell colSpan={columns.length} className="py-10 text-center text-sm text-slate-500">
                 No account heads matched the current filters.
               </TableCell>
             </TableRow>

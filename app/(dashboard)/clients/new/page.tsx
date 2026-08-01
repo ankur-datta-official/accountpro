@@ -1,5 +1,14 @@
-import { ClientForm } from "@/components/clients/client-form"
+import { redirect } from "next/navigation"
 
-export default function NewClientPage() {
+import { ClientForm } from "@/components/clients/client-form"
+import { getCurrentOrganizationContext } from "@/lib/supabase/server"
+
+export default async function NewClientPage() {
+  const { canManageOrganization } = await getCurrentOrganizationContext()
+
+  if (!canManageOrganization) {
+    redirect("/clients")
+  }
+
   return <ClientForm />
 }

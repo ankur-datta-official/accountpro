@@ -20,6 +20,10 @@ function metricToneClass(metric: DashboardMetric) {
   }
 }
 
+function metricStatusLabel(metric: DashboardMetric) {
+  return metric.state === "configurationRequired" ? "Configuration required" : "Unavailable"
+}
+
 export function DashboardSummaryPanel({
   title,
   subtitle,
@@ -38,29 +42,27 @@ export function DashboardSummaryPanel({
   return (
     <Card className="h-full overflow-hidden rounded-[1.75rem] border-border bg-card shadow-surface">
       <div className="h-1.5 bg-[linear-gradient(90deg,rgba(32,54,80,0.95),rgba(32,54,80,0.25),transparent)]" />
-      <CardHeader className="space-y-1 pb-4">
+      <CardHeader className="space-y-1 px-5 pb-3 pt-5">
         <CardTitle className="type-section-title text-text-primary">{title}</CardTitle>
         {subtitle ? <p className="text-sm text-text-secondary">{subtitle}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-0.5">
+      <CardContent className="space-y-0.5 px-5 pb-5">
         {metrics.map((metric) => (
           <div
             key={metric.key}
-            className="flex items-start justify-between gap-2 rounded-2xl px-3 py-1 transition-colors hover:bg-surface-page"
+            className="flex items-start justify-between gap-2 rounded-2xl px-3 py-1.5 transition-colors hover:bg-surface-page"
           >
             <div className="min-w-0">
               <p className="text-sm font-medium text-text-secondary">{metric.label}</p>
-              <p className="mt-0 text-xs leading-4 text-text-muted">{metric.periodLabel}</p>
             </div>
             <div className="text-right">
-              <p className={cn("financial-number text-sm font-semibold", metricToneClass(metric))}>
-                {metric.formattedValue}
-              </p>
-              {metric.state !== "ready" ? (
-                <p className="mt-0 text-xs leading-4 text-text-muted">
-                  {metric.state === "configurationRequired" ? "Configuration required" : "Unavailable"}
+              {metric.state === "ready" ? (
+                <p className={cn("financial-number text-sm font-semibold", metricToneClass(metric))}>
+                  {metric.formattedValue}
                 </p>
-              ) : null}
+              ) : (
+                <p className="text-xs font-medium leading-5 text-text-muted">{metricStatusLabel(metric)}</p>
+              )}
             </div>
           </div>
         ))}
@@ -76,6 +78,20 @@ export function DashboardSummaryPanel({
         ) : null}
       </CardContent>
     </Card>
+  )
+}
+
+function MetricValue({
+  metric,
+  className,
+}: {
+  metric: DashboardMetric
+  className?: string
+}) {
+  return metric.state === "ready" ? (
+    <p className={className}>{metric.formattedValue}</p>
+  ) : (
+    <p className="text-sm font-medium text-text-muted">{metricStatusLabel(metric)}</p>
   )
 }
 
@@ -97,23 +113,22 @@ export function ExpensesSummaryPanel({
   return (
     <Card className="h-full overflow-hidden rounded-[1.75rem] border-border bg-card shadow-surface">
       <div className="h-1.5 bg-[linear-gradient(90deg,rgba(20,139,121,0.95),rgba(20,139,121,0.25),transparent)]" />
-      <CardHeader className="space-y-1 pb-4">
+      <CardHeader className="space-y-1 px-5 pb-3 pt-5">
         <CardTitle className="type-section-title text-text-primary">{title}</CardTitle>
         {subtitle ? <p className="text-sm text-text-secondary">{subtitle}</p> : null}
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3 px-5 pb-5">
         <div className="flex items-start justify-between gap-3 rounded-2xl bg-surface-page px-4 py-3">
           <div>
             <p className="text-sm font-medium text-text-secondary">{totalExpenses.label}</p>
-            <p className="mt-0.5 text-xs leading-4 text-text-muted">{totalExpenses.periodLabel}</p>
           </div>
           <p className="financial-number text-sm font-semibold text-warning-fg">{totalExpenses.formattedValue}</p>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {categories.length ? (
             categories.map((category) => (
-              <div key={category.label} className="flex items-start justify-between gap-3 rounded-2xl px-3 py-2 transition-colors hover:bg-surface-page">
+              <div key={category.label} className="flex items-start justify-between gap-3 rounded-2xl px-3 py-1.5 transition-colors hover:bg-surface-page">
                 <p className="min-w-0 text-sm text-text-primary">{category.label}</p>
                 <div className="text-right">
                   <p className="financial-number text-sm font-semibold text-text-primary">{category.formattedAmount}</p>
@@ -128,7 +143,10 @@ export function ExpensesSummaryPanel({
 
         <div className="rounded-2xl border border-border bg-surface-page p-4">
           <p className="text-sm font-medium text-text-secondary">{expenseRatio.label}</p>
-          <p className="mt-2 type-financial-metric financial-number text-info-fg">{expenseRatio.formattedValue}</p>
+          <MetricValue
+            metric={expenseRatio}
+            className="mt-2 type-financial-metric financial-number text-info-fg"
+          />
           <p className="mt-1 text-xs text-text-muted">of Sales / Turnover</p>
         </div>
 

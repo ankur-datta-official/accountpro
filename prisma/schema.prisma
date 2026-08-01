@@ -25,6 +25,9 @@ model Organization {
   updatedAt  DateTime?            @default(now()) @map("updated_at") @db.Timestamptz(6)
   isActive   Boolean?             @default(true) @map("is_active")
   members    OrganizationMember[]
+  billingCustomers BillingCustomer[]
+  billingSubscriptions BillingSubscription[]
+  billingTransactions BillingTransaction[]
   clients    Client[]
 
   @@map("organizations")
@@ -46,6 +49,93 @@ model OrganizationMember {
   @@index([orgId, isActive], map: "idx_organization_members_org_id_active")
   @@index([invitedEmail], map: "idx_organization_members_invited_email")
   @@map("organization_members")
+}
+
+model BillingCustomer {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId              String       @map("org_id") @db.Uuid
+  provider           String
+  providerCustomerId String       @map("provider_customer_id")
+  email              String?
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+  organization       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, provider])
+  @@unique([provider, providerCustomerId])
+  @@index([orgId], map: "idx_billing_customers_org_id")
+  @@map("billing_customers")
+}
+
+model BillingSubscription {
+  id                     String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId                  String       @map("org_id") @db.Uuid
+  provider               String
+  providerCustomerId     String?      @map("provider_customer_id")
+  providerSubscriptionId String       @map("provider_subscription_id")
+  providerPriceId        String?      @map("provider_price_id")
+  plan                   String
+  status                 String
+  currency               String?
+  amountMinor            Int?         @map("amount_minor")
+  interval               String?
+  cancelAtPeriodEnd      Boolean      @default(false) @map("cancel_at_period_end")
+  currentPeriodStart     DateTime?    @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd       DateTime?    @map("current_period_end") @db.Timestamptz(6)
+  startedAt              DateTime?    @map("started_at") @db.Timestamptz(6)
+  cancelledAt            DateTime?    @map("cancelled_at") @db.Timestamptz(6)
+  metadata               Json         @default("{}")
+  rawPayload             Json         @default("{}") @map("raw_payload")
+  createdAt              DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+  organization           Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubscriptionId])
+  @@unique([orgId, provider])
+  @@index([orgId], map: "idx_billing_subscriptions_org_id")
+  @@index([status], map: "idx_billing_subscriptions_status")
+  @@map("billing_subscriptions")
+}
+
+model BillingWebhookEvent {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider        String
+  providerEventId String   @map("provider_event_id")
+  eventType       String   @map("event_type")
+  payload         Json
+  processedAt     DateTime @default(now()) @map("processed_at") @db.Timestamptz(6)
+
+  @@unique([provider, providerEventId])
+  @@index([provider, processedAt(sort: Desc)], map: "idx_billing_webhook_events_provider")
+  @@map("billing_webhook_events")
+}
+
+model BillingTransaction {
+  id                  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId               String       @map("org_id") @db.Uuid
+  provider            String
+  tranId              String       @map("tran_id")
+  providerReferenceId String?      @map("provider_reference_id")
+  plan                String
+  amount              Decimal      @db.Decimal(12, 2)
+  currency            String       @default("BDT")
+  status              String
+  sessionKey          String?      @map("session_key")
+  customerName        String?      @map("customer_name")
+  customerEmail       String?      @map("customer_email")
+  customerPhone       String?      @map("customer_phone")
+  paidAt              DateTime?    @map("paid_at") @db.Timestamptz(6)
+  periodStart         DateTime?    @map("period_start") @db.Timestamptz(6)
+  periodEnd           DateTime?    @map("period_end") @db.Timestamptz(6)
+  rawPayload          Json         @default("{}") @map("raw_payload")
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+  organization        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, tranId])
+  @@index([orgId], map: "idx_billing_transactions_org_id")
+  @@index([status], map: "idx_billing_transactions_status")
+  @@map("billing_transactions")
 }
 
 model Client {

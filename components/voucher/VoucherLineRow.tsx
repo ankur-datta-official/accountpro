@@ -29,6 +29,9 @@ export type VoucherLineFormValues = {
     paymentModeId?: string
     paymentModeName?: string
     paymentModeType?: PaymentModeType
+    bankBranchName?: string
+    bankInstrumentDate?: string
+    bankCheckChallanNo?: string
     debitAmount: number
     creditAmount: number
     description?: string
@@ -41,6 +44,9 @@ type LinePath =
   | `lines.${number}.paymentModeId`
   | `lines.${number}.paymentModeName`
   | `lines.${number}.paymentModeType`
+  | `lines.${number}.bankBranchName`
+  | `lines.${number}.bankInstrumentDate`
+  | `lines.${number}.bankCheckChallanNo`
   | `lines.${number}.debitAmount`
   | `lines.${number}.creditAmount`
   | `lines.${number}.description`
@@ -140,11 +146,18 @@ export function VoucherLineRow({
   const namedPaymentModeValue =
     selectedExistingPaymentMode?.name || (selectedPaymentModeGroup === "other" ? "" : line.paymentModeName || "")
 
+  const clearBankDetails = () => {
+    setValue(`lines.${index}.bankBranchName`, "")
+    setValue(`lines.${index}.bankInstrumentDate`, "")
+    setValue(`lines.${index}.bankCheckChallanNo`, "")
+  }
+
   const handlePaymentModeGroupChange = (nextGroup: PaymentModeType | "") => {
     if (!nextGroup) {
       setValue(`lines.${index}.paymentModeId`, "")
       setValue(`lines.${index}.paymentModeName`, "")
       setValue(`lines.${index}.paymentModeType`, "")
+      clearBankDetails()
       return
     }
 
@@ -152,12 +165,17 @@ export function VoucherLineRow({
       setValue(`lines.${index}.paymentModeId`, defaultCashMode?.id ?? "")
       setValue(`lines.${index}.paymentModeName`, defaultCashMode?.name ?? "Cash")
       setValue(`lines.${index}.paymentModeType`, "cash")
+      clearBankDetails()
       return
     }
 
     setValue(`lines.${index}.paymentModeId`, "")
     setValue(`lines.${index}.paymentModeName`, "")
     setValue(`lines.${index}.paymentModeType`, nextGroup)
+
+    if (nextGroup !== "bank") {
+      clearBankDetails()
+    }
   }
 
   const handleNamedPaymentModeChange = (name: string, type: Extract<PaymentModeType, "bank" | "mobile_banking">) => {
@@ -386,6 +404,47 @@ export function VoucherLineRow({
           />
         </label>
       </div>
+
+      {showPaymentMode && selectedPaymentModeGroup === "bank" ? (
+        <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-[0.9fr_1.05fr_1.3fr_0.62fr_0.62fr_1fr]">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 md:col-span-2 xl:col-start-3 xl:col-span-3">
+            <div className="grid gap-2 md:grid-cols-[minmax(150px,0.9fr)_140px_minmax(180px,1fr)]">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">Branch Name</span>
+                <Input
+                  placeholder="Enter branch name"
+                  value={line.bankBranchName ?? ""}
+                  onChange={(event) => setValue(`lines.${index}.bankBranchName`, event.target.value)}
+                  disabled={disabled}
+                  className="h-10 min-w-0 bg-white placeholder:text-slate-500"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">Date</span>
+                <Input
+                  type="date"
+                  value={line.bankInstrumentDate ?? ""}
+                  onChange={(event) => setValue(`lines.${index}.bankInstrumentDate`, event.target.value)}
+                  disabled={disabled}
+                  className="h-10 min-w-0 bg-white"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500">Cheque/Challan No</span>
+                <Input
+                  placeholder="Enter cheque or challan no"
+                  value={line.bankCheckChallanNo ?? ""}
+                  onChange={(event) => setValue(`lines.${index}.bankCheckChallanNo`, event.target.value)}
+                  disabled={disabled}
+                  className="h-10 min-w-0 bg-white placeholder:text-slate-500"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showPaymentMode && paymentModeFundingHint ? (
         <div

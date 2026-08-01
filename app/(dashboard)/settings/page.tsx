@@ -3,9 +3,10 @@
 import Image from "next/image"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Loader2 } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 
+import { BILLING_PLANS } from "@/lib/billing/plans"
 import { PlanLimitBanner } from "@/components/settings/PlanLimitBanner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,12 +16,15 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { createClient } from "@/lib/supabase/client"
 import { formatPlanName } from "@/lib/team"
-import type { Organization, OrganizationMemberRole, OrganizationPlan } from "@/lib/types"
+import type { BillingSubscription, Organization, OrganizationMemberRole, OrganizationPlan } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 type SettingsOverview = {
   organization: Organization
   role: OrganizationMemberRole
+  billing: {
+    subscription: BillingSubscription | null
+  }
   usage: {
     clients: number
     members: number
@@ -41,12 +45,15 @@ type TabId = (typeof tabItems)[number]["id"]
 export default function SettingsPage() {
   const supabase = createClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState<TabId>("profile")
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [updatingPassword, setUpdatingPassword] = useState(false)
   const [deletingOrganization, setDeletingOrganization] = useState(false)
+  const [redirectingPlan, setRedirectingPlan] = useState<OrganizationPlan | null>(null)
+  const [openingPortal, setOpeningPortal] = useState(false)
   const [overview, setOverview] = useState<SettingsOverview | null>(null)
 
   const [name, setName] = useState("")
@@ -97,6 +104,23 @@ export default function SettingsPage() {
   useEffect(() => {
     void loadOverview()
   }, [loadOverview])
+
+  useEffect(() => {
+    const tab = searchParams.get("tab")
+    if (tab === "profile" || tab === "subscription" || tab === "security" || tab === "danger") {
+      setActiveTab(tab)
+    }
+
+    const billingState = searchParams.get("billing")
+    if (billingState === "success") {
+      toast.success("Payment completed. Subscription verification is now unlocking the package.")
+      void loadOverview()
+    } else if (billingState === "failed") {
+      toast.error("Payment verification failed or the transaction was not completed.")
+    } else if (billingState === "cancelled") {
+      toast.error("Payment was cancelled before confirmation.")
+    }
+  }, [loadOverview, searchParams])
 
   const handleProfileSave = async () => {
     if (!overview) return
@@ -247,29 +271,86 @@ export default function SettingsPage() {
     router.refresh()
   }
 
+  const handleCheckout = async (plan: OrganizationPlan) => {
+    setRedirectingPlan(plan)
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      setRedirectingPlan(null)
+      toast.error("Your session has expired. Please sign in again.")
+      return
+    }
+
+    const response = await fetch("/api/billing/checkout", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ plan }),
+    })
+    const result = await response.json().catch(() => ({ error: "Unable to start checkout." }))
+    setRedirectingPlan(null)
+
+    if (!response.ok || !result.url) {
+      toast.error(result.error ?? "Unable to start checkout.")
+      return
+    }
+
+    window.location.assign(result.url)
+  }
+
+  const handlePortalOpen = async () => {
+    setOpeningPortal(true)
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session?.access_token) {
+      setOpeningPortal(false)
+      toast.error("Your session has expired. Please sign in again.")
+      return
+    }
+
+    const response = await fetch("/api/billing/portal", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    })
+    const result = await response.json().catch(() => ({ error: "Unable to open billing portal." }))
+    setOpeningPortal(false)
+
+    if (!response.ok || !result.url) {
+      toast.error(result.error ?? "Unable to open billing portal.")
+      return
+    }
+
+    window.location.assign(result.url)
+  }
+
   const planCards = useMemo(
-    () => [
-      {
-        id: "starter" as OrganizationPlan,
-        title: "STARTER",
-        price: "৳0/month",
-        features: ["5 clients", "3 team members", "Basic reports", "Email support"],
-      },
-      {
-        id: "professional" as OrganizationPlan,
-        title: "PROFESSIONAL",
-        price: "৳999/month",
-        features: ["25 clients", "10 members", "All reports", "Excel export", "Priority email"],
-      },
-      {
-        id: "enterprise" as OrganizationPlan,
-        title: "ENTERPRISE",
-        price: "Custom",
-        features: ["Unlimited clients", "Unlimited members", "Priority support", "Custom onboarding"],
-      },
-    ],
+    () =>
+      BILLING_PLANS.map((plan) => ({
+        id: plan.id,
+        title: plan.title,
+        price: plan.priceLabel,
+        description: plan.description,
+        features: plan.features,
+        isSelfServe: plan.isSelfServe,
+      })),
     []
   )
+
+  const activeSubscription = overview?.billing.subscription ?? null
+  const subscriptionStatusLabel = (activeSubscription?.status ?? "inactive").replaceAll("_", " ")
+  const subscriptionPeriodEnd = activeSubscription?.current_period_end
+    ? new Intl.DateTimeFormat("en-BD", { dateStyle: "medium" }).format(new Date(activeSubscription.current_period_end))
+    : null
 
   if (loading || !overview) {
     return (
@@ -386,6 +467,7 @@ export default function SettingsPage() {
                 >
                   <p className="text-xs font-semibold tracking-wide text-slate-500">{plan.title}</p>
                   <p className="mt-2 text-2xl font-semibold text-slate-950">{plan.price}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{plan.description}</p>
                   <ul className="mt-4 space-y-2 text-sm text-slate-600">
                     {plan.features.map((feature) => (
                       <li key={feature}>• {feature}</li>
@@ -394,10 +476,25 @@ export default function SettingsPage() {
                   <div className="mt-6">
                     {isCurrent ? (
                       <Badge className="rounded-full bg-slate-900 text-white hover:bg-slate-900">Current Plan</Badge>
-                    ) : (
-                      <Button type="button" variant="outline" className="w-full">
-                        Upgrade
+                    ) : plan.id === "starter" ? (
+                      <Badge variant="secondary" className="rounded-full">
+                        Free baseline
+                      </Badge>
+                    ) : plan.isSelfServe ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        disabled={redirectingPlan === plan.id}
+                        onClick={() => void handleCheckout(plan.id)}
+                      >
+                        {redirectingPlan === plan.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                        Buy and activate
                       </Button>
+                    ) : (
+                      <Badge variant="secondary" className="rounded-full">
+                        Contact sales
+                      </Badge>
                     )}
                   </div>
                 </Card>
@@ -410,11 +507,31 @@ export default function SettingsPage() {
               Current usage ({formatPlanName(overview.organization.plan)} plan)
             </h3>
             <p className="mt-2 text-sm text-slate-600">
+              Subscription status: <span className="font-medium capitalize text-slate-900">{subscriptionStatusLabel}</span>
+            </p>
+            {subscriptionPeriodEnd ? (
+              <p className="text-sm text-slate-600">Current access period ends on {subscriptionPeriodEnd}.</p>
+            ) : null}
+            <p className="mt-2 text-sm text-slate-600">
               {overview.usage.clients}/{overview.usage.clientLimit ?? "∞"} clients used
             </p>
             <p className="text-sm text-slate-600">
               {overview.usage.members}/{overview.usage.memberLimit ?? "∞"} members used
             </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!activeSubscription || openingPortal}
+                onClick={() => void handlePortalOpen()}
+              >
+                {openingPortal ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Renewal help
+              </Button>
+              <p className="text-xs leading-5 text-slate-500">
+                SSLCommerz payment activates the package automatically after validation. To continue after expiry, renew from this tab.
+              </p>
+            </div>
           </Card>
         </div>
       ) : null}

@@ -1,9 +1,10 @@
 "use server"
 
+import { isPlatformAdminEmail } from "@/lib/platform-access"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 
 type RegisterUserResult =
-  | { success: true; requiresEmailConfirmation: boolean }
+  | { success: true; requiresEmailConfirmation: boolean; awaitingWorkspaceAccess: boolean }
   | { success: false; error: string }
 
 function slugify(value: string) {
@@ -38,6 +39,14 @@ export async function registerUser(
   const normalizedName = name.trim()
   const normalizedOrgName = orgName.trim()
   const normalizedEmail = email.trim().toLowerCase()
+  const platformAdminRegistration = isPlatformAdminEmail(normalizedEmail)
+
+  if (platformAdminRegistration && normalizedOrgName.length < 2) {
+    return {
+      success: false,
+      error: "Organization name is required for DKLedger platform owner registration.",
+    }
+  }
 
   const { data: createdUser, error: createUserError } = await supabaseAdmin.auth.admin.createUser({
     email: normalizedEmail,
@@ -52,6 +61,14 @@ export async function registerUser(
     return {
       success: false,
       error: createUserError?.message ?? "Unable to create your account.",
+    }
+  }
+
+  if (!platformAdminRegistration) {
+    return {
+      success: true,
+      requiresEmailConfirmation: true,
+      awaitingWorkspaceAccess: true,
     }
   }
 
@@ -92,6 +109,7 @@ export async function registerUser(
   return {
     success: true,
     requiresEmailConfirmation: true,
+    awaitingWorkspaceAccess: false,
   }
 }
 

@@ -145,28 +145,30 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-24 rounded-[1.75rem]" />
-        <Skeleton className="h-[420px] rounded-[1.75rem]" />
+      <div className="space-y-3">
+        <Skeleton className="h-20 rounded-[1.5rem]" />
+        <Skeleton className="h-[400px] rounded-[1.5rem]" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="rounded-[1.75rem] border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive">
+      <div className="rounded-[1.5rem] border border-destructive/20 bg-destructive/5 p-5 text-sm text-destructive">
         {error.message}
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-3xl font-semibold tracking-tight text-slate-950">Chart of Accounts</h2>
-            <p className="mt-2 text-sm leading-7 text-slate-500">
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-950 lg:text-[2rem]">
+              Chart of Accounts
+            </h2>
+            <p className="mt-1.5 max-w-4xl text-sm leading-6 text-slate-500">
               Build your account structure step by step. Start from the main group, go deeper only when needed, and keep usable account heads at the final level.
             </p>
           </div>
@@ -178,7 +180,7 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
           />
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[0.8fr_0.35fr_0.35fr]">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_300px]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Autocomplete
@@ -194,13 +196,13 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
                 setSearch(selectedOption?.displayLabel ?? "")
               }}
               menuClassName="min-w-[min(34rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]"
-              inputClassName="pl-10"
+              inputClassName="h-10 pl-10 text-sm"
               placeholder="Search by account name, category, or sub-category"
             />
           </div>
 
           <Select value={groupFilter} onValueChange={(value) => setGroupFilter(value as ChartGroupFilter)}>
-            <SelectTrigger className="h-11 rounded-xl border-slate-200">
+            <SelectTrigger className="h-10 rounded-xl border-slate-200 text-sm">
               <SelectValue placeholder="Filter by group" />
             </SelectTrigger>
             <SelectContent>
@@ -216,7 +218,7 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
             <Button
               type="button"
               variant={view === "tree" ? "default" : "ghost"}
-              className="h-9 flex-1 rounded-lg"
+              className="h-[2.125rem] flex-1 rounded-lg text-sm"
               onClick={() => setView("tree")}
             >
               Tree View
@@ -224,7 +226,7 @@ export function ChartOfAccountsManager({ clientId }: { clientId: string }) {
             <Button
               type="button"
               variant={view === "table" ? "default" : "ghost"}
-              className="h-9 flex-1 rounded-lg"
+              className="h-[2.125rem] flex-1 rounded-lg text-sm"
               onClick={() => setView("table")}
             >
               List View

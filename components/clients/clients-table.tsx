@@ -49,7 +49,13 @@ export type ClientTableRow = {
   routeSegment?: string | null
 }
 
-export function ClientsTable({ data }: { data: ClientTableRow[] }) {
+export function ClientsTable({
+  data,
+  canManageOrganization,
+}: {
+  data: ClientTableRow[]
+  canManageOrganization: boolean
+}) {
   const [globalFilter, setGlobalFilter] = useState("")
   const [updatingClientId, setUpdatingClientId] = useState<string | null>(null)
   const [replicationTarget, setReplicationTarget] = useState<ClientTableRow | null>(null)
@@ -210,38 +216,42 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
                 View
               </Link>
             </Button>
-            <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-slate-600">
-              <Link href={buildClientPath(row.original, "/settings")}>
-                <PencilLine className="mr-1.5 h-3.5 w-3.5" />
-                Edit
-              </Link>
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2 text-slate-600"
-              disabled={isReplicating}
-              onClick={() => openReplicationDialog(row.original)}
-            >
-              <Copy className="mr-1.5 h-3.5 w-3.5" />
-              Replicate
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className={
-                row.original.isActive
-                  ? "h-8 px-2 text-destructive hover:text-destructive"
-                  : "h-8 px-2 text-emerald-700 hover:text-emerald-700"
-              }
-              disabled={updatingClientId === row.original.id}
-              onClick={() => handleClientStatusChange(row.original.id, row.original.isActive)}
-            >
-              <UserX2 className="mr-1.5 h-3.5 w-3.5" />
-              {row.original.isActive ? "Deactivate" : "Activate"}
-            </Button>
+            {canManageOrganization ? (
+              <>
+                <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-slate-600">
+                  <Link href={buildClientPath(row.original, "/settings")}>
+                    <PencilLine className="mr-1.5 h-3.5 w-3.5" />
+                    Edit
+                  </Link>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-slate-600"
+                  disabled={isReplicating}
+                  onClick={() => openReplicationDialog(row.original)}
+                >
+                  <Copy className="mr-1.5 h-3.5 w-3.5" />
+                  Replicate
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={
+                    row.original.isActive
+                      ? "h-8 px-2 text-destructive hover:text-destructive"
+                      : "h-8 px-2 text-emerald-700 hover:text-emerald-700"
+                  }
+                  disabled={updatingClientId === row.original.id}
+                  onClick={() => handleClientStatusChange(row.original.id, row.original.isActive)}
+                >
+                  <UserX2 className="mr-1.5 h-3.5 w-3.5" />
+                  {row.original.isActive ? "Deactivate" : "Activate"}
+                </Button>
+              </>
+            ) : null}
           </div>
         ),
       },
@@ -281,12 +291,14 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
           description="Create client workspaces for each business or account you manage. Each client keeps its own fiscal years, vouchers, ledger, and reports."
           icon={Building2}
           actions={
-            <Button asChild className="h-11 rounded-lg px-5">
-              <Link href="/clients/new">
-                <UserPlus className="mr-2 h-4 w-4" />
-                Add New Client
-              </Link>
-            </Button>
+            canManageOrganization ? (
+              <Button asChild className="h-11 rounded-lg px-5">
+                <Link href="/clients/new">
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add New Client
+                </Link>
+              </Button>
+            ) : null
           }
         />
 
@@ -315,12 +327,14 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
               Create your first client workspace to start managing fiscal years, vouchers,
               ledgers, and reporting for that account.
             </p>
-            <Button asChild className="mt-8 h-11 rounded-xl px-5">
-              <Link href="/clients/new">
-                <UserPlus className="mr-2 h-4 w-4" />
-                Add New Client
-              </Link>
-            </Button>
+            {canManageOrganization ? (
+              <Button asChild className="mt-8 h-11 rounded-xl px-5">
+                <Link href="/clients/new">
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add New Client
+                </Link>
+              </Button>
+            ) : null}
           </div>
         </Card>
       </div>
@@ -335,12 +349,14 @@ export function ClientsTable({ data }: { data: ClientTableRow[] }) {
         description="Manage client workspaces across your organization. Open a client to post vouchers, review ledgers, and generate reports."
         icon={Building2}
         actions={
-          <Button asChild className="h-11 rounded-lg px-5">
-            <Link href="/clients/new">
-              <UserPlus className="mr-2 h-4 w-4" />
-              Add New Client
-            </Link>
-          </Button>
+          canManageOrganization ? (
+            <Button asChild className="h-11 rounded-lg px-5">
+              <Link href="/clients/new">
+                <UserPlus className="mr-2 h-4 w-4" />
+                Add New Client
+              </Link>
+            </Button>
+          ) : null
         }
       />
 

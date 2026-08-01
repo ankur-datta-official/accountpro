@@ -11,7 +11,8 @@ export default async function DashboardLayout({
   children: React.ReactNode
 }>) {
   const supabase = await createClient()
-  const { organization, membership, user } = await getCurrentOrganizationContext()
+  const { organization, membership, user, canManageOrganization, isPlatformAdmin } =
+    await getCurrentOrganizationContext()
 
   if (!user) {
     redirect("/login")
@@ -36,6 +37,8 @@ export default async function DashboardLayout({
       userName={userName}
       userEmail={userEmail}
       userRole={userRole}
+      canManageOrganization={canManageOrganization}
+      isPlatformAdmin={isPlatformAdmin}
       clients={(clients ?? []).map((client) => ({
         id: client.id,
         name: client.name,

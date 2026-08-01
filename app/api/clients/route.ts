@@ -8,7 +8,9 @@ import {
   createDefaultPaymentModes,
 } from "@/lib/accounting/defaults"
 import { canManageClient, getActiveMembership } from "@/lib/api-auth"
+import { reconcileOrganizationBilling } from "@/lib/billing/service"
 import { supabaseAdmin } from "@/lib/supabase/admin"
+import { getPlanClientLimit } from "@/lib/team"
 import type { ClientInsert } from "@/lib/types"
 
 const createClientSchema = z.object({
@@ -55,6 +57,28 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Only owners and admins can create clients." },
       { status: 403 }
+    )
+  }
+
+  await reconcileOrganizationBilling(membership.org_id)
+
+  const { data: organization } = await supabaseAdmin
+    .from("organizations")
+    .select("*")
+    .eq("id", membership.org_id)
+    .maybeSingle()
+
+  const { count: activeClientCount } = await supabaseAdmin
+    .from("clients")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", membership.org_id)
+    .eq("is_active", true)
+
+  const clientLimit = organization?.max_clients ?? getPlanClientLimit(organization?.plan)
+  if (clientLimit !== null && (activeClientCount ?? 0) >= clientLimit) {
+    return NextResponse.json(
+      { error: `Your ${organization?.plan ?? "starter"} plan allows up to ${clientLimit} active clients.` },
+      { status: 402 }
     )
   }
 

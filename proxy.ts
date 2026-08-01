@@ -15,10 +15,6 @@ const PROTECTED_ROUTE_PREFIXES = ["/clients", "/team", "/settings", "/account"]
 const CONFIGURATION_ERROR_HEADER = "x-accountpro-auth-config-error"
 
 function isProtectedRoute(pathname: string) {
-  if (pathname === "/") {
-    return true
-  }
-
   return PROTECTED_ROUTE_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
   )

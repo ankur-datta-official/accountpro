@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto"
 
+import { reconcileOrganizationBilling } from "@/lib/billing/service"
 import { getPlanClientLimit } from "@/lib/team"
 import type {
   AccountHead,
@@ -167,6 +168,8 @@ export async function replicateClientWorkspace({
   if (!membership?.org_id) {
     throw new Error("No active organization found.")
   }
+
+  await reconcileOrganizationBilling(membership.org_id)
 
   const [{ data: organization, error: organizationError }, { data: sourceClient, error: sourceClientError }] =
     await Promise.all([

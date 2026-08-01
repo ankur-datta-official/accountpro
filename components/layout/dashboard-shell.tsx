@@ -81,9 +81,7 @@ type NavItem = {
 }
 
 const workspaceItems: NavItem[] = [
-  { href: "/", label: "Home", icon: Home, exact: true },
   { href: "/clients", label: "Organizations", icon: Building2, exact: true },
-  { href: "/clients/new", label: "Add Organization", icon: Plus, exact: true },
 ]
 
 const adminItems: NavItem[] = [
@@ -469,12 +467,22 @@ function AppSidebar({
   clients,
   currentClient,
   pathname,
+  canManageOrganization,
+  isPlatformAdmin,
 }: {
   orgName: string
   clients: SidebarClient[]
   currentClient?: SidebarClient | null
   pathname: string
+  canManageOrganization: boolean
+  isPlatformAdmin: boolean
 }) {
+  const workspaceNavItems = [
+    ...(isPlatformAdmin ? [{ href: "/", label: "Admin Panel", icon: Home, exact: true }] : []),
+    ...workspaceItems,
+    ...(canManageOrganization ? [{ href: "/clients/new", label: "Add Organization", icon: Plus, exact: true }] : []),
+  ]
+
   return (
     <Sidebar collapsible="icon" className="border-r border-slate-200 bg-white print:hidden">
       <SidebarHeader className="gap-4 border-b border-slate-200 px-3 py-4">
@@ -493,7 +501,7 @@ function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent className="gap-0 px-2 py-1">
-        <NavSection label="Workspace" items={workspaceItems} pathname={pathname} />
+        <NavSection label="Workspace" items={workspaceNavItems} pathname={pathname} />
 
         {currentClient && (
           <>
@@ -529,19 +537,23 @@ function AppSidebar({
           </>
         )}
 
-        <SidebarSeparator />
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <CollapsibleNavGroup
-                label="Administration"
-                icon={Users}
-                items={adminItems}
-                pathname={pathname}
-              />
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {canManageOrganization ? (
+          <>
+            <SidebarSeparator />
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <CollapsibleNavGroup
+                    label="Administration"
+                    icon={Users}
+                    items={adminItems}
+                    pathname={pathname}
+                  />
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        ) : null}
       </SidebarContent>
 
       <SidebarRail />
@@ -556,6 +568,8 @@ export function DashboardShell({
   userEmail,
   userRole,
   clients,
+  canManageOrganization,
+  isPlatformAdmin,
 }: Readonly<{
   children: React.ReactNode
   orgName: string
@@ -563,6 +577,8 @@ export function DashboardShell({
   userEmail: string
   userRole: OrganizationMemberRole
   clients: SidebarClient[]
+  canManageOrganization: boolean
+  isPlatformAdmin: boolean
 }>) {
   const pathname = usePathname()
   const currentClientId = getCurrentClientId(pathname)
@@ -580,6 +596,8 @@ export function DashboardShell({
         clients={clients}
         currentClient={currentClient}
         pathname={pathname}
+        canManageOrganization={canManageOrganization}
+        isPlatformAdmin={isPlatformAdmin}
       />
       <SidebarInset className="min-h-screen bg-background w-full max-w-full overflow-hidden">
         <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur print:hidden">

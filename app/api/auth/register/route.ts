@@ -6,7 +6,7 @@ import { registerUser } from "@/lib/actions/auth"
 const registerSchema = z
   .object({
     fullName: z.string().min(2),
-    organizationName: z.string().min(2),
+    organizationName: z.string().optional().nullable(),
     email: z.string().email(),
     password: z.string().min(8),
     confirmPassword: z.string().min(8),
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   }
 
   const { fullName, organizationName, email, password } = parsed.data
-  const result = await registerUser(fullName, organizationName, email, password)
+  const result = await registerUser(fullName, organizationName ?? "", email, password)
 
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
@@ -37,5 +37,6 @@ export async function POST(request: Request) {
   return NextResponse.json({
     success: true,
     requiresEmailConfirmation: result.requiresEmailConfirmation,
+    awaitingWorkspaceAccess: result.awaitingWorkspaceAccess,
   })
 }

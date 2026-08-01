@@ -1,5 +1,6 @@
 export type OrganizationPlan = "starter" | "professional" | "enterprise"
 export type OrganizationMemberRole = "owner" | "admin" | "accountant" | "viewer"
+export type BillingProvider = "stripe" | "sslcommerz"
 export type ClientType =
   | "limited_company_commercial"
   | "limited_company_manufacture"
@@ -108,6 +109,198 @@ export interface Database {
           is_active?: boolean | null
           invited_by?: string | null
           created_at?: string | null
+        }
+        Relationships: []
+      }
+      billing_customers: {
+        Row: {
+          id: string
+          org_id: string
+          provider: BillingProvider
+          provider_customer_id: string
+          email: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          provider?: BillingProvider
+          provider_customer_id: string
+          email?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          provider?: BillingProvider
+          provider_customer_id?: string
+          email?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_subscriptions: {
+        Row: {
+          id: string
+          org_id: string
+          provider: BillingProvider
+          provider_customer_id: string | null
+          provider_subscription_id: string
+          provider_price_id: string | null
+          plan: OrganizationPlan
+          status: string
+          currency: string | null
+          amount_minor: number | null
+          interval: string | null
+          cancel_at_period_end: boolean
+          current_period_start: string | null
+          current_period_end: string | null
+          started_at: string | null
+          cancelled_at: string | null
+          metadata: Record<string, unknown>
+          raw_payload: Record<string, unknown>
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          provider?: BillingProvider
+          provider_customer_id?: string | null
+          provider_subscription_id: string
+          provider_price_id?: string | null
+          plan: OrganizationPlan
+          status: string
+          currency?: string | null
+          amount_minor?: number | null
+          interval?: string | null
+          cancel_at_period_end?: boolean
+          current_period_start?: string | null
+          current_period_end?: string | null
+          started_at?: string | null
+          cancelled_at?: string | null
+          metadata?: Record<string, unknown>
+          raw_payload?: Record<string, unknown>
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          provider?: BillingProvider
+          provider_customer_id?: string | null
+          provider_subscription_id?: string
+          provider_price_id?: string | null
+          plan?: OrganizationPlan
+          status?: string
+          currency?: string | null
+          amount_minor?: number | null
+          interval?: string | null
+          cancel_at_period_end?: boolean
+          current_period_start?: string | null
+          current_period_end?: string | null
+          started_at?: string | null
+          cancelled_at?: string | null
+          metadata?: Record<string, unknown>
+          raw_payload?: Record<string, unknown>
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_webhook_events: {
+        Row: {
+          id: string
+          provider: BillingProvider
+          provider_event_id: string
+          event_type: string
+          payload: Record<string, unknown>
+          processed_at: string
+        }
+        Insert: {
+          id?: string
+          provider?: BillingProvider
+          provider_event_id: string
+          event_type: string
+          payload: Record<string, unknown>
+          processed_at?: string
+        }
+        Update: {
+          id?: string
+          provider?: BillingProvider
+          provider_event_id?: string
+          event_type?: string
+          payload?: Record<string, unknown>
+          processed_at?: string
+        }
+        Relationships: []
+      }
+      billing_transactions: {
+        Row: {
+          id: string
+          org_id: string
+          provider: BillingProvider
+          tran_id: string
+          provider_reference_id: string | null
+          plan: OrganizationPlan
+          amount: number
+          currency: string
+          status: string
+          session_key: string | null
+          customer_name: string | null
+          customer_email: string | null
+          customer_phone: string | null
+          paid_at: string | null
+          period_start: string | null
+          period_end: string | null
+          raw_payload: Record<string, unknown>
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          provider?: BillingProvider
+          tran_id: string
+          provider_reference_id?: string | null
+          plan: OrganizationPlan
+          amount: number
+          currency?: string
+          status: string
+          session_key?: string | null
+          customer_name?: string | null
+          customer_email?: string | null
+          customer_phone?: string | null
+          paid_at?: string | null
+          period_start?: string | null
+          period_end?: string | null
+          raw_payload?: Record<string, unknown>
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          provider?: BillingProvider
+          tran_id?: string
+          provider_reference_id?: string | null
+          plan?: OrganizationPlan
+          amount?: number
+          currency?: string
+          status?: string
+          session_key?: string | null
+          customer_name?: string | null
+          customer_email?: string | null
+          customer_phone?: string | null
+          paid_at?: string | null
+          period_start?: string | null
+          period_end?: string | null
+          raw_payload?: Record<string, unknown>
+          created_at?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -417,6 +610,9 @@ export interface Database {
           voucher_id: string | null
           account_head_id: string | null
           payment_mode_id: string | null
+          bank_branch_name: string | null
+          bank_instrument_date: string | null
+          bank_check_challan_no: string | null
           accounts_group: string | null
           debit: number | null
           credit: number | null
@@ -428,6 +624,9 @@ export interface Database {
           voucher_id?: string | null
           account_head_id?: string | null
           payment_mode_id?: string | null
+          bank_branch_name?: string | null
+          bank_instrument_date?: string | null
+          bank_check_challan_no?: string | null
           accounts_group?: string | null
           debit?: number | null
           credit?: number | null
@@ -439,6 +638,9 @@ export interface Database {
           voucher_id?: string | null
           account_head_id?: string | null
           payment_mode_id?: string | null
+          bank_branch_name?: string | null
+          bank_instrument_date?: string | null
+          bank_check_challan_no?: string | null
           accounts_group?: string | null
           debit?: number | null
           credit?: number | null

@@ -44,7 +44,7 @@ const proxyModule = await loadModule({
   replacements: [
     ['import { createServerClient } from "@supabase/ssr"', "const createServerClient = () => ({ auth: { getUser: async () => ({ data: { user: null } }) } })"],
     ['import { NextResponse, type NextRequest } from "next/server"', 'const NextResponse = { next: (input = {}) => ({ type: "next", ...input, cookies: { set() {} } }), redirect: (url) => ({ type: "redirect", url }), json: (body, init) => ({ type: "json", body, ...init }) }'],
-    ['import {\n  evaluateSupabaseEnv,\n  type SupabasePublicEnv,\n} from "@/lib/supabase/env"\n', "const evaluateSupabaseEnv = () => ({ public: null, publicError: null })\n"],
+    [/import\s+\{\s*evaluateSupabaseEnv,\s*type\s+SupabasePublicEnv,\s*\}\s+from\s+"@\/lib\/supabase\/env"\s*/u, "const evaluateSupabaseEnv = () => ({ public: null, publicError: null })\n"],
   ],
 })
 
@@ -52,9 +52,18 @@ const apiAuthModule = await loadModule({
   sourcePath: path.resolve("lib/api-auth.ts"),
   outputName: "api-auth.mjs",
   replacements: [
-    ['import type { Client, OrganizationMember, OrganizationMemberRole } from "./types"\n\n', ""],
-    ['import { extractClientIdFromRouteSegment, isUuid, matchesClientRouteSegment } from "./routing/clients"\n', 'const extractClientIdFromRouteSegment = (value) => value\nconst isUuid = () => true\nconst matchesClientRouteSegment = () => false\n'],
-    ['import { supabaseAdmin } from "./supabase/admin"\n', "const supabaseAdmin = {}\n"],
+    [/import\s+type\s+\{\s*Client,\s*OrganizationMember,\s*OrganizationMemberRole\s*\}\s+from\s+"\.\/types"\s*/u, ""],
+    [/import\s+\{\s*extractClientIdFromRouteSegment,\s*isUuid,\s*matchesClientRouteSegment\s*\}\s+from\s+"\.\/routing\/clients"\s*/u, 'const extractClientIdFromRouteSegment = (value) => value\nconst isUuid = () => true\nconst matchesClientRouteSegment = () => false\n'],
+    [/import\s+\{\s*supabaseAdmin\s*\}\s+from\s+"\.\/supabase\/admin"\s*/u, "const supabaseAdmin = {}\n"],
+  ],
+})
+
+const platformAccessModule = await loadModule({
+  sourcePath: path.resolve("lib/platform-access.ts"),
+  outputName: "platform-access.mjs",
+  replacements: [
+    [/import\s+type\s+\{\s*User\s*\}\s+from\s+"@supabase\/supabase-js"\s*/u, ""],
+    [/import\s+type\s+\{\s*OrganizationMember\s*\}\s+from\s+"@\/lib\/types"\s*/u, ""],
   ],
 })
 
@@ -65,6 +74,11 @@ const {
 } = envModule
 const { getProxyDecision } = proxyModule
 const { getClientAuthorizationState } = apiAuthModule
+const {
+  getPlatformAdminEmails,
+  isPlatformAdminEmail,
+  canManageOrganization,
+} = platformAccessModule
 
 test("public auth route is allowed even when config is missing", () => {
   const decision = getProxyDecision({
@@ -74,6 +88,22 @@ test("public auth route is allowed even when config is missing", () => {
   })
 
   assert.equal(decision.action, "allow")
+})
+
+test("marketing home route is public before sign in", () => {
+  const missingConfigDecision = getProxyDecision({
+    pathname: "/",
+    hasValidPublicAuthConfig: false,
+    isAuthenticated: false,
+  })
+  const unauthenticatedDecision = getProxyDecision({
+    pathname: "/",
+    hasValidPublicAuthConfig: true,
+    isAuthenticated: false,
+  })
+
+  assert.equal(missingConfigDecision.action, "allow")
+  assert.equal(unauthenticatedDecision.action, "allow")
 })
 
 test("protected route with valid config follows normal auth path", () => {
@@ -205,6 +235,42 @@ test("development configuration error is clear and non-secret", () => {
   assert.doesNotMatch(message ?? "", /service-role-secret|sk_/i)
 })
 
+test("platform admin emails are normalized and deduplicated", () => {
+  const emails = getPlatformAdminEmails({
+    DKLEDGER_PLATFORM_ADMIN_EMAILS: " Owner@DKLedger.com,owner@dkledger.com, second@dkledger.com ",
+  })
+
+  assert.deepEqual(emails, ["owner@dkledger.com", "second@dkledger.com"])
+})
+
+test("platform admin email matching is case-insensitive", () => {
+  assert.equal(
+    isPlatformAdminEmail("Owner@DKLedger.com", {
+      DKLEDGER_PLATFORM_ADMIN_EMAILS: "owner@dkledger.com",
+    }),
+    true
+  )
+
+  assert.equal(
+    isPlatformAdminEmail("staff@dkledger.com", {
+      DKLEDGER_PLATFORM_ADMIN_EMAILS: "owner@dkledger.com",
+    }),
+    false
+  )
+})
+
+test("organization management stays limited to owner and admin roles", () => {
+  assert.equal(canManageOrganization({ role: "owner" }), true)
+  assert.equal(canManageOrganization({ role: "admin" }), true)
+  assert.equal(canManageOrganization({ role: "accountant" }), false)
+  assert.equal(canManageOrganization({ role: "viewer" }), false)
+})
+
 after(async () => {
-  await Promise.all([envModule.cleanup(), proxyModule.cleanup(), apiAuthModule.cleanup()])
+  await Promise.all([
+    envModule.cleanup(),
+    proxyModule.cleanup(),
+    apiAuthModule.cleanup(),
+    platformAccessModule.cleanup(),
+  ])
 })

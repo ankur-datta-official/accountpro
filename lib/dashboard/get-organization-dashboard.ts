@@ -1,5 +1,7 @@
-import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from "date-fns"
+import { addDays, addMonths, differenceInCalendarDays, format, formatDistanceToNowStrict, parseISO } from "date-fns"
 
+import { canManageClient, canWriteClientData } from "@/lib/api-auth"
+import { resolveAccountHierarchy } from "@/lib/accounting/chart-hierarchy"
 import { calculateTrialBalance, type TrialBalanceRow } from "@/lib/accounting/trial-balance"
 import { getClientTypeLabel } from "@/lib/accounting/clients"
 import { getCurrentDateInAppTimeZone } from "@/lib/dates/current-date"
@@ -9,27 +11,33 @@ import type {
   DashboardCompareKey,
   DashboardComparison,
   DashboardExpenseCategory,
+  DashboardFinancialSeriesPoint,
   DashboardLinkedValue,
   DashboardMetric,
   DashboardMetricState,
   DashboardMetricTone,
+  DashboardOperationalStat,
   DashboardWarning,
   OrganizationDashboardViewModel,
 } from "@/lib/dashboard/dashboard-types"
 import { buildClientPath } from "@/lib/routing/clients"
-import { createClient } from "@/lib/supabase/server"
+import { createClient, getCurrentOrganizationContext } from "@/lib/supabase/server"
 import type { Database } from "@/lib/types/database"
 
 type Client = Database["public"]["Tables"]["clients"]["Row"]
 type FiscalYear = Database["public"]["Tables"]["fiscal_years"]["Row"]
 type VoucherRow = Pick<
   Database["public"]["Tables"]["vouchers"]["Row"],
-  "id" | "voucher_date" | "voucher_type" | "description"
+  "id" | "voucher_date" | "voucher_no" | "voucher_type" | "description" | "is_reversal" | "created_at"
 >
 type VoucherEntryRow = Pick<
   Database["public"]["Tables"]["voucher_entries"]["Row"],
   "voucher_id" | "account_head_id" | "debit" | "credit"
 >
+type AccountHeadRow = Database["public"]["Tables"]["account_heads"]["Row"]
+type AccountGroupRow = Database["public"]["Tables"]["account_groups"]["Row"]
+type AccountSemiSubGroupRow = Database["public"]["Tables"]["account_semi_sub_groups"]["Row"]
+type AccountSubGroupRow = Database["public"]["Tables"]["account_sub_groups"]["Row"]
 
 const CANONICAL_TAX_HEADS = new Set([
   "Income Tax Payable",
@@ -201,7 +209,7 @@ function metricFromValue({
       state === "configurationRequired"
         ? "Account mapping required"
         : state === "unavailable"
-          ? "--"
+          ? formatDashboardPercent(null, 0)
           : formatter(value),
     periodLabel,
     tooltip,
@@ -254,6 +262,111 @@ function getMonthBuckets(startDate: string, endDate: string) {
 
 function sumByMatch(rows: TrialBalanceRow[], matcher: (row: TrialBalanceRow) => boolean) {
   return rows.filter(matcher).reduce((sum, row) => sum + positiveRowAmount(row), 0)
+}
+
+function formatActivityTitle(voucher: VoucherRow) {
+  if (voucher.is_reversal) {
+    return `Voucher reversed JV-${voucher.voucher_no}`
+  }
+
+  const typeLabel =
+    voucher.voucher_type === "received"
+      ? "Receipt recorded"
+      : voucher.voucher_type === "payment"
+        ? "Payment recorded"
+        : voucher.voucher_type === "contra"
+          ? "Contra voucher created"
+          : "Voucher posted"
+
+  return `${typeLabel} ${voucher.voucher_type.toUpperCase()}-${voucher.voucher_no}`
+}
+
+function buildFinancialSeries({
+  buckets,
+  voucherEntries,
+  voucherDates,
+  accountHeads,
+  accountGroups,
+  accountSemiSubGroups,
+  accountSubGroups,
+}: {
+  buckets: Array<{ label: string; key: string }>
+  voucherEntries: VoucherEntryRow[]
+  voucherDates: Map<string, string>
+  accountHeads: AccountHeadRow[]
+  accountGroups: AccountGroupRow[]
+  accountSemiSubGroups: AccountSemiSubGroupRow[]
+  accountSubGroups: AccountSubGroupRow[]
+}): DashboardFinancialSeriesPoint[] {
+  const amountByBucket = new Map<
+    string,
+    {
+      incomeByHead: Map<string, number>
+      expenseByHead: Map<string, number>
+    }
+  >(
+    buckets.map((bucket) => [
+      bucket.key,
+      {
+        incomeByHead: new Map<string, number>(),
+        expenseByHead: new Map<string, number>(),
+      },
+    ])
+  )
+
+  const accountMetaById = new Map(
+    accountHeads.map((head) => [
+      head.id,
+      resolveAccountHierarchy(head, {
+        accountHeads,
+        groups: accountGroups,
+        semiSubGroups: accountSemiSubGroups,
+        subGroups: accountSubGroups,
+      }),
+    ])
+  )
+
+  for (const entry of voucherEntries) {
+    const voucherDate = voucherDates.get(entry.voucher_id ?? "")
+    const accountHeadId = entry.account_head_id ?? ""
+
+    if (!voucherDate || !accountHeadId) {
+      continue
+    }
+
+    const bucketKey = voucherDate.slice(0, 7)
+    const bucket = amountByBucket.get(bucketKey)
+    const accountMeta = accountMetaById.get(accountHeadId)
+
+    if (!bucket || !accountMeta) {
+      continue
+    }
+
+    const debit = Number(entry.debit ?? 0)
+    const credit = Number(entry.credit ?? 0)
+
+    if (accountMeta.groupType === "income") {
+      bucket.incomeByHead.set(accountHeadId, (bucket.incomeByHead.get(accountHeadId) ?? 0) + (credit - debit))
+    }
+
+    if (accountMeta.groupType === "expense") {
+      bucket.expenseByHead.set(accountHeadId, (bucket.expenseByHead.get(accountHeadId) ?? 0) + (debit - credit))
+    }
+  }
+
+  return buckets.map((bucket) => {
+    const amounts = amountByBucket.get(bucket.key)
+    const income = Array.from(amounts?.incomeByHead.values() ?? []).reduce((sum, value) => sum + Math.max(0, value), 0)
+    const expense = Array.from(amounts?.expenseByHead.values() ?? []).reduce((sum, value) => sum + Math.max(0, value), 0)
+
+    return {
+      key: bucket.key,
+      label: bucket.label,
+      income,
+      expense,
+      profit: income - expense,
+    }
+  })
 }
 
 function resolveComparisonConfig({
@@ -402,6 +515,7 @@ export async function getOrganizationDashboard({
     },
     context,
     financialOverview: [],
+    financialSeries: [],
     financialPosition: [],
     profitAndTax: [],
     expenses: null,
@@ -440,6 +554,7 @@ export async function getOrganizationDashboard({
     },
     recentActivities: [],
     quickActions: [],
+    operationalStats: [],
     isEmpty: false,
   }
 
@@ -474,6 +589,14 @@ export async function getOrganizationDashboard({
           href: context.settingsHref,
         },
       ],
+      operationalStats: [
+        {
+          key: "fiscal-years",
+          label: "Fiscal Years",
+          value: String(fiscalYears.length),
+          helper: "Available periods",
+        },
+      ],
       isEmpty: true,
     }
   }
@@ -500,6 +623,9 @@ export async function getOrganizationDashboard({
   })
 
   const supabase = await createClient()
+  const { membership } = await getCurrentOrganizationContext()
+  const canCreateVoucher = canWriteClientData(membership)
+  const canCreateAccountHead = canManageClient(membership)
   const periodVoucherCountQuery = supabase
     .from("vouchers")
     .select("id", { count: "exact", head: true })
@@ -511,14 +637,54 @@ export async function getOrganizationDashboard({
 
   const recentVouchersQuery = supabase
     .from("vouchers")
-    .select("id,voucher_date,voucher_type,description")
+    .select("id,voucher_date,voucher_no,voucher_type,description,is_reversal,created_at")
     .eq("client_id", client.id)
     .eq("fiscal_year_id", selectedFiscalYear.id)
     .or("is_posted.eq.true,is_posted.is.null")
     .order("voucher_date", { ascending: false })
-    .limit(3)
+    .limit(4)
 
-  const [periodTrialBalance, asOfTrialBalance, previousFiscalYearTrialBalance, periodVoucherCountResult, recentVouchersResult] =
+  const accountHeadCountQuery = supabase
+    .from("account_heads")
+    .select("id", { count: "exact", head: true })
+    .eq("client_id", client.id)
+    .or("is_active.eq.true,is_active.is.null")
+
+  const paymentModeCountQuery = supabase
+    .from("payment_modes")
+    .select("id", { count: "exact", head: true })
+    .eq("client_id", client.id)
+    .or("is_active.eq.true,is_active.is.null")
+
+  const accountGroupCountQuery = supabase
+    .from("account_groups")
+    .select("id", { count: "exact", head: true })
+    .eq("client_id", client.id)
+
+  const activeAccountHeadsQuery = supabase
+    .from("account_heads")
+    .select("*")
+    .eq("client_id", client.id)
+    .or("is_active.eq.true,is_active.is.null")
+
+  const accountGroupsQuery = supabase.from("account_groups").select("*").eq("client_id", client.id)
+  const accountSemiSubGroupsQuery = supabase.from("account_semi_sub_groups").select("*").eq("client_id", client.id)
+  const accountSubGroupsQuery = supabase.from("account_sub_groups").select("*").eq("client_id", client.id)
+
+  const [
+    periodTrialBalance,
+    asOfTrialBalance,
+    previousFiscalYearTrialBalance,
+    periodVoucherCountResult,
+    recentVouchersResult,
+    accountHeadCountResult,
+    paymentModeCountResult,
+    accountGroupCountResult,
+    activeAccountHeadsResult,
+    accountGroupsResult,
+    accountSemiSubGroupsResult,
+    accountSubGroupsResult,
+  ] =
     await Promise.all([
       calculateTrialBalance(
         supabase,
@@ -545,6 +711,13 @@ export async function getOrganizationDashboard({
         : Promise.resolve(null),
       periodVoucherCountQuery,
       recentVouchersQuery,
+      accountHeadCountQuery,
+      paymentModeCountQuery,
+      accountGroupCountQuery,
+      activeAccountHeadsQuery,
+      accountGroupsQuery,
+      accountSemiSubGroupsQuery,
+      accountSubGroupsQuery,
     ])
 
   const comparisonTrialBalance = comparisonConfig.period
@@ -560,6 +733,10 @@ export async function getOrganizationDashboard({
   const currentFlowRows = periodTrialBalance.accounts
   const currentAsOfRows = asOfTrialBalance.accounts
   const comparisonRows = comparisonTrialBalance?.accounts ?? []
+  const activeAccountHeads = (activeAccountHeadsResult.data ?? []) as AccountHeadRow[]
+  const accountGroups = (accountGroupsResult.data ?? []) as AccountGroupRow[]
+  const accountSemiSubGroups = (accountSemiSubGroupsResult.data ?? []) as AccountSemiSubGroupRow[]
+  const accountSubGroups = (accountSubGroupsResult.data ?? []) as AccountSubGroupRow[]
 
   const previousRetainedEarnings = previousFiscalYearTrialBalance
     ? previousFiscalYearTrialBalance.accounts
@@ -1044,72 +1221,164 @@ export async function getOrganizationDashboard({
   ]
 
   const cashAccountIds = cashAndBankRows.map((row) => row.accountHeadId)
-  let cashFlowEntryRows: VoucherEntryRow[] = []
-  let cashFlowVoucherMap = new Map<string, string>()
+  const cashAccountIdSet = new Set(cashAccountIds)
+  const { data: fiscalYearVouchers } = await supabase
+    .from("vouchers")
+    .select("id,voucher_date,voucher_type")
+    .eq("client_id", client.id)
+    .eq("fiscal_year_id", selectedFiscalYear.id)
+    .or("is_posted.eq.true,is_posted.is.null")
+    .gte("voucher_date", selectedFiscalYear.start_date)
+    .lte("voucher_date", periodSelection.endDate)
 
-  if (cashAccountIds.length) {
-    const { data: fiscalYearVouchers } = await supabase
-      .from("vouchers")
-      .select("id,voucher_date")
-      .eq("client_id", client.id)
-      .eq("fiscal_year_id", selectedFiscalYear.id)
-      .or("is_posted.eq.true,is_posted.is.null")
-      .gte("voucher_date", selectedFiscalYear.start_date)
-      .lte("voucher_date", periodSelection.endDate)
+  const voucherIds = (fiscalYearVouchers ?? []).map((voucher) => voucher.id)
+  const voucherDateById = new Map((fiscalYearVouchers ?? []).map((voucher) => [voucher.id, voucher.voucher_date]))
+  const allVoucherEntries = voucherIds.length
+    ? ((
+        await supabase
+          .from("voucher_entries")
+          .select("voucher_id,account_head_id,debit,credit")
+          .in("voucher_id", voucherIds)
+      ).data ?? []) as VoucherEntryRow[]
+    : []
 
-    const voucherIds = (fiscalYearVouchers ?? []).map((voucher) => voucher.id)
-    cashFlowVoucherMap = new Map((fiscalYearVouchers ?? []).map((voucher) => [voucher.id, voucher.voucher_date]))
-
-    if (voucherIds.length) {
-      const { data: entryRows } = await supabase
-        .from("voucher_entries")
-        .select("voucher_id,account_head_id,debit,credit")
-        .in("voucher_id", voucherIds)
-        .in("account_head_id", cashAccountIds)
-
-      cashFlowEntryRows = (entryRows ?? []) as VoucherEntryRow[]
-    }
-  }
+  const financialSeries = buildFinancialSeries({
+    buckets: getMonthBuckets(periodSelection.startDate, periodSelection.endDate),
+    voucherEntries: allVoucherEntries.filter((entry) => {
+      const voucherDate = voucherDateById.get(entry.voucher_id ?? "")
+      return Boolean(voucherDate && voucherDate >= periodSelection.startDate && voucherDate <= periodSelection.endDate)
+    }),
+    voucherDates: voucherDateById,
+    accountHeads: activeAccountHeads,
+    accountGroups,
+    accountSemiSubGroups,
+    accountSubGroups,
+  })
 
   const cashFlowBuckets = getMonthBuckets(selectedFiscalYear.start_date, periodSelection.endDate)
   const cashFlowPointMap = new Map(
     cashFlowBuckets.map((bucket) => [bucket.key, { label: bucket.label, inflow: 0, outflow: 0, net: 0 }])
   )
+  const entriesByVoucherId = new Map<string, VoucherEntryRow[]>()
+
+  for (const entry of allVoucherEntries) {
+    const voucherId = entry.voucher_id ?? ""
+    if (!voucherId) {
+      continue
+    }
+
+    entriesByVoucherId.set(voucherId, [...(entriesByVoucherId.get(voucherId) ?? []), entry])
+  }
 
   let cashInflow = 0
   let cashOutflow = 0
 
-  for (const entry of cashFlowEntryRows) {
-    const voucherDate = cashFlowVoucherMap.get(entry.voucher_id ?? "")
+  for (const [voucherId, entries] of entriesByVoucherId.entries()) {
+    const voucherDate = voucherDateById.get(voucherId)
     if (!voucherDate) {
       continue
     }
 
-    const debit = Number(entry.debit ?? 0)
-    const credit = Number(entry.credit ?? 0)
+    const hasOnlyCashAndBankLegs =
+      entries.length > 0 &&
+      entries.every((entry) => entry.account_head_id && cashAccountIdSet.has(entry.account_head_id))
+
+    if (hasOnlyCashAndBankLegs) {
+      continue
+    }
+
     const monthKey = voucherDate.slice(0, 7)
     const bucket = cashFlowPointMap.get(monthKey)
 
-    if (bucket) {
-      bucket.inflow += debit
-      bucket.outflow += credit
-      bucket.net += debit - credit
-    }
+    for (const entry of entries) {
+      if (!entry.account_head_id || !cashAccountIdSet.has(entry.account_head_id)) {
+        continue
+      }
 
-    if (voucherDate >= periodSelection.startDate && voucherDate <= periodSelection.endDate) {
-      cashInflow += debit
-      cashOutflow += credit
+      const debit = Number(entry.debit ?? 0)
+      const credit = Number(entry.credit ?? 0)
+
+      if (bucket) {
+        bucket.inflow += debit
+        bucket.outflow += credit
+        bucket.net += debit - credit
+      }
+
+      if (voucherDate >= periodSelection.startDate && voucherDate <= periodSelection.endDate) {
+        cashInflow += debit
+        cashOutflow += credit
+      }
     }
   }
 
   const netCashFlow = cashInflow - cashOutflow
+  const trialBalanceDifference = asOfTrialBalance.difference
+  const latestVoucherDate = ((recentVouchersResult.data ?? []) as VoucherRow[])[0]?.voucher_date ?? null
+  const generatedOn = format(parseISO(getCurrentDateInAppTimeZone()), "dd MMM yyyy")
+  const operationalStats: DashboardOperationalStat[] = [
+    {
+      key: "total-vouchers",
+      label: "Total Vouchers",
+      value: String(periodVoucherCountResult.count ?? 0),
+      helper: periodSelection.label,
+    },
+    {
+      key: "total-accounts",
+      label: "Total Accounts",
+      value: String(accountHeadCountResult.count ?? 0),
+      helper: "Active accounts",
+    },
+    {
+      key: "total-customers",
+      label: "Total Customers",
+      value: formatDashboardPercent(null, 0),
+      helper: "Customer module unavailable",
+    },
+    {
+      key: "total-suppliers",
+      label: "Total Suppliers",
+      value: formatDashboardPercent(null, 0),
+      helper: "Supplier module unavailable",
+    },
+    {
+      key: "account-groups",
+      label: "Account Groups",
+      value: String(accountGroupCountResult.count ?? 0),
+      helper: "Chart hierarchy",
+    },
+    {
+      key: "trial-balance-diff",
+      label: "Trial Balance Difference",
+      value: formatDashboardCurrency(trialBalanceDifference),
+      helper: trialBalanceDifference === 0 ? "Balanced" : "Needs review",
+      tone: trialBalanceDifference === 0 ? "positive" : "warning",
+    },
+    {
+      key: "last-updated",
+      label: "Last Updated",
+      value: generatedOn,
+      helper: latestVoucherDate ? `Latest voucher ${latestVoucherDate}` : "Dashboard generated",
+      tone: latestVoucherDate ? "positive" : "neutral",
+    },
+  ]
+
+  const recentActivityAmounts = new Map<string, string>()
+  for (const voucher of ((recentVouchersResult.data ?? []) as VoucherRow[])) {
+    const entries = entriesByVoucherId.get(voucher.id) ?? []
+    const totalDebit = entries.reduce((sum, entry) => sum + Number(entry.debit ?? 0), 0)
+    if (totalDebit > 0) {
+      recentActivityAmounts.set(voucher.id, formatDashboardCurrency(totalDebit))
+    }
+  }
 
   const recentActivities =
     (recentVouchersResult.data ?? []).length > 0
       ? ((recentVouchersResult.data ?? []) as VoucherRow[]).map((voucher) => ({
-          title: voucher.description?.trim() || `Posted ${voucher.voucher_type} voucher`,
+          title: formatActivityTitle(voucher),
+          amount: recentActivityAmounts.get(voucher.id),
+          occurredAt: voucher.voucher_date,
           description: `${voucher.voucher_date} · ${voucher.voucher_type}`,
-          href: `${clientPath}/vouchers`,
+          href: `${clientPath}/vouchers/${voucher.id}`,
           kind: "voucher" as const,
         }))
       : [
@@ -1136,33 +1405,29 @@ export async function getOrganizationDashboard({
   const quickActions = [
     {
       label: "Add New Voucher",
-      description: "Create a new voucher",
-      href: context.primaryActionHref,
+      description: canCreateVoucher ? "Create a new voucher" : "Only owners, admins, and accountants can create vouchers",
+      href: canCreateVoucher ? context.primaryActionHref : undefined,
+      disabled: !canCreateVoucher,
+      disabledReason: canCreateVoucher ? undefined : "You do not have permission to create vouchers.",
     },
     {
       label: "Add Account Head",
-      description: "Create new account",
-      href: `${clientPath}/accounts`,
+      description: canCreateAccountHead ? "Create a new account head" : "Only owners and admins can manage account heads",
+      href: canCreateAccountHead ? `${clientPath}/accounts` : undefined,
+      disabled: !canCreateAccountHead,
+      disabledReason: canCreateAccountHead ? undefined : "You do not have permission to manage the chart of accounts.",
     },
     {
-      label: "Receive Payment",
-      description: "Record payment received",
-      href: `${context.primaryActionHref}${context.primaryActionHref.includes("?") ? "&" : "?"}voucherType=received`,
+      label: "Create Customer",
+      description: "Available when the customer module is added",
+      disabled: true,
+      disabledReason: "A customer module is not available in this workspace yet.",
     },
     {
-      label: "Make Payment",
-      description: "Record payment made",
-      href: `${context.primaryActionHref}${context.primaryActionHref.includes("?") ? "&" : "?"}voucherType=payment`,
-    },
-    {
-      label: "Manage Users",
-      description: "Add or manage users",
-      href: "/team",
-    },
-    {
-      label: "Organization Settings",
-      description: "Update organization info",
-      href: context.settingsHref,
+      label: "Create Supplier",
+      description: "Available when the supplier module is added",
+      disabled: true,
+      disabledReason: "A supplier module is not available in this workspace yet.",
     },
   ]
 
@@ -1175,6 +1440,7 @@ export async function getOrganizationDashboard({
       options: comparisonConfig.options,
     },
     financialOverview,
+    financialSeries,
     financialPosition,
     profitAndTax,
     expenses: {
@@ -1218,6 +1484,7 @@ export async function getOrganizationDashboard({
     },
     recentActivities,
     quickActions,
+    operationalStats,
     isEmpty:
       (periodVoucherCountResult.count ?? 0) === 0 &&
       !hasNonZeroFinancialData(currentFlowRows) &&

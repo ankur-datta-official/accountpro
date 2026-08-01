@@ -56,6 +56,9 @@ const voucherFormSchema = z.object({
         paymentModeId: z.string().optional(),
         paymentModeName: z.string().optional(),
         paymentModeType: z.enum(["bank", "cash", "mobile_banking", "other"]).optional(),
+        bankBranchName: z.string().optional(),
+        bankInstrumentDate: z.string().optional(),
+        bankCheckChallanNo: z.string().optional(),
         debitAmount: z.number().min(0),
         creditAmount: z.number().min(0),
         description: z.string().optional(),
@@ -164,6 +167,9 @@ const defaultLine = (voucherType?: string): VoucherFormValues["lines"][number] =
   paymentModeId: "",
   paymentModeName: "",
   paymentModeType: undefined,
+  bankBranchName: "",
+  bankInstrumentDate: "",
+  bankCheckChallanNo: "",
   debitAmount: 0,
   creditAmount: 0,
   description: "",
@@ -327,6 +333,9 @@ function buildFormValues({
         paymentModeId: line.paymentModeId ?? "",
         paymentModeName: line.paymentModeName ?? "",
         paymentModeType: line.paymentModeType ?? undefined,
+        bankBranchName: line.bankBranchName ?? "",
+        bankInstrumentDate: line.bankInstrumentDate ?? "",
+        bankCheckChallanNo: line.bankCheckChallanNo ?? "",
         debitAmount: Number(line.debitAmount ?? 0),
         creditAmount: Number(line.creditAmount ?? 0),
         description: line.description ?? ""
@@ -909,6 +918,14 @@ export function VoucherEntryForm({
             paymentModeId: showPaymentMode ? line.paymentModeId || undefined : undefined,
             paymentModeName: showPaymentMode ? normalizePaymentModeName(line.paymentModeName ?? "") || undefined : undefined,
             paymentModeType: showPaymentMode ? line.paymentModeType : undefined,
+            bankBranchName:
+              showPaymentMode && line.paymentModeType === "bank" ? line.bankBranchName?.trim() || undefined : undefined,
+            bankInstrumentDate:
+              showPaymentMode && line.paymentModeType === "bank" ? line.bankInstrumentDate || undefined : undefined,
+            bankCheckChallanNo:
+              showPaymentMode && line.paymentModeType === "bank"
+                ? line.bankCheckChallanNo?.trim() || undefined
+                : undefined,
             debitAmount: Number(line.debitAmount || 0),
             creditAmount: Number(line.creditAmount || 0),
             description: line.description || "",
